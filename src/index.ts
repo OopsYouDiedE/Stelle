@@ -1,8 +1,9 @@
-/**
+﻿/**
  * OpenClaw — TypeScript 移植自 reference.py（discord.js + OpenAI SDK）
  * 结构按原文件分段，未做过度拆分。
  */
 import {
+  AttachmentBuilder,
   ChannelType,
   ChatInputCommandInteraction,
   Client,
@@ -29,6 +30,20 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import OpenAI, { APIError } from "openai";
 import YAML from "yaml";
+import type { AgentStatusUpdate } from "./agent/types.js";
+import { buildToolAgentPrompt } from "./agent/prompt.js";
+import { runAgentLoop } from "./agent/runner.js";
+import { stelleMainLoop } from "./core/runtime.js";
+import {
+  DiscordCursorController,
+  handleDiscordSlash,
+} from "./cursors/discord/index.js";
+import {
+  getMinecraftConfigFromEnv,
+  getMinecraftCursor,
+} from "./cursors/minecraft/index.js";
+import { type DiscordRuntimeDeps } from "./cursors/discord/runtime.js";
+import { createToolRegistry } from "./tools/index.js";
 
 dotenv.config();
 
@@ -41,7 +56,7 @@ const DEFAULT_API_KEY =
 
 if (!TOKEN || !DEFAULT_API_KEY) {
   throw new Error(
-    "❌ 缺少环境变量: 请确保 DISCORD_TOKEN 和 OPENAI_API_KEY (或 OPENROUTER_API_KEY) 已配置。"
+    "? 缺少环境变量: 请确保 DISCORD_TOKEN 和 OPENAI_API_KEY (或 OPENROUTER_API_KEY) 已配置。"
   );
 }
 
@@ -70,6 +85,8 @@ const client = new Client({
   ],
   partials: [Partials.Channel, Partials.Message],
 });
+
+const toolRegistry = createToolRegistry();
 
 const ownerIds = new Set<string>();
 
@@ -155,7 +172,7 @@ async function initConfig(): Promise<void> {
   try {
     configCache = (content ? YAML.parse(content) : {}) as YamlRoot;
   } catch (e) {
-    console.error(`❌ [Config] 解析失败:`, e);
+    console.error(`? [Config] 解析失败:`, e);
     configCache = {};
   }
 }
@@ -512,6 +529,103 @@ async function sendChunks(
   return msgs;
 }
 
+function buildStatusLine(update: AgentStatusUpdate): string {
+  switch (update.phase) {
+    case "start":
+      return "Started request processing.";
+    case "round":
+      return `Thinking round ${update.round ?? "?"}.`;
+    case "tool_start":
+      return `Calling tool: ${update.toolName ?? "unknown"}`;
+    case "tool_end":
+      return `Tool finished: ${update.toolName ?? "unknown"}`;
+    case "done":
+      return "Final response generated.";
+    case "error":
+      return update.message ?? "Agent execution failed.";
+    default:
+      return update.message ?? "Processing.";
+  }
+}
+
+async function getDebugSendTarget() {
+  const channel = await client.channels.fetch(DEBUG_LOG_CHANNEL_ID).catch(() => null);
+  if (!channel?.isSendable()) return null;
+  return channel;
+}
+
+function createDebugStatusReporter(source: {
+  requester?: User | null;
+  channel: TextBasedChannel;
+}) {
+  let statusMessage: Message | null = null;
+  const steps: string[] = [];
+
+  return async (update: AgentStatusUpdate): Promise<void> => {
+    try {
+      const debugChannel = await getDebugSendTarget();
+      if (!debugChannel) return;
+
+      const line = buildStatusLine(update);
+      steps.push(`- ${line}`);
+      const recent = steps.slice(-8).join("\n").slice(0, 1000) || "- Waiting";
+      const color =
+        update.phase === "error"
+          ? Colors.Red
+          : update.phase === "done"
+            ? Colors.Green
+            : Colors.Blurple;
+      const title =
+        update.phase === "done"
+          ? "OpenClaw Finished"
+          : update.phase === "error"
+            ? "OpenClaw Error"
+            : "OpenClaw Running";
+
+      const embed = new EmbedBuilder()
+        .setTitle(title)
+        .setColor(color)
+        .addFields(
+          { name: "Phase", value: line.slice(0, 1024) || "\u200b" },
+          { name: "Recent Steps", value: recent || "\u200b" },
+          {
+            name: "Source",
+            value: `channel=${source.channel.id}\nuser=${source.requester?.id ?? "unknown"}`,
+          }
+        )
+        .setTimestamp(new Date());
+
+      if (!statusMessage) {
+        statusMessage = await debugChannel.send({ embeds: [embed] });
+      } else {
+        statusMessage = await statusMessage.edit({ embeds: [embed] });
+      }
+    } catch {
+      // Ignore status-reporting failures so they do not block the main path.
+    }
+  };
+}
+
+function createDebugAttachmentSender(source: {
+  requester?: User | null;
+  channel: TextBasedChannel;
+}) {
+  return async (filePath: string, caption?: string): Promise<string | void> => {
+    const debugChannel = await getDebugSendTarget();
+    if (!debugChannel) return;
+    const attachment = new AttachmentBuilder(filePath);
+    await debugChannel.send({
+      content: [
+        caption ?? "Attachment",
+        `source_channel=${source.channel.id}`,
+        `source_user=${source.requester?.id ?? "unknown"}`,
+      ].join("\n"),
+      files: [attachment],
+    });
+    return `Uploaded file to debug channel ${DEBUG_LOG_CHANNEL_ID}`;
+  };
+}
+
 // ==========================================
 // 4. 用户索引
 // ==========================================
@@ -792,7 +906,7 @@ class MemoryManager {
       }
       return true;
     } catch (e) {
-      await sendLogDetailed(`❌ [Memory Review - ${source}] 异常`, e);
+      await sendLogDetailed(`? [Memory Review - ${source}] 异常`, e);
       return false;
     }
   }
@@ -856,265 +970,8 @@ class MemoryManager {
 }
 
 // ==========================================
-// 7. 核心频道管理
+// 7. 事件与定时清理
 // ==========================================
-class ChannelManager {
-  static instances = new Map<string, ChannelManager>();
-
-  static get(cid: string): ChannelManager {
-    let m = ChannelManager.instances.get(cid);
-    if (!m) {
-      m = new ChannelManager(cid);
-      ChannelManager.instances.set(cid, m);
-    }
-    return m;
-  }
-
-  readonly history: string[] = [];
-  readonly activeUsers = new Map<string, number>();
-  focus: string | null = null;
-  waitCond: Record<string, unknown> | null = null;
-  msgCount = 0;
-  lastMsgTime = Date.now() / 1000;
-  timerTask: ReturnType<typeof setTimeout> | null = null;
-  lastAuthorId = "0";
-  isProcessing = false;
-  shutUpUntil = 0;
-  msgCountSinceReview = 0;
-  reviewCountSinceDistill = 0;
-  private mem: MemoryManager | null = null;
-
-  constructor(readonly channelId: string) {}
-
-  public guildId: string | null = null;
-  public dmUserId: string | null = null;
-
-  get memoryManager(): MemoryManager {
-    if (!this.mem)
-      this.mem = new MemoryManager(
-        this.channelId,
-        this.guildId,
-        this.dmUserId
-      );
-    else {
-      this.mem.guildId = this.guildId;
-      this.mem.dmUserId = this.dmUserId;
-    }
-    return this.mem;
-  }
-
-  get cfg(): ReturnType<typeof getChannelConfig> {
-    return getChannelConfig(this.channelId);
-  }
-
-  trimHistoryByTokens(): void {
-    let total = this.history.reduce(
-      (s, line) => s + estimateTokens(line),
-      0
-    );
-    const maxT = Number(this.cfg.max_input_tokens_total ?? 8000);
-    while (this.history.length && total > maxT) {
-      const first = this.history.shift()!;
-      total -= estimateTokens(first);
-    }
-  }
-
-  async parseMsg(msg: Message): Promise<boolean> {
-    if (!this.guildId && msg.guildId) this.guildId = msg.guildId;
-    if (!msg.guild && !this.dmUserId && !msg.author.bot)
-      this.dmUserId = msg.author.id;
-
-    const content = msg.cleanContent || "";
-    const { spam, reason } = isLikelySpam(
-      content,
-      Number(this.cfg.max_input_chars ?? 6000)
-    );
-    if (spam) {
-      void sendLogEmbed("🛡️ [AntiSpam] 拦截", "", Colors.Blue, [
-        ["用户", msg.author.id, false],
-        ["原因", reason, false],
-      ]);
-      return false;
-    }
-
-    this.activeUsers.set(msg.author.id, Date.now() / 1000);
-    const nick =
-      msg.author.id === getBotId()
-        ? "[OpenClaw]"
-        : await UserIndex.getOrCreateNickname(msg);
-
-    const { lines, authorId, ts } = await formatMessage(
-      msg,
-      nick,
-      this.lastAuthorId,
-      this.lastMsgTime
-    );
-    this.lastAuthorId = authorId;
-    this.lastMsgTime = ts;
-    for (const ln of lines) this.history.push(ln);
-    this.trimHistoryByTokens();
-
-    this.msgCount += 1;
-    this.msgCountSinceReview += 1;
-    return true;
-  }
-
-  extractEmbedAndReply(raw: string): { reply: string; embed: string } {
-    const cleaned = raw.replace(/<thought>.*?(?:<\/thought>|$)/gis, "");
-    const embedMatch = cleaned.match(/<embed>(.*?)(?:<\/embed>|$)/is);
-    const embedContent = embedMatch?.[1]?.trim() ?? "";
-    const reply = cleaned
-      .replace(/<embed>.*?(?:<\/embed>|$)/gis, "")
-      .trim();
-    return { reply, embed: embedContent };
-  }
-
-  async callAi(
-    mode: "judge" | "main",
-    extra: { intent?: Record<string, unknown>; recall_user_id?: unknown } = {}
-  ): Promise<unknown> {
-    const isDm = !this.guildId;
-    const llmCfg = getLlmConfig(this.guildId, this.dmUserId);
-    const now = Date.now() / 1000;
-    const activeUids = [...this.activeUsers.entries()]
-      .filter(([uid, ts]) => now - ts < 600 && uid !== getBotId())
-      .map(([uid]) => uid);
-    const participants =
-      activeUids.map((u) => UserIndex.getName(this.guildId, u)).join(", ") ||
-      "无";
-    const uidMap = UserIndex.buildMappingText(
-      this.guildId,
-      activeUids
-    );
-    const currUtc = new Date().toISOString().replace("T", " ").slice(0, 16) + " UTC";
-    const api = getLocalClient(this.guildId, this.dmUserId);
-    const model = String(llmCfg.model ?? "gpt-4o-mini");
-
-    try {
-      if (mode === "judge") {
-        const sysP =
-          buildJudgePrompt(isDm) + `\n[Time: ${currUtc}]\n[Mapping]\n${uidMap}`;
-        const userMsg =
-          `Active: ${participants}\nFocus: ${this.focus}\nHistory:\n` +
-          this.history.slice(-10).join("\n");
-        const resp = await api.chat.completions.create({
-          model,
-          messages: [
-            { role: "system", content: sysP },
-            { role: "user", content: userMsg },
-          ],
-          response_format: { type: "json_object" },
-          temperature: 0.3,
-          max_tokens: 2048,
-        });
-        let judge = resp.choices[0]?.message?.content ?? "";
-        judge = judge.replace(/<thought>.*?(?:<\/thought>|$)/gis, "");
-        return parseJson(judge);
-      }
-
-      const intent = (extra.intent ?? {}) as Record<string, unknown>;
-      const recallRaw = extra.recall_user_id;
-      const recallUid =
-        recallRaw === null || recallRaw === undefined
-          ? null
-          : String(recallRaw);
-      const memCtx = await this.memoryManager.loadContext(
-        this.guildId,
-        recallUid
-      );
-      const sysP =
-        buildCharacterPrompt(isDm) +
-        `\n[Time: ${currUtc}]\nActive: ${participants}\n[Mapping]\n${uidMap}` +
-        (memCtx ? `\n\nContext:\n${memCtx}` : "");
-      const footer = `\n\nAngle: ${intent.angle}, Stance: ${intent.stance}`;
-      const userMsg =
-        "History:\n" + this.history.slice(-25).join("\n") + footer;
-
-      const resp = await api.chat.completions.create({
-        model,
-        messages: [
-          { role: "system", content: sysP },
-          { role: "user", content: userMsg },
-        ],
-        temperature: 0.7,
-        max_tokens: 4096,
-      });
-      const raw = (resp.choices[0]?.message?.content ?? "").trim();
-      const { reply, embed } = this.extractEmbedAndReply(raw);
-      const fields: [string, string, boolean][] = [
-        ["私聊", String(isDm), true],
-        ["输入", truncateText(userMsg), false],
-      ];
-      if (embed) fields.push(["嵌卡", truncateText(embed), false]);
-      await sendLogEmbed("📝 MAIN 日志", "", Colors.Blue, fields);
-      return [reply, embed] as const;
-    } catch (e) {
-      await sendLogDetailed("❌ API 异常", e);
-      return null;
-    }
-  }
-
-  async executeReply(
-    channel: TextBasedChannel,
-    intent: Record<string, unknown>,
-    recallUserId?: string | null
-  ): Promise<void> {
-    if (intent.stance === "pass" || this.isProcessing) return;
-    if (!channel.isSendable()) return;
-    this.isProcessing = true;
-    this.waitCond = null;
-    try {
-      await channel.sendTyping().catch(() => {});
-      const res = await this.callAi("main", {
-        intent,
-        recall_user_id: recallUserId ?? null,
-      });
-      if (!res) return;
-      const [reply, embedContent] = res as [string, string];
-      let replyText = reply;
-      if (!replyText && embedContent)
-        replyText = "Detailed content in the card below:";
-      const toParse: Message[] = [];
-      if (replyText)
-        toParse.push(...(await sendChunks(channel, replyText, 2000, false)));
-      if (embedContent)
-        toParse.push(
-          ...(await sendChunks(channel, embedContent, 4000, true))
-        );
-      for (const m of toParse) await this.parseMsg(m);
-    } finally {
-      this.isProcessing = false;
-    }
-  }
-
-  maybeTriggerReview(): void {
-    if (
-      this.msgCountSinceReview >=
-      Number(this.cfg.review_msg_threshold ?? 50)
-    ) {
-      this.msgCountSinceReview = 0;
-      this.reviewCountSinceDistill += 1;
-      void this.memoryManager.runReview(
-        [...this.history],
-        this.reviewCountSinceDistill,
-        "AUTO"
-      );
-    }
-  }
-}
-
-// ==========================================
-// 8. 事件与定时清理
-// ==========================================
-const typingStates = new Map<string, Map<string, number>>();
-
-function isSomeoneTyping(cid: string): boolean {
-  const now = Date.now() / 1000;
-  const m = typingStates.get(cid);
-  if (!m) return false;
-  return [...m.values()].some((t) => now - t < 6);
-}
-
 function dateToSnowflake(date: Date): string {
   const DISCORD_EPOCH = 1_420_070_400_000n;
   return String(((BigInt(date.getTime()) - DISCORD_EPOCH) << 22n) | 0n);
@@ -1128,40 +985,69 @@ function loc(locale: string | null | undefined, en: string, zh: string): string 
   return isZh(locale) ? zh : en;
 }
 
-function keywordList(val: unknown): string[] {
-  if (Array.isArray(val)) return val.map(String);
-  if (typeof val === "string") return [val];
-  return [];
-}
+const discordRuntimeDeps: DiscordRuntimeDeps = {
+  getBotId,
+  estimateTokens,
+  isLikelySpam,
+  sendLogEmbed,
+  sendLogDetailed,
+  formatMessage,
+  sendChunks,
+  getLlmConfig,
+  getLocalClient,
+  parseJson,
+  buildJudgePrompt,
+  buildCharacterPrompt,
+  runAgentLoop,
+  buildToolAgentPrompt,
+  toolRegistry,
+  truncateText,
+  getChannelConfig,
+  createMemoryManager: (
+    channelId: string,
+    guildId: string | null,
+    dmUserId: string | null
+  ) => new MemoryManager(channelId, guildId, dmUserId),
+  userIndex: {
+    getName: UserIndex.getName.bind(UserIndex),
+    getOrCreateNickname: UserIndex.getOrCreateNickname.bind(UserIndex),
+    buildMappingText: UserIndex.buildMappingText.bind(UserIndex),
+  },
+  createStatusReporter: createDebugStatusReporter,
+  createAttachmentSender: createDebugAttachmentSender,
+};
 
-async function collectChannelHistory(
-  channel: TextBasedChannel,
-  limit: number,
-  beforeTime?: Date
-): Promise<Message[]> {
-  const out: Message[] = [];
-  if (!("messages" in channel)) return out;
-  let before: string | undefined = beforeTime
-    ? dateToSnowflake(beforeTime)
-    : undefined;
-  while (out.length < limit) {
-    const batch = await channel.messages.fetch({
-      limit: Math.min(100, limit - out.length),
-      before,
-    });
-    if (!batch.size) break;
-    let oldest: Message | null = null;
-    for (const m of batch.values()) {
-      if (!oldest || m.createdTimestamp < oldest.createdTimestamp)
-        oldest = m;
-      out.push(m);
+const discordController = new DiscordCursorController(discordRuntimeDeps);
+const discordCursor = discordController.cursor;
+const discordSlashDeps = {
+  discordController,
+  loc,
+  isAuthorized,
+  forgetUserProfile: async (userId: string): Promise<boolean> => {
+    const userPath = path.join(USER_MEMORY_DIR, `${userId}.md`);
+    if (!existsSync(userPath)) return false;
+    await unlink(userPath);
+    return true;
+  },
+  clearChannelMemory: async (channelId: string): Promise<void> => {
+    const channelPath = path.join(CHANNEL_MEMORY_DIR, `${channelId}.md`);
+    if (existsSync(channelPath)) {
+      await unlink(channelPath);
     }
-    before = oldest?.id;
-    if (batch.size < Math.min(100, limit - out.length)) break;
-  }
-  out.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
-  return out.slice(0, limit);
-}
+  },
+  getChannelConfig,
+  defaultChannelConfig: DEFAULT_CHANNEL_CONFIG,
+  setChannelConfig,
+  setGuildConfig,
+  userIndex: {
+    search: UserIndex.search.bind(UserIndex),
+    getOrCreateNickname: UserIndex.getOrCreateNickname.bind(UserIndex),
+  },
+  getBotId,
+  formatMessage,
+} as const;
+
+stelleMainLoop.registerCursor(discordCursor);
 
 // ==========================================
 // 9. Slash 命令注册与处理
@@ -1354,467 +1240,6 @@ const slashCommands = [
     }),
 ].map((c) => c.toJSON());
 
-async function handleSlash(
-  interaction: ChatInputCommandInteraction
-): Promise<void> {
-  const locale = interaction.locale;
-  const member = interaction.member as GuildMember | null;
-  const user = interaction.user;
-  const channel = interaction.channel;
-  const channelId = interaction.channelId;
-  if (!channel?.isTextBased()) {
-    await interaction.reply({ content: "❌ 无效频道", ephemeral: true });
-    return;
-  }
-
-  try {
-    switch (interaction.commandName) {
-      case "shut_up": {
-        await interaction.deferReply({ ephemeral: false });
-        const mgr = ChannelManager.instances.get(channelId);
-        if (mgr) {
-          mgr.shutUpUntil = Date.now() / 1000 + 300;
-          mgr.waitCond = null;
-          if (mgr.timerTask) clearTimeout(mgr.timerTask);
-          mgr.timerTask = null;
-          await interaction.editReply(
-            loc(
-              locale,
-              "🤐 Received. I will remain absolutely silent for the next 5 minutes.",
-              "🤐 收到。我将在接下来的 5 分钟内保持绝对沉默。"
-            )
-          );
-        } else {
-          await interaction.editReply(
-            loc(
-              locale,
-              "⚠️ The current channel is not actively monitored, no need to mute.",
-              "⚠️ 当前频道并未激活监听，无需静音。"
-            )
-          );
-        }
-        break;
-      }
-      case "forget_me": {
-        await interaction.deferReply({ ephemeral: true });
-        const userPath = path.join(USER_MEMORY_DIR, `${user.id}.md`);
-        if (existsSync(userPath)) {
-          await unlink(userPath);
-          await interaction.editReply(
-            loc(
-              locale,
-              "🗑️ Your global profile has been completely destroyed.",
-              "🗑️ 你的全局个人档案已被彻底销毁。"
-            )
-          );
-        } else {
-          await interaction.editReply(
-            loc(
-              locale,
-              "📝 The AI has not yet established a global profile for you.",
-              "📝 AI 目前还没有建立你的跨服个人档案。"
-            )
-          );
-        }
-        break;
-      }
-      case "clear": {
-        if (!isAuthorized(member, user, channelId)) {
-          await interaction.reply({
-            content: loc(locale, "❌ Permission denied", "❌ 权限不足"),
-            ephemeral: true,
-          });
-          return;
-        }
-        await interaction.deferReply({ ephemeral: true });
-        const channelPath = path.join(CHANNEL_MEMORY_DIR, `${channelId}.md`);
-        if (existsSync(channelPath)) await unlink(channelPath);
-        const mgr = ChannelManager.instances.get(channelId);
-        if (mgr) {
-          mgr.history.length = 0;
-          mgr.msgCount = 0;
-          mgr.msgCountSinceReview = 0;
-        }
-        await interaction.editReply(
-          loc(
-            locale,
-            "🧹 Format complete! Channel memory and context have been cleared.",
-            "🧹 格式化完毕！当前频道的记忆和上下文已全部清空。"
-          )
-        );
-        break;
-      }
-      case "memorize": {
-        if (!isAuthorized(member, user, channelId)) {
-          await interaction.reply({
-            content: loc(locale, "❌ Permission denied", "❌ 权限不足"),
-            ephemeral: true,
-          });
-          return;
-        }
-        await interaction.deferReply({ ephemeral: false });
-        const mgr = ChannelManager.instances.get(channelId);
-        if (!mgr || !mgr.history.length) {
-          await interaction.editReply(
-            loc(
-              locale,
-              "⚠️ Channel not activated or no chat history.",
-              "⚠️ 频道未激活或暂无对话记录。"
-            )
-          );
-          return;
-        }
-        mgr.reviewCountSinceDistill += 1;
-        const ok = await mgr.memoryManager.runReview(
-          [...mgr.history],
-          mgr.reviewCountSinceDistill,
-          "MANUAL"
-        );
-        if (ok) {
-          mgr.msgCountSinceReview = 0;
-          await interaction.editReply(
-            loc(locale, "✅ **Memory successfully packed!**", "✅ **记忆已打包！**")
-          );
-        } else {
-          await interaction.editReply(
-            loc(
-              locale,
-              "❌ Memory packing failed, check background logs.",
-              "❌ 记忆打包失败，请查看后台日志。"
-            )
-          );
-        }
-        break;
-      }
-      case "distill": {
-        if (!isAuthorized(member, user, channelId)) {
-          await interaction.reply({
-            content: loc(locale, "❌ Permission denied", "❌ 权限不足"),
-            ephemeral: true,
-          });
-          return;
-        }
-        await interaction.deferReply({ ephemeral: false });
-        const mgr = ChannelManager.instances.get(channelId);
-        if (!mgr) {
-          await interaction.editReply(
-            loc(locale, "⚠️ Channel not activated.", "⚠️ 频道未激活。")
-          );
-          return;
-        }
-        const eventText = (await mgr.memoryManager.getHistoryEventsText()).trim();
-        if (!eventText) {
-          await interaction.editReply(
-            loc(
-              locale,
-              "⚠️ Channel historical events are empty.",
-              "⚠️ 频道历史事件为空。"
-            )
-          );
-          return;
-        }
-        await interaction.editReply(
-          loc(
-            locale,
-            "⏳ **Engine started:** Scanning all historical events in background...",
-            "⏳ **引擎启动：** 正在后台扫描所有历史事件..."
-          )
-        );
-        void mgr.memoryManager.runDistill(eventText);
-        break;
-      }
-      case "activate": {
-        if (!isAuthorized(member, user, channelId)) {
-          await interaction.reply({
-            content: loc(locale, "❌ Permission denied", "❌ 权限不足"),
-            ephemeral: true,
-          });
-          return;
-        }
-        await interaction.deferReply({ ephemeral: true });
-        ChannelManager.get(channelId);
-        await setChannelConfig(channelId, { activated: true });
-        await interaction.editReply(
-          loc(
-            locale,
-            "🚀 OpenClaw activated in this channel.",
-            "🚀 OpenClaw 已在此频道激活。"
-          )
-        );
-        break;
-      }
-      case "deactivate": {
-        if (!isAuthorized(member, user, channelId)) {
-          await interaction.reply({
-            content: loc(locale, "❌ Permission denied", "❌ 权限不足"),
-            ephemeral: true,
-          });
-          return;
-        }
-        await interaction.deferReply({ ephemeral: true });
-        ChannelManager.instances.delete(channelId);
-        await setChannelConfig(channelId, { activated: false });
-        await interaction.editReply(
-          loc(
-            locale,
-            "🛑 OpenClaw has stopped listening.",
-            "🛑 OpenClaw 已停止监听。"
-          )
-        );
-        break;
-      }
-      case "config": {
-        if (!isAuthorized(member, user, channelId)) {
-          await interaction.reply({
-            content: loc(locale, "❌ Permission denied", "❌ 权限不足"),
-            ephemeral: true,
-          });
-          return;
-        }
-        await interaction.deferReply({ ephemeral: true });
-        const key = interaction.options.getString("key");
-        const value = interaction.options.getString("value");
-        const cfg = getChannelConfig(channelId);
-        if (!key) {
-          const head = loc(locale, "**Channel Config:**\n", "**频道配置：**\n");
-          const body = Object.entries(cfg)
-            .filter(([k]) => k !== "authorized_users")
-            .map(([k, v]) => `\`${k}\` = \`${String(v)}\``)
-            .join("\n");
-          await interaction.editReply({ content: head + body });
-          return;
-        }
-        if (!(key in DEFAULT_CHANNEL_CONFIG)) {
-          await interaction.editReply(
-            loc(
-              locale,
-              `❌ Unknown config key: \`${key}\``,
-              `❌ 未知的频道配置: \`${key}\``
-            )
-          );
-          return;
-        }
-        if (!value) {
-          await interaction.editReply({
-            content: `\`${key}\` = \`${String(cfg[key as keyof typeof cfg])}\``,
-          });
-          return;
-        }
-        const orig =
-          DEFAULT_CHANNEL_CONFIG[key as keyof typeof DEFAULT_CHANNEL_CONFIG];
-        let typed: unknown;
-        try {
-          if (typeof orig === "boolean") {
-            typed = ["true", "1", "yes"].includes(value.toLowerCase());
-          } else if (typeof orig === "number") {
-            typed = Number(value);
-            if (Number.isNaN(typed)) throw new Error("nan");
-          } else {
-            typed = value;
-          }
-        } catch {
-          await interaction.editReply(
-            loc(locale, "❌ Type error", "❌ 类型错误")
-          );
-          return;
-        }
-        await setChannelConfig(channelId, { [key]: typed });
-        await interaction.editReply(
-          loc(
-            locale,
-            `✅ Updated channel config \`${key}\` = \`${String(typed)}\``,
-            `✅ 更新频道 \`${key}\` = \`${String(typed)}\``
-          )
-        );
-        break;
-      }
-      case "set_api": {
-        if (!interaction.guild) {
-          await interaction.reply({
-            content: loc(
-              locale,
-              "❌ This command is only available in servers. DMs automatically use your server's config.",
-              "❌ 此命令仅限服务器内使用，私聊将自动读取您所在服务器的配置。"
-            ),
-            ephemeral: true,
-          });
-          return;
-        }
-        if (!isAuthorized(member, user, channelId)) {
-          await interaction.reply({
-            content: loc(locale, "❌ Permission denied", "❌ 权限不足"),
-            ephemeral: true,
-          });
-          return;
-        }
-        await interaction.deferReply({ ephemeral: true });
-        const model = interaction.options.getString("model", true);
-        const apiKey = interaction.options.getString("api_key");
-        const baseUrl = interaction.options.getString("base_url");
-        const updates: Record<string, unknown> = { model };
-        if (apiKey) updates.api_key = apiKey;
-        if (baseUrl) updates.base_url = baseUrl;
-        await setGuildConfig(interaction.guild.id, updates);
-        const mask =
-          apiKey && apiKey.length > 4
-            ? `sk-***${apiKey.slice(-4)}`
-            : apiKey
-              ? "***"
-              : loc(locale, "Unchanged", "未修改");
-        await interaction.editReply(
-          loc(
-            locale,
-            `✅ **Server Config Updated!**\n🤖 Model: \`${model}\`\n🔑 Key: \`${mask}\`\n🔗 URL: \`${baseUrl ?? "Default/Unchanged"}\``,
-            `✅ **服务器级配置成功！**\n🤖 模型: \`${model}\`\n🔑 Key: \`${mask}\`\n🔗 接口: \`${baseUrl ?? "使用默认/未修改"}\``
-          )
-        );
-        break;
-      }
-      case "whois": {
-        if (!isAuthorized(member, user, channelId)) {
-          await interaction.reply({
-            content: loc(locale, "❌ Permission denied", "❌ 权限不足"),
-            ephemeral: true,
-          });
-          return;
-        }
-        await interaction.deferReply({ ephemeral: true });
-        const keyword = interaction.options.getString("keyword", true);
-        const results = UserIndex.search(keyword);
-        let msg: string;
-        if (results.length) {
-          msg =
-            loc(locale, "🔍 Search Results:\n", "🔍 查询结果：\n") +
-            results
-              .slice(0, 20)
-              .map(([u, n]) => `\`${u}\` → **${n}**`)
-              .join("\n");
-        } else {
-          msg = loc(locale, "❌ Not found.", "❌ 未找到。");
-        }
-        await interaction.editReply({ content: msg });
-        break;
-      }
-      case "retrieve_history": {
-        if (!isAuthorized(member, user, channelId)) {
-          await interaction.reply({
-            content: loc(locale, "❌ Permission denied", "❌ 权限不足"),
-            ephemeral: true,
-          });
-          return;
-        }
-        await interaction.deferReply();
-        const limit = interaction.options.getInteger("limit", true);
-        const startStr = interaction.options.getString("start_time");
-        let beforeTime: Date | undefined;
-        if (startStr) {
-          const m = startStr.match(
-            /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})$/
-          );
-          if (!m) {
-            await interaction.editReply(
-              loc(
-                locale,
-                "❌ Format: 2023-12-01 15:30",
-                "❌ 格式: 2023-12-01 15:30"
-              )
-            );
-            return;
-          }
-          const [, y, mo, d, h, mi] = m;
-          beforeTime = new Date(`${y}-${mo}-${d}T${h}:${mi}:00+08:00`);
-        }
-        const mgr = ChannelManager.get(channelId);
-        if (!channel.isTextBased()) {
-          await interaction.editReply(
-            loc(locale, "❌ No read permission.", "❌ 无读取权限。")
-          );
-          return;
-        }
-        let msgs: Message[];
-        try {
-          msgs = await collectChannelHistory(channel, limit, beforeTime);
-        } catch {
-          await interaction.editReply(
-            loc(locale, "❌ No read permission.", "❌ 无读取权限。")
-          );
-          return;
-        }
-        msgs = msgs.filter((m) => !m.author.bot || m.author.id === getBotId());
-        if (!msgs.length) {
-          await interaction.editReply(
-            loc(locale, "❌ No messages retrieved.", "❌ 未抓取到任何消息。")
-          );
-          return;
-        }
-        const batches = Math.ceil(msgs.length / 100);
-        await interaction.editReply(
-          loc(
-            locale,
-            `⏳ Retrieved ${msgs.length} msgs, extracting in ${batches} batches...`,
-            `⏳ 已抓取 ${msgs.length} 条，分 ${batches} 批提取...`
-          )
-        );
-        let success = 0;
-        for (let i = 0; i < msgs.length; i += 100) {
-          const slice = msgs.slice(i, i + 100);
-          const fmt: string[] = [];
-          let lastId = "0";
-          let lastTs = 0;
-          for (const m of slice) {
-            const nick =
-              m.author.id === getBotId()
-                ? "[OpenClaw]"
-                : await UserIndex.getOrCreateNickname(m);
-            const { lines, authorId, ts } = await formatMessage(
-              m,
-              nick,
-              lastId,
-              lastTs
-            );
-            lastId = authorId;
-            lastTs = ts;
-            fmt.push(...lines);
-          }
-          const ok = await mgr.memoryManager.runReview(
-            fmt,
-            0,
-            `RETRIEVE-B${i / 100 + 1}`
-          );
-          if (ok) success += 1;
-          await new Promise((r) => setTimeout(r, 2000));
-        }
-        await interaction.editReply(
-          success
-            ? loc(
-                locale,
-                `✅ Trace complete! Success ${success}/${batches} batches.`,
-                `✅ 追溯完毕！成功 ${success}/${batches} 批。`
-              )
-            : loc(
-                locale,
-                "❌ Extraction entirely failed.",
-                "❌ 提取全部失败。"
-              )
-        );
-        break;
-      }
-      default:
-        break;
-    }
-  } catch (e) {
-    const err = e instanceof Error ? e.message : String(e);
-    const msg = loc(
-      interaction.locale,
-      `❌ Internal Error: \`${err}\``,
-      `❌ 内部错误: \`${err}\``
-    );
-    if (interaction.deferred || interaction.replied)
-      await interaction.editReply({ content: msg }).catch(() => {});
-    else await interaction.reply({ content: msg, ephemeral: true }).catch(() => {});
-  }
-}
-
 // ==========================================
 // 10. 事件与入口
 // ==========================================
@@ -1824,11 +1249,18 @@ client.once(Events.ClientReady, async (c) => {
   await initConfig();
   await UserIndex.init();
 
-  const chans = configCache.channels ?? {};
-  for (const strCid of Object.keys(chans)) {
-    const conf = chans[strCid];
-    if (conf?.activated) ChannelManager.get(strCid);
+  stelleMainLoop.setIdleStrategy(async () => []);
+  const minecraftConfig = getMinecraftConfigFromEnv();
+  if (minecraftConfig) {
+    const minecraftCursor = getMinecraftCursor();
+    await minecraftCursor.connect(minecraftConfig).catch((error) => {
+      void sendLogDetailed("Minecraft cursor connect failed", error);
+    });
   }
+
+  discordController.bootstrapActivatedChannels(
+    Object.keys(configCache.channels ?? {})
+  );
 
   const app = await c.application?.fetch();
   if (app?.owner) {
@@ -1845,159 +1277,43 @@ client.once(Events.ClientReady, async (c) => {
     body: slashCommands,
   });
 
-  console.log(`✅ OpenClaw 已登录 (ID: ${getBotId()})`);
+  console.log(`? OpenClaw 已登录 (ID: ${getBotId()})`);
 
   setInterval(() => {
-    const now = Date.now() / 1000;
-    for (const [cid, m] of typingStates) {
-      for (const [uid, t] of m) {
-        if (now - t >= 30) m.delete(uid);
-      }
-      if (!m.size) typingStates.delete(cid);
-    }
+    void stelleMainLoop.runAttentionCycle().catch((error) => {
+      void sendLogDetailed("MainLoop attention cycle failed", error);
+    });
+  }, 15_000);
+
+  setInterval(() => {
+    discordController.cleanupTypingStates();
   }, 60_000);
 });
 
-client.on(Events.TypingStart, (t) => {
-  if (t.user?.bot) return;
-  const uid = t.user?.id;
-  const ch = t.channel;
-  if (!uid || !ch) return;
-  const inner = typingStates.get(ch.id) ?? new Map<string, number>();
-  inner.set(uid, Date.now() / 1000);
-  typingStates.set(ch.id, inner);
+client.on(Events.TypingStart, async (t) => {
+  await stelleMainLoop.activateCursor(discordCursor.id, {
+    type: "typing_start",
+    reason: "Discord typing event",
+    payload: { typing: t },
+    timestamp: Date.now(),
+  });
+  await stelleMainLoop.tickCursor(discordCursor.id);
 });
 
 client.on(Events.MessageCreate, async (msg) => {
-  if (msg.author.bot) return;
-  const cid = msg.channel.id;
-  const isDm = msg.channel.type === ChannelType.DM;
-  const isMentioned = client.user ? msg.mentions.has(client.user.id) : false;
-
-  const cfg = getChannelConfig(cid);
-  const isActive = cfg.activated === true;
-
-  if (!isActive && !isDm && !isMentioned) return;
-
-  const mgr = isActive
-    ? ChannelManager.get(cid)
-    : new ChannelManager(cid);
-  if (!(await mgr.parseMsg(msg))) return;
-  if (isActive) mgr.maybeTriggerReview();
-  if (mgr.isProcessing) return;
-
-  const now = Date.now() / 1000;
-  if (now < mgr.shutUpUntil) return;
-
-  if (isMentioned || isDm) {
-    await mgr.executeReply(msg.channel as TextBasedChannel, {
-      stance: "react",
-      angle: "直接回应",
-    });
-    return;
-  }
-
-  if (!isActive) return;
-
-  if (mgr.timerTask) {
-    clearTimeout(mgr.timerTask);
-    mgr.timerTask = null;
-  }
-
-  if (!mgr.waitCond) {
-    const jdg = (await mgr.callAi("judge")) as Record<string, unknown> | null;
-    if (jdg) {
-      const focus = jdg.focus as Record<string, unknown> | undefined;
-      mgr.focus = (focus?.topic as string) ?? "无";
-      const trig = (jdg.trigger as Record<string, unknown>) ?? {};
-      mgr.waitCond = {
-        ...trig,
-        intent: (jdg.intent as Record<string, unknown>) ?? {
-          stance: "pass",
-        },
-        recall_user_id: jdg.recall_user_id,
-        expiry: now + Number(trig.expires_after ?? 120),
-      };
-      mgr.msgCount = 0;
-    }
-  }
-
-  if (mgr.waitCond) {
-    const cnd = mgr.waitCond;
-    if (now > Number(cnd.expiry ?? 0)) {
-      mgr.waitCond = null;
-    } else {
-      const typ = String(cnd.condition_type ?? "");
-      const uid =
-        cnd.recall_user_id === null || cnd.recall_user_id === undefined
-          ? null
-          : String(cnd.recall_user_id);
-      const intent = cnd.intent as Record<string, unknown>;
-      const noTyping = !isSomeoneTyping(cid);
-
-      if (cnd.fire_now === true && noTyping) {
-        await mgr.executeReply(
-          msg.channel as TextBasedChannel,
-          intent,
-          uid
-        );
-      } else if (typ === "silence" && noTyping) {
-        const sec = Number(cnd.condition_value ?? 15);
-        mgr.timerTask = setTimeout(() => {
-          mgr.timerTask = null;
-          void (async () => {
-            const t = Date.now() / 1000;
-            if (
-              !mgr.isProcessing &&
-              t >= mgr.shutUpUntil &&
-              msg.channel.isTextBased()
-            ) {
-              await mgr.executeReply(
-                msg.channel as TextBasedChannel,
-                intent,
-                uid
-              );
-            }
-          })();
-        }, sec * 1000);
-      } else if (
-        typ === "gap" &&
-        mgr.msgCount >= Number(cnd.condition_value ?? 5)
-      ) {
-        await mgr.executeReply(
-          msg.channel as TextBasedChannel,
-          intent,
-          uid
-        );
-      } else if (typ === "keyword") {
-        const kws = keywordList(cnd.condition_value);
-        if (kws.some((k) => msg.content.includes(k))) {
-          await mgr.executeReply(
-            msg.channel as TextBasedChannel,
-            intent,
-            uid
-          );
-        }
-      }
-    }
-  }
+  await stelleMainLoop.activateCursor(discordCursor.id, {
+    type: "message_create",
+    reason: "Discord message event",
+    payload: { message: msg },
+    timestamp: Date.now(),
+  });
+  await stelleMainLoop.tickCursor(discordCursor.id);
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
-  try {
-    await handleSlash(interaction);
-  } catch (e) {
-    const err = e instanceof Error ? e.message : String(e);
-    const msg = loc(
-      interaction.locale,
-      `❌ Internal Error: \`${err}\``,
-      `❌ 内部错误: \`${err}\``
-    );
-    if (interaction.deferred || interaction.replied)
-      await interaction.editReply({ content: msg }).catch(() => {});
-    else await interaction.reply({ content: msg, ephemeral: true }).catch(() => {});
-  }
+  await handleDiscordSlash(interaction, discordSlashDeps);
 });
 
 await client.login(TOKEN);
+
