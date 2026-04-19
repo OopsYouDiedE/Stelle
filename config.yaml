@@ -1,0 +1,10 @@
+channels:
+  '1235845356697288747':
+    activated: true
+  '1494546366808985710':
+    activated: true
+guilds:
+  '1235845356194103377':
+    api_key: AIzaSyB2dcJxN5wybik4Hih4DS5ENi00uYW5dig
+    base_url: https://generativelanguage.googleapis.com/v1beta/openai/
+    model: gemma-4-31b-it
