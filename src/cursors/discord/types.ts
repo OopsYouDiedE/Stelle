@@ -42,3 +42,10 @@ export interface DiscordSnapshot {
   knownChannelCount: number;
   channels: DiscordChannelSnapshot[];
 }
+
+export interface DiscordJudgeDecision {
+  focus: string | null;
+  intent: Record<string, unknown>;
+  trigger: Record<string, unknown>;
+  recallUserId: string | null;
+}

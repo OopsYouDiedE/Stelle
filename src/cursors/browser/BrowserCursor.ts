@@ -25,6 +25,7 @@ import type {
   BrowserWaitState,
 } from "./types.js";
 import type { BrowserRuntime } from "./runtime.js";
+import { judgeBrowserRun } from "./judge.js";
 
 export interface BrowserCursorOptions {
   id?: string;
@@ -250,10 +251,49 @@ export class PlaywrightBrowserCursor implements BrowserCursor {
 
     const reports: BrowserReport[] = [];
     const startedAt = now();
+    const judge = judgeBrowserRun({
+      request: input,
+      context: {
+        currentUrl: this.context.currentUrl,
+        currentTitle: this.context.currentTitle,
+        waitState: this.context.waitState,
+        lastObservation: this.context.lastObservation,
+        lastAction: this.context.lastAction,
+      },
+    });
+    const judgeReport: BrowserReport = {
+      cursorId: this.id,
+      type: "status",
+      summary: `Browser judge: ${judge.reason}`,
+      payload: {
+        executable: judge.executable,
+        actionType: judge.actionPlan.type,
+      },
+      timestamp: startedAt,
+    };
+    reports.push(judgeReport);
+    this.pushReport(judgeReport);
+
+    if (!judge.executable) {
+      this.status = "idle";
+      this.context.activeTask = null;
+      return {
+        requestId: input.id,
+        ok: false,
+        actionExecuted: false,
+        waitApplied: false,
+        waitCompleted: false,
+        expectationChecked: false,
+        summary: `Browser judge rejected request: ${judge.reason}`,
+        judge,
+        reports,
+      };
+    }
+
     this.pushEvent({
       type: "action_started",
-      actionType: input.action.type,
-      summary: summarizeAction(input.action),
+      actionType: judge.actionPlan.type,
+      summary: summarizeAction(judge.actionPlan),
       timestamp: startedAt,
     });
 
@@ -265,24 +305,35 @@ export class PlaywrightBrowserCursor implements BrowserCursor {
     let actionResult: BrowserActionResult | undefined;
     let observation: BrowserObservation | BrowserInteractiveObservation | undefined;
     let screenshot: BrowserScreenshotResult | undefined;
+    const previousObservation = this.context.lastObservation;
 
     try {
-      const execution = await this.executeAction(input.action);
+      if (judge.preObservation === "interactive") {
+        await this.observeInteractive();
+      } else if (judge.preObservation === "page") {
+        await this.observePage();
+      }
+
+      const execution = await this.executeAction(judge.actionPlan);
       actionExecuted = true;
       actionResult = execution.actionResult;
       observation = execution.observation;
       screenshot = execution.screenshot;
 
-      if (input.wait && input.wait.type !== "none") {
+      if (judge.waitPlan && judge.waitPlan.type !== "none") {
         waitApplied = true;
-        this.context.waitState = this.createWaitState(input.id, input.wait, input.expect);
+        this.context.waitState = this.createWaitState(
+          input.id,
+          judge.waitPlan,
+          judge.expectationPlan
+        );
         this.status = "waiting";
         this.pushEvent({
           type: "wait_started",
-          summary: `Waiting with policy ${input.wait.type}`,
+          summary: `Waiting with policy ${judge.waitPlan.type}`,
           timestamp: now(),
         });
-        const waitOutcome = await this.waitByPolicy(input.wait);
+        const waitOutcome = await this.waitByPolicy(judge.waitPlan);
         waitCompleted = waitOutcome.completed;
         this.context.waitState = null;
         this.status = "active";
@@ -298,24 +349,24 @@ export class PlaywrightBrowserCursor implements BrowserCursor {
       const postObservation = await this.observePage();
       observation = postObservation;
 
-      if (input.expect) {
+      if (judge.expectationPlan) {
         expectationChecked = true;
         expectationMet = await this.checkExpectation(
-          input.expect,
+          judge.expectationPlan,
           postObservation,
-          this.context.lastObservation
+          previousObservation
         );
         this.pushEvent({
           type: expectationMet ? "expectation_met" : "expectation_missed",
           summary: expectationMet
-            ? `Expectation met: ${input.expect.summary}`
-            : `Expectation missed: ${input.expect.summary}`,
+            ? `Expectation met: ${judge.expectationPlan.summary}`
+            : `Expectation missed: ${judge.expectationPlan.summary}`,
           timestamp: now(),
         });
       }
 
       const summary = this.buildRunSummary({
-        action: input.action,
+        action: judge.actionPlan,
         actionResult,
         waitApplied,
         waitCompleted,
@@ -329,7 +380,7 @@ export class PlaywrightBrowserCursor implements BrowserCursor {
         summary,
         payload: {
           requestId: input.id,
-          action: input.action.type,
+          action: judge.actionPlan.type,
           url: this.context.currentUrl,
           title: this.context.currentTitle,
           expectationMet,
@@ -340,7 +391,7 @@ export class PlaywrightBrowserCursor implements BrowserCursor {
       this.pushReport(report);
       this.pushEvent({
         type: "action_finished",
-        actionType: input.action.type,
+        actionType: judge.actionPlan.type,
         summary,
         timestamp: report.timestamp,
       });
@@ -354,6 +405,7 @@ export class PlaywrightBrowserCursor implements BrowserCursor {
         expectationChecked,
         expectationMet,
         summary,
+        judge,
         actionResult,
         observation,
         screenshot,
@@ -368,7 +420,7 @@ export class PlaywrightBrowserCursor implements BrowserCursor {
         summary,
         payload: {
           requestId: input.id,
-          action: input.action.type,
+          action: judge.actionPlan.type,
         },
         timestamp: now(),
       };
@@ -388,6 +440,7 @@ export class PlaywrightBrowserCursor implements BrowserCursor {
         expectationChecked,
         expectationMet,
         summary,
+        judge,
         actionResult,
         observation,
         screenshot,

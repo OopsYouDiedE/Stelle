@@ -11,6 +11,7 @@ import type {
   MinecraftSnapshot,
 } from "./types.js";
 import type { MinecraftRuntime } from "./runtime.js";
+import { judgeMinecraftRun } from "./judge.js";
 
 export interface MinecraftCursorOptions {
   id?: string;
@@ -137,14 +138,41 @@ export class MineflayerMinecraftCursor implements MinecraftCursor {
     this.status = this.bot ? "active" : this.status;
     const reports: CursorReport[] = [];
     let actionResult: MinecraftActionResult | undefined;
+    const judge = judgeMinecraftRun({
+      request,
+      context: {
+        connection: this.context.connection,
+        activeRequest: this.context.activeRequest,
+        lastObservation: this.context.lastObservation ?? this.observe(),
+      },
+    });
+
+    reports.push(
+      this.makeReport("status", `Minecraft judge: ${judge.reason}`, {
+        executable: judge.executable,
+        actionType: judge.actionPlan.type,
+      })
+    );
+
+    if (!judge.executable) {
+      this.context.activeRequest = null;
+      return {
+        requestId: request.id,
+        ok: false,
+        summary: `Minecraft judge rejected request: ${judge.reason}`,
+        judge,
+        observation: this.observe(),
+        reports,
+      };
+    }
 
     try {
-      actionResult = await this.executeAction(request.action);
+      actionResult = await this.executeAction(judge.actionPlan);
       const observation = this.observe();
       this.context.lastObservation = observation;
       reports.push(
         this.makeReport("task_result", actionResult.summary, {
-          actionType: request.action.type,
+          actionType: judge.actionPlan.type,
           observation,
         })
       );
@@ -152,6 +180,7 @@ export class MineflayerMinecraftCursor implements MinecraftCursor {
         requestId: request.id,
         ok: actionResult.ok,
         summary: actionResult.summary,
+        judge,
         actionResult,
         observation,
         reports,
@@ -164,6 +193,7 @@ export class MineflayerMinecraftCursor implements MinecraftCursor {
         requestId: request.id,
         ok: false,
         summary: report.summary,
+        judge,
         observation: this.observe(),
         reports,
       };

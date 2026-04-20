@@ -146,6 +146,23 @@ export interface BrowserRunRequest {
   createdAt: number;
 }
 
+export interface BrowserJudgeInput {
+  request: BrowserRunRequest;
+  context: Pick<
+    BrowserContext,
+    "currentUrl" | "currentTitle" | "waitState" | "lastObservation" | "lastAction"
+  >;
+}
+
+export interface BrowserJudgeResult {
+  executable: boolean;
+  reason: string;
+  actionPlan: BrowserAction;
+  waitPlan?: BrowserWaitPolicy;
+  expectationPlan?: BrowserExpectation;
+  preObservation?: "page" | "interactive";
+}
+
 export interface BrowserWaitState {
   requestId: string;
   policy: BrowserWaitPolicy;
@@ -188,6 +205,7 @@ export interface BrowserRunResult {
   expectationChecked: boolean;
   expectationMet?: boolean;
   summary: string;
+  judge: BrowserJudgeResult;
   actionResult?: BrowserActionResult;
   observation?: BrowserObservation | BrowserInteractiveObservation;
   screenshot?: BrowserScreenshotResult;

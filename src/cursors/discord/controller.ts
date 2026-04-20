@@ -4,6 +4,7 @@ import {
   DiscordChannelSession,
   type DiscordRuntimeDeps,
 } from "./runtime.js";
+import { judgeDiscordTurn } from "./judge.js";
 
 function keywordList(value: unknown): string[] {
   if (Array.isArray(value)) return value.map(String);
@@ -112,6 +113,64 @@ export class DiscordCursorController {
     return session.memoryManager.runReview(lines, 0, source);
   }
 
+  async debugMessage(
+    channelId: string,
+    text: string,
+    options?: {
+      authorId?: string;
+      nickname?: string;
+      runMain?: boolean;
+    }
+  ): Promise<Record<string, unknown>> {
+    const session = this.ensurePersistentSession(channelId);
+    const ts = Date.now() / 1000;
+    const authorId = options?.authorId ?? "debug-user";
+    const nickname = options?.nickname ?? "[DebugUser]";
+    const line = `${nickname}: ${text}`;
+
+    session.activeUsers.set(authorId, ts);
+    session.lastAuthorId = authorId;
+    session.lastMsgTime = ts;
+    session.history.push(line);
+    session.trimHistoryByTokens();
+    session.msgCount += 1;
+    session.msgCountSinceReview += 1;
+
+    const judge = await judgeDiscordTurn(session);
+    if (!judge) {
+      return {
+        ok: false,
+        summary: "Discord judge returned null.",
+        historyTail: session.history.slice(-12),
+      };
+    }
+
+    session.focus = judge.focus ?? session.focus;
+    session.waitCond = {
+      ...judge.trigger,
+      intent: judge.intent,
+      recall_user_id: judge.recallUserId,
+      expiry: ts + Number(judge.trigger.expires_after ?? 120),
+    };
+
+    let main: unknown = null;
+    if (options?.runMain !== false && judge.intent.stance !== "pass") {
+      main = await session.callAi("main", {
+        intent: judge.intent,
+        recall_user_id: judge.recallUserId,
+      });
+    }
+
+    return {
+      ok: true,
+      summary: "Debug message processed by Discord cursor session.",
+      judge,
+      main,
+      historyTail: session.history.slice(-12),
+      snapshot: session.snapshot(),
+    };
+  }
+
   private async processTypingStart(typing: Typing): Promise<void> {
     if (typing.user?.bot) return;
     const userId = typing.user?.id;
@@ -149,7 +208,7 @@ export class DiscordCursorController {
         message.channel,
         {
           stance: "react",
-          angle: "直接回应",
+          angle: "Direct response",
         },
         undefined,
         message.author
@@ -165,15 +224,14 @@ export class DiscordCursorController {
     }
 
     if (!session.waitCond) {
-      const judge = (await session.callAi("judge")) as Record<string, unknown> | null;
+      const judge = await judgeDiscordTurn(session);
       if (judge) {
-        const focus = judge.focus as Record<string, unknown> | undefined;
-        session.focus = (focus?.topic as string) ?? "无";
-        const trigger = (judge.trigger as Record<string, unknown>) ?? {};
+        session.focus = judge.focus ?? "none";
+        const trigger = judge.trigger;
         session.waitCond = {
           ...trigger,
-          intent: (judge.intent as Record<string, unknown>) ?? { stance: "pass" },
-          recall_user_id: judge.recall_user_id,
+          intent: judge.intent ?? { stance: "pass" },
+          recall_user_id: judge.recallUserId,
           expiry: now + Number(trigger.expires_after ?? 120),
         };
         session.msgCount = 0;
@@ -197,12 +255,7 @@ export class DiscordCursorController {
     const noTyping = !this.isSomeoneTyping(channelId);
 
     if (condition.fire_now === true && noTyping) {
-      await session.executeReply(
-        message.channel,
-        intent,
-        recallUserId,
-        message.author
-      );
+      await session.executeReply(message.channel, intent, recallUserId, message.author);
       return;
     }
 
@@ -230,24 +283,14 @@ export class DiscordCursorController {
     }
 
     if (type === "gap" && session.msgCount >= Number(condition.condition_value ?? 5)) {
-      await session.executeReply(
-        message.channel,
-        intent,
-        recallUserId,
-        message.author
-      );
+      await session.executeReply(message.channel, intent, recallUserId, message.author);
       return;
     }
 
     if (type === "keyword") {
       const keywords = keywordList(condition.condition_value);
       if (keywords.some((keyword) => message.content.includes(keyword))) {
-        await session.executeReply(
-          message.channel,
-          intent,
-          recallUserId,
-          message.author
-        );
+        await session.executeReply(message.channel, intent, recallUserId, message.author);
       }
     }
   }

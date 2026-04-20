@@ -6,6 +6,8 @@ import type {
 } from "discord.js";
 import type { AgentStatusUpdate } from "../../agent/types.js";
 
+const DEFAULT_MODEL = "gemma-4-31b-it";
+
 export interface DiscordMemoryManager {
   guildId: string | null;
   dmUserId: string | null;
@@ -345,7 +347,7 @@ export class DiscordChannelSession {
     const currUtc =
       new Date().toISOString().replace("T", " ").slice(0, 16) + " UTC";
     const api = this.deps.getLocalClient(this.guildId, this.dmUserId);
-    const model = String(llmCfg.model ?? "gpt-4o-mini");
+    const model = String(llmCfg.model ?? DEFAULT_MODEL);
 
     try {
       if (mode === "judge") {

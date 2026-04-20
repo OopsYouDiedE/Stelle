@@ -87,6 +87,26 @@ export interface SpeechCursorContext {
   lastSynthesis: SpeechSynthesisResult | null;
 }
 
+export interface SpeechJudgeInput {
+  context: Pick<
+    SpeechCursorContext,
+    "pendingTranscriptions" | "pendingSyntheses" | "lastTranscript" | "lastSynthesis"
+  >;
+  activation?: SpeechActivation;
+  status: SpeechCursorStatus;
+}
+
+export interface SpeechActivationJudgeResult {
+  accepted: boolean;
+  queue?: "transcription" | "synthesis";
+  reason: string;
+}
+
+export interface SpeechTaskJudgeResult {
+  mode: "transcribe" | "synthesize" | "idle";
+  reason: string;
+}
+
 export interface SpeechSnapshot {
   cursorId: string;
   kind: "speech";

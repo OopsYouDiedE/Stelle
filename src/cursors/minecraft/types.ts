@@ -59,6 +59,20 @@ export interface MinecraftRunRequest {
   createdAt: number;
 }
 
+export interface MinecraftJudgeInput {
+  request: MinecraftRunRequest;
+  context: Pick<
+    MinecraftCursorContext,
+    "connection" | "activeRequest" | "lastObservation"
+  >;
+}
+
+export interface MinecraftJudgeResult {
+  executable: boolean;
+  reason: string;
+  actionPlan: MinecraftAction;
+}
+
 export interface MinecraftActionResult {
   ok: boolean;
   actionType: MinecraftAction["type"];
@@ -70,6 +84,7 @@ export interface MinecraftRunResult {
   requestId: string;
   ok: boolean;
   summary: string;
+  judge: MinecraftJudgeResult;
   actionResult?: MinecraftActionResult;
   observation?: MinecraftObservation;
   reports: CursorReport[];

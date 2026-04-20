@@ -4,12 +4,14 @@ import type {
   SpeechCursor,
   SpeechCursorContext,
   SpeechEngine,
+  SpeechJudgeInput,
   SpeechSnapshot,
   SpeechSynthesisRequest,
   SpeechSynthesisResult,
   SpeechTranscriptionRequest,
   SpeechTranscriptionResult,
 } from "./types.js";
+import { judgeSpeechActivation, judgeSpeechNextTask } from "./judge.js";
 
 function now(): number {
   return Date.now();
@@ -55,13 +57,23 @@ export class EventDrivenSpeechCursor implements SpeechCursor {
       reports.push(...(await this.processActivation(activation)));
     }
 
-    if (this.context.pendingTranscriptions.length) {
+    const nextTask = judgeSpeechNextTask(this.buildJudgeInput());
+    reports.push(
+      this.makeReport("status", `Speech judge: ${nextTask.reason}`, {
+        mode: nextTask.mode,
+      })
+    );
+
+    if (nextTask.mode === "transcribe" && this.context.pendingTranscriptions.length) {
       const next = this.context.pendingTranscriptions.shift()!;
       reports.push(await this.runTranscription(next));
-    } else if (this.context.pendingSyntheses.length) {
+    } else if (
+      nextTask.mode === "synthesize" &&
+      this.context.pendingSyntheses.length
+    ) {
       const next = this.context.pendingSyntheses.shift()!;
       reports.push(await this.runSynthesis(next));
-    } else if (!reports.length) {
+    } else if (nextTask.mode === "idle") {
       this.status = "idle";
     }
 
@@ -135,6 +147,17 @@ export class EventDrivenSpeechCursor implements SpeechCursor {
   private async processActivation(
     activation: SpeechActivation
   ): Promise<CursorReport[]> {
+    const judge = judgeSpeechActivation({
+      ...this.buildJudgeInput(),
+      activation,
+    });
+
+    if (!judge.accepted) {
+      return [
+        this.makeReport("activation_ignored", `Speech judge rejected activation: ${judge.reason}`),
+      ];
+    }
+
     switch (activation.type) {
       case "audio_input_ready": {
         const request = (
@@ -149,7 +172,7 @@ export class EventDrivenSpeechCursor implements SpeechCursor {
           this.makeReport(
             "audio_input_queued",
             `Queued audio input ${request.id} for transcription.`,
-            { requestId: request.id }
+            { requestId: request.id, judge: judge.reason }
           ),
         ];
       }
@@ -166,7 +189,7 @@ export class EventDrivenSpeechCursor implements SpeechCursor {
           this.makeReport(
             "speech_output_queued",
             `Queued speech synthesis ${request.id}.`,
-            { requestId: request.id }
+            { requestId: request.id, judge: judge.reason }
           ),
         ];
       }
@@ -229,6 +252,18 @@ export class EventDrivenSpeechCursor implements SpeechCursor {
       summary,
       payload,
       timestamp: now(),
+    };
+  }
+
+  private buildJudgeInput(): SpeechJudgeInput {
+    return {
+      context: {
+        pendingTranscriptions: this.context.pendingTranscriptions,
+        pendingSyntheses: this.context.pendingSyntheses,
+        lastTranscript: this.context.lastTranscript,
+        lastSynthesis: this.context.lastSynthesis,
+      },
+      status: this.status,
     };
   }
 }
