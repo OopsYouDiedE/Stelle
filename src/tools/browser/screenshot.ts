@@ -1,5 +1,6 @@
 import type { ToolDefinition } from "../../agent/types.js";
 import { getBrowserCursor } from "../../cursors/browser/index.js";
+import { finishBrowserTool } from "./shared.js";
 
 interface BrowserScreenshotParams {
   file_name?: string;
@@ -41,7 +42,7 @@ const browserScreenshotTool: ToolDefinition<BrowserScreenshotParams> = {
       },
       createdAt: Date.now(),
     });
-    return JSON.stringify(result, null, 2);
+    return finishBrowserTool(result);
   },
 };
 

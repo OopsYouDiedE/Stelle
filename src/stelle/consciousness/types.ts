@@ -44,6 +44,36 @@ export type ConsciousnessStrategyDecision =
 export interface ConsciousnessIdleJudgement {
   focus: Experience | null;
   shouldReflect: boolean;
+  activeGoals: ConsciousnessGoal[];
+  activeCommitments: ConsciousnessCommitment[];
   decisions: ConsciousnessStrategyDecision[];
   summary: string;
+}
+
+export type ConsciousnessGoalStatus = "active" | "blocked" | "completed";
+
+export interface ConsciousnessGoal {
+  id: string;
+  sourceExperienceId: string;
+  cursorId: string;
+  cursorKind: string;
+  summary: string;
+  priority: number;
+  status: ConsciousnessGoalStatus;
+  createdAt: number;
+  updatedAt: number;
+  lastAdvancedAt: number | null;
+}
+
+export type ConsciousnessCommitmentStatus = "open" | "fulfilled" | "dismissed";
+
+export interface ConsciousnessCommitment {
+  id: string;
+  sourceExperienceId: string;
+  cursorId: string;
+  cursorKind: string;
+  summary: string;
+  status: ConsciousnessCommitmentStatus;
+  createdAt: number;
+  updatedAt: number;
 }

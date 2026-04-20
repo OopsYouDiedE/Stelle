@@ -5,6 +5,10 @@ import type {
   MemoryStoreSnapshot,
 } from "./memory/types.js";
 import type { ConsciousnessStrategyDecision } from "./consciousness/types.js";
+import type {
+  ConsciousnessCommitment,
+  ConsciousnessGoal,
+} from "./consciousness/types.js";
 
 export type {
   MemoryReflection,
@@ -56,6 +60,8 @@ export interface ConsciousnessSnapshot {
   currentFocusCursorId: string | null;
   lastReflectionAt: number | null;
   observedExperienceCount: number;
+  activeGoals: ConsciousnessGoal[];
+  activeCommitments: ConsciousnessCommitment[];
   lastDecisions: ConsciousnessStrategyDecision[];
 }
 

@@ -109,19 +109,41 @@ export class EventDrivenDiscordCursor implements DiscordCursor {
   ): Promise<CursorReport> {
     try {
       switch (activation.type) {
-        case "message_create":
-          await this.onMessage(activation.payload!.message as Message);
-          this.refreshChannelState((activation.payload!.message as Message).channel.id);
+        case "attention_inspect":
           return {
             cursorId: this.id,
-            type: "message_processed",
-            summary: `Processed Discord message ${(activation.payload!.message as Message).id}`,
+            type: "attention_inspected",
+            summary: "Stelle inspected the Discord social window.",
             payload: {
-              channelId: (activation.payload!.message as Message).channel.id,
-              authorId: (activation.payload!.message as Message).author.id,
+              knownChannelCount: this.context.channelStates.size,
+              lastChannelId: this.context.lastChannelId,
             },
             timestamp: now(),
           };
+        case "message_create":
+          {
+            const message = activation.payload!.message as Message;
+            await this.onMessage(message);
+            this.refreshChannelState(message.channel.id);
+            const content = message.cleanContent || message.content || "";
+            return {
+              cursorId: this.id,
+              type: "message_processed",
+              summary: `Processed Discord message ${message.id}`,
+              payload: {
+                channelId: message.channel.id,
+                guildId: message.guildId,
+                messageId: message.id,
+                authorId: message.author.id,
+                authorName: message.author.username,
+                content: content.slice(0, 500),
+                contentLength: content.length,
+                isDm: !message.guildId,
+                createdTimestamp: message.createdTimestamp,
+              },
+              timestamp: now(),
+            };
+          }
         case "typing_start":
           if (this.onTypingStart) {
             await this.onTypingStart(activation.payload!.typing as Typing);

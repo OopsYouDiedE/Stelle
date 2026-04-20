@@ -1,5 +1,6 @@
 import type { ToolDefinition } from "../../agent/types.js";
 import { getBrowserCursor } from "../../cursors/browser/index.js";
+import { finishBrowserTool } from "./shared.js";
 
 interface BrowserReadPageParams {
   max_items?: number;
@@ -33,7 +34,7 @@ const browserReadPageTool: ToolDefinition<BrowserReadPageParams> = {
       },
       createdAt: Date.now(),
     });
-    return JSON.stringify(result, null, 2);
+    return finishBrowserTool(result);
   },
 };
 

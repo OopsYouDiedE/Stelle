@@ -3,6 +3,11 @@ import type { CursorActivation, CursorHost, CursorReport } from "../cursors/base
 import { ConsciousnessCursor } from "./consciousness/ConsciousnessCursor.js";
 import { ExperienceStore, type ExperienceSource } from "./ExperienceStore.js";
 import { MemoryStore } from "./memory/MemoryStore.js";
+import {
+  considerConversationReview,
+  type ConversationReviewInput,
+  type ConversationReviewResult,
+} from "./memory/conversationReview.js";
 import type {
   AttentionActivation,
   AttentionCycleResult,
@@ -57,6 +62,16 @@ export class Stelle {
     return this.collectReports(() => this.windows.tick(cursorId));
   }
 
+  recordReports(reports: readonly CursorReport[]): void {
+    this.ingestReports([...reports]);
+  }
+
+  async considerConversationReview(
+    input: ConversationReviewInput
+  ): Promise<ConversationReviewResult> {
+    return considerConversationReview(input);
+  }
+
   async runAttentionCycle(): Promise<AttentionCycleResult> {
     if (this.attentionRunning) {
       return {
@@ -76,31 +91,28 @@ export class Stelle {
       let idleActivations: AttentionActivation[] = [];
       let memoryReflections: MemoryReflection[] = [];
       let decisions: AttentionCycleResult["decisions"] = [];
-      let ranConsciousness = false;
+      const ranConsciousness = true;
 
-      if (!reports.length) {
-        ranConsciousness = true;
-        const timestamp = now();
-        const idleResult = await this.consciousness.runIdleCycle({
-          windows: await this.windows.snapshot(),
-          recentExperiences: this.experience.recent(24),
-          timestamp,
-        });
-        idleActivations = idleResult.idleActivations;
-        memoryReflections = idleResult.memoryReflections;
-        decisions = idleResult.decisions;
-        await this.memory.remember(memoryReflections);
-        this.ingestReports(idleResult.reports);
-        reports.push(...idleResult.reports);
+      const attentionTimestamp = now();
+      const idleResult = await this.consciousness.runIdleCycle({
+        windows: await this.windows.snapshot(),
+        recentExperiences: this.experience.recent(24),
+        timestamp: attentionTimestamp,
+      });
+      idleActivations = idleResult.idleActivations;
+      memoryReflections = idleResult.memoryReflections;
+      decisions = idleResult.decisions;
+      await this.memory.remember(memoryReflections);
+      this.ingestReports(idleResult.reports);
+      reports.push(...idleResult.reports);
 
-        for (const item of idleActivations) {
-          if (!this.windows.has(item.cursorId)) continue;
-          await this.windows.activate(item.cursorId, item.activation);
-          const followupReports = await this.collectReports(() =>
-            this.windows.tick(item.cursorId)
-          );
-          reports.push(...followupReports);
-        }
+      for (const item of idleActivations) {
+        if (!this.windows.has(item.cursorId)) continue;
+        await this.windows.activate(item.cursorId, item.activation);
+        const followupReports = await this.collectReports(() =>
+          this.windows.tick(item.cursorId)
+        );
+        reports.push(...followupReports);
       }
 
       const timestamp = now();

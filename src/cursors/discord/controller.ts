@@ -80,14 +80,18 @@ export class DiscordCursorController {
     const session = this.getExistingSession(channelId);
     if (!session) return "missing";
     if (!session.history.length) return "empty";
-    session.reviewCountSinceDistill += 1;
-    const ok = await session.memoryManager.runReview(
-      [...session.history],
-      session.reviewCountSinceDistill,
-      "MANUAL"
-    );
-    if (ok) {
-      session.msgCountSinceReview = 0;
+    const result = await this.deps.considerConversationReview({
+      memory: session.memoryManager,
+      recentHistory: [...session.history],
+      msgCountSinceReview: Number(session.cfg.review_msg_threshold ?? 50),
+      reviewCountSinceDistill: session.reviewCountSinceDistill,
+      reviewMsgThreshold: Number(session.cfg.review_msg_threshold ?? 50),
+      distillReviewThreshold: Number(session.cfg.distill_review_threshold ?? 5),
+      source: "MANUAL",
+    });
+    if (result.reviewSucceeded) {
+      session.msgCountSinceReview = result.msgCountSinceReview;
+      session.reviewCountSinceDistill = result.reviewCountSinceDistill;
       return "success";
     }
     return "failed";
@@ -133,6 +137,7 @@ export class DiscordCursorController {
     session.lastMsgTime = ts;
     session.history.push(line);
     session.trimHistoryByTokens();
+    session.trimHistoryByWindow();
     session.msgCount += 1;
     session.msgCountSinceReview += 1;
 
@@ -146,6 +151,10 @@ export class DiscordCursorController {
     }
 
     session.focus = judge.focus ?? session.focus;
+    session.updateIntentSummary({
+      focus: judge.focus ?? session.focus,
+      intent: judge.intent,
+    });
     session.waitCond = {
       ...judge.trigger,
       intent: judge.intent,
@@ -204,6 +213,13 @@ export class DiscordCursorController {
     if (now < session.shutUpUntil) return;
 
     if (isMentioned || isDm) {
+      session.updateIntentSummary({
+        focus: session.focus,
+        intent: {
+          stance: "react",
+          angle: "Direct response",
+        },
+      });
       await session.executeReply(
         message.channel,
         {
@@ -228,6 +244,10 @@ export class DiscordCursorController {
       if (judge) {
         session.focus = judge.focus ?? "none";
         const trigger = judge.trigger;
+        session.updateIntentSummary({
+          focus: session.focus,
+          intent: judge.intent,
+        });
         session.waitCond = {
           ...trigger,
           intent: judge.intent ?? { stance: "pass" },

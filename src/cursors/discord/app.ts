@@ -36,6 +36,8 @@ import {
   DiscordCursorController,
   handleDiscordSlash,
 } from "./index.js";
+import { notifyMinecraftResults } from "./minecraftNotifications.js";
+import { updateDiscordPresence } from "./presence.js";
 import { setDiscordToolClient } from "./toolRuntime.js";
 import {
   getMinecraftConfigFromEnv,
@@ -823,6 +825,7 @@ const discordRuntimeDeps: DiscordRuntimeDeps = {
         sendLogDetailed,
       },
     }),
+  considerConversationReview: (input) => stelle.considerConversationReview(input),
   userIndex: {
     getName: UserIndex.getName.bind(UserIndex),
     getOrCreateNickname: UserIndex.getOrCreateNickname.bind(UserIndex),
@@ -1060,9 +1063,9 @@ client.once(Events.ClientReady, async (c) => {
   await initConfig();
   await UserIndex.init();
 
+  const minecraftCursor = getMinecraftCursor();
   const minecraftConfig = getMinecraftConfigFromEnv();
   if (minecraftConfig) {
-    const minecraftCursor = getMinecraftCursor();
     await minecraftCursor.connect(minecraftConfig).catch((error) => {
       void sendLogDetailed("Minecraft cursor connect failed", error);
     });
@@ -1090,7 +1093,15 @@ client.once(Events.ClientReady, async (c) => {
   console.log(`? OpenClaw 已登录 (ID: ${getBotId()})`);
 
   setInterval(() => {
-    void stelle.runAttentionCycle().catch((error) => {
+    void (async () => {
+      const cycle = await stelle.runAttentionCycle();
+      await updateDiscordPresence({
+        client,
+        cycle,
+        snapshot: await stelle.snapshot(),
+      });
+      await notifyMinecraftResults({ client, cycle });
+    })().catch((error) => {
       void sendLogDetailed("Stelle attention cycle failed", error);
     });
   }, 15_000);

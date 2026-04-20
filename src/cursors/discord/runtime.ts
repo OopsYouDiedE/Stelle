@@ -4,6 +4,10 @@ import type {
   User,
 } from "discord.js";
 import type { AgentStatusUpdate } from "../../agent/types.js";
+import type {
+  ConversationReviewInput,
+  ConversationReviewResult,
+} from "../../stelle/memory/conversationReview.js";
 
 const DEFAULT_MODEL = "gemma-4-31b-it";
 
@@ -68,6 +72,9 @@ export interface DiscordRuntimeDeps {
     guildId: string | null,
     dmUserId: string | null
   ): DiscordMemoryManager;
+  considerConversationReview(
+    input: ConversationReviewInput
+  ): Promise<ConversationReviewResult>;
   userIndex: {
     getName(guildId: string | null, userId: string): string;
     getOrCreateNickname(msg: Message): Promise<string>;
@@ -90,6 +97,7 @@ export interface DiscordChannelContext {
   history: string[];
   activeUsers: Map<string, number>;
   focus: string | null;
+  intentSummary: string | null;
   waitCond: Record<string, unknown> | null;
   msgCount: number;
   lastMsgTime: number;
@@ -107,6 +115,7 @@ export interface DiscordChannelSnapshot {
   historySize: number;
   activeUserCount: number;
   focus: string | null;
+  intentSummary: string | null;
   waitConditionType: string | null;
   waitExpiresAt: number | null;
   msgCount: number;
@@ -156,6 +165,7 @@ export class DiscordChannelSession {
   readonly history: string[] = [];
   readonly activeUsers = new Map<string, number>();
   focus: string | null = null;
+  intentSummary: string | null = null;
   waitCond: Record<string, unknown> | null = null;
   msgCount = 0;
   lastMsgTime = Date.now() / 1000;
@@ -182,6 +192,7 @@ export class DiscordChannelSession {
       history: this.history,
       activeUsers: this.activeUsers,
       focus: this.focus,
+      intentSummary: this.intentSummary,
       waitCond: this.waitCond,
       msgCount: this.msgCount,
       lastMsgTime: this.lastMsgTime,
@@ -201,6 +212,7 @@ export class DiscordChannelSession {
       historySize: this.history.length,
       activeUserCount: this.activeUsers.size,
       focus: this.focus,
+      intentSummary: this.intentSummary,
       waitConditionType: this.waitCond
         ? String(this.waitCond.condition_type ?? "unknown")
         : null,
@@ -221,6 +233,7 @@ export class DiscordChannelSession {
     this.history.length = 0;
     this.activeUsers.clear();
     this.focus = null;
+    this.intentSummary = null;
     this.waitCond = null;
     this.msgCount = 0;
     this.lastAuthorId = "0";
@@ -308,10 +321,23 @@ export class DiscordChannelSession {
     this.lastMsgTime = ts;
     for (const line of lines) this.history.push(line);
     this.trimHistoryByTokens();
+    this.trimHistoryByWindow();
 
     this.msgCount += 1;
     this.msgCountSinceReview += 1;
     return true;
+  }
+
+  updateIntentSummary(input: {
+    focus: string | null;
+    intent?: Record<string, unknown> | null;
+  }): void {
+    const stance = input.intent?.stance ? String(input.intent.stance) : "pass";
+    const angle = input.intent?.angle ? String(input.intent.angle) : "";
+    const focus = input.focus ?? this.focus ?? "none";
+    this.intentSummary = angle
+      ? `${stance}: ${angle} | focus=${focus}`
+      : `${stance} | focus=${focus}`;
   }
 
   extractEmbedAndReply(raw: string): { reply: string; embed: string } {
@@ -467,13 +493,27 @@ export class DiscordChannelSession {
       this.msgCountSinceReview >=
       Number(this.cfg.review_msg_threshold ?? 50)
     ) {
-      this.msgCountSinceReview = 0;
-      this.reviewCountSinceDistill += 1;
-      void this.memoryManager.runReview(
-        [...this.history],
-        this.reviewCountSinceDistill,
-        "AUTO"
-      );
+      void this.deps
+        .considerConversationReview({
+          memory: this.memoryManager,
+          recentHistory: [...this.history],
+          msgCountSinceReview: this.msgCountSinceReview,
+          reviewCountSinceDistill: this.reviewCountSinceDistill,
+          reviewMsgThreshold: Number(this.cfg.review_msg_threshold ?? 50),
+          distillReviewThreshold: Number(this.cfg.distill_review_threshold ?? 5),
+          source: "AUTO",
+        })
+        .then((result) => {
+          this.msgCountSinceReview = result.msgCountSinceReview;
+          this.reviewCountSinceDistill = result.reviewCountSinceDistill;
+        });
+    }
+  }
+
+  trimHistoryByWindow(): void {
+    const maxLen = Math.max(4, Number(this.cfg.history_maxlen ?? 80));
+    if (this.history.length > maxLen) {
+      this.history.splice(0, this.history.length - maxLen);
     }
   }
 }

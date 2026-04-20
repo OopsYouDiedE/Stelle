@@ -1,5 +1,6 @@
 import type { ToolDefinition } from "../../agent/types.js";
 import { getBrowserCursor } from "../../cursors/browser/index.js";
+import { finishBrowserTool } from "./shared.js";
 
 interface BrowserKeyboardPressParams {
   key: string;
@@ -34,7 +35,7 @@ const browserKeyboardPressTool: ToolDefinition<BrowserKeyboardPressParams> = {
       },
       createdAt: Date.now(),
     });
-    return JSON.stringify(result, null, 2);
+    return finishBrowserTool(result);
   },
 };
 

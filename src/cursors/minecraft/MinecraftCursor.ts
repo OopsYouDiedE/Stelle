@@ -66,6 +66,7 @@ export class MineflayerMinecraftCursor implements MinecraftCursor {
     lastActivatedAt: null,
     lastReportAt: null,
   };
+  private readonly queuedActivations: CursorActivation[] = [];
 
   constructor(options: MinecraftCursorOptions) {
     this.id = options.id ?? "minecraft-main";
@@ -85,11 +86,20 @@ export class MineflayerMinecraftCursor implements MinecraftCursor {
       }
     } else if (input.type === "minecraft_disconnect") {
       await this.disconnect();
+    } else if (
+      input.type === "minecraft_run_action" ||
+      input.type === "minecraft_run_strategy"
+    ) {
+      this.queuedActivations.push(input);
     }
   }
 
   async tick(): Promise<CursorReport[]> {
     const reports: CursorReport[] = [];
+    while (this.queuedActivations.length) {
+      const activation = this.queuedActivations.shift()!;
+      reports.push(...(await this.runActivation(activation)));
+    }
     if (this.bot) {
       const observation = this.observe();
       this.context.lastObservation = observation;
@@ -100,6 +110,111 @@ export class MineflayerMinecraftCursor implements MinecraftCursor {
       );
     }
     return reports;
+  }
+
+  private async runActivation(activation: CursorActivation): Promise<CursorReport[]> {
+    try {
+      if (activation.type === "minecraft_run_action") {
+        const payload = activation.payload as
+          | { action?: MinecraftAction; note?: string; discord?: Record<string, unknown> }
+          | undefined;
+        const action = payload?.action;
+        if (!action) {
+          return [
+            this.makeReport(
+              "error",
+              "Minecraft activation missing action payload."
+            ),
+          ];
+        }
+        const result = await this.run({
+          id: `minecraft-action-${Date.now()}`,
+          action,
+          note: payload?.note ?? activation.reason,
+          createdAt: activation.timestamp,
+        });
+        return this.attachActivationContext(result.reports, activation);
+      }
+
+      if (activation.type === "minecraft_run_strategy") {
+        const payload = activation.payload as
+          | {
+              strategyId?: string;
+              maxSteps?: number;
+              note?: string;
+              coordinateHint?: { x: number; y: number; z: number };
+              discord?: Record<string, unknown>;
+            }
+          | undefined;
+        const strategyId = payload?.strategyId;
+        if (!strategyId) {
+          return [
+            this.makeReport(
+              "error",
+              "Minecraft activation missing strategyId payload."
+            ),
+          ];
+        }
+        const result = await this.runStrategy({
+          id: `minecraft-strategy-${Date.now()}`,
+          strategyId,
+          maxSteps: payload?.maxSteps,
+          note: [
+            payload?.note ?? activation.reason,
+            payload?.coordinateHint
+              ? `coordinateHint=(${payload.coordinateHint.x},${payload.coordinateHint.y},${payload.coordinateHint.z})`
+              : "",
+          ].filter(Boolean).join("\n"),
+          createdAt: activation.timestamp,
+        });
+        return this.attachActivationContext(
+          [
+            ...result.reports,
+            this.makeReport(result.ok ? "task_result" : "error", result.summary, {
+              strategyId,
+              final: true,
+            }),
+          ],
+          activation
+        );
+      }
+
+      return [
+        this.makeReport(
+          "activation_ignored",
+          `Ignored Minecraft activation ${activation.type}.`
+        ),
+      ];
+    } catch (error) {
+      return [
+        this.makeReport(
+          "error",
+          `Minecraft activation ${activation.type} failed: ${(error as Error).message}`
+        ),
+      ];
+    }
+  }
+
+  private attachActivationContext(
+    reports: CursorReport[],
+    activation: CursorActivation
+  ): CursorReport[] {
+    const payload = activation.payload as
+      | {
+          sourceExperienceId?: string;
+          discord?: Record<string, unknown>;
+        }
+      | undefined;
+    if (!payload?.sourceExperienceId && !payload?.discord) return reports;
+
+    return reports.map((report) => ({
+      ...report,
+      payload: {
+        ...report.payload,
+        sourceExperienceId: payload.sourceExperienceId,
+        discord: payload.discord,
+      },
+    }));
   }
 
   async connect(config: MinecraftConnectionConfig): Promise<MinecraftActionResult> {

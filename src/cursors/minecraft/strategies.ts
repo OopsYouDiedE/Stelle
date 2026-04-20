@@ -23,6 +23,21 @@ function hasItem(frame: MinecraftEnvironmentFrame, itemName: string): boolean {
   return inventoryCount(frame, itemName) > 0;
 }
 
+function nearbyBlockCount(frame: MinecraftEnvironmentFrame, blockName: string): number {
+  return frame.observation.nearbyBlocks.filter((block) => block.name === blockName).length;
+}
+
+function coordinateHint(context: MinecraftStrategyContext): { x: number; y: number; z: number } | null {
+  const text = context.notes.join("\n");
+  const match = text.match(/coordinateHint=\((-?\d+),(-?\d+),(-?\d+)\)/);
+  if (!match) return null;
+  return {
+    x: Number(match[1]),
+    y: Number(match[2]),
+    z: Number(match[3]),
+  };
+}
+
 const idleObserveStrategy: MinecraftStrategyCode = {
   id: "idle_observe",
   description: "Read one environment frame and stop.",
@@ -157,8 +172,105 @@ const woodenShelterStrategy: MinecraftStrategyCode = {
   },
 };
 
+const ironProspectingStrategy: MinecraftStrategyCode = {
+  id: "iron_prospect",
+  description: "Look around and keep prospecting until nearby iron ore can be collected.",
+  decide(frame, context) {
+    if (!frame.observation.connected || !frame.observation.spawned) {
+      return {
+        type: "fail",
+        reason: "Minecraft Cursor is not connected and spawned.",
+      };
+    }
+
+    if (inventoryCount(frame, "raw_iron") >= 3 || inventoryCount(frame, "iron_ore") >= 3) {
+      return {
+        type: "complete",
+        summary: "Collected enough iron material.",
+      };
+    }
+
+    if (nearbyBlockCount(frame, "iron_ore") > 0 || nearbyBlockCount(frame, "deepslate_iron_ore") > 0) {
+      return {
+        type: "continue",
+        action: {
+          type: "collect_blocks",
+          input: {
+            block: nearbyBlockCount(frame, "iron_ore") > 0 ? "iron_ore" : "deepslate_iron_ore",
+            count: 3,
+            range: 128,
+          },
+        },
+        expectation: "Collect visible iron ore after locating it nearby.",
+        waitMs: 1000,
+      };
+    }
+
+    if (context.lastActionResult && !context.lastActionResult.ok) {
+      context.notes.push(`Previous prospecting action failed: ${context.lastActionResult.summary}`);
+    }
+
+    const pos = frame.observation.position;
+    if (!pos) {
+      return {
+        type: "wait",
+        reason: "Waiting for a stable Minecraft position before prospecting.",
+        waitMs: 1000,
+      };
+    }
+
+    const hint = coordinateHint(context);
+    if (hint && context.stepCount < 2) {
+      return {
+        type: "continue",
+        action: {
+          type: "goto",
+          input: {
+            x: hint.x,
+            y: hint.y,
+            z: hint.z,
+            range: 4,
+          },
+        },
+        expectation: "Move to the user-provided exposed iron location and observe there.",
+        waitMs: 1500,
+      };
+    }
+
+    const offsets = [
+      { x: 16, z: 0 },
+      { x: 0, z: 16 },
+      { x: -16, z: 0 },
+      { x: 0, z: -16 },
+      { x: 24, z: 24 },
+      { x: -24, z: 24 },
+    ];
+    const offset = offsets[context.stepCount % offsets.length];
+
+    return {
+      type: "continue",
+      action: {
+        type: "goto",
+        input: {
+          x: Math.floor(pos.x + offset.x),
+          y: Math.floor(pos.y),
+          z: Math.floor(pos.z + offset.z),
+          range: 2,
+        },
+      },
+      expectation: "Move to a nearby prospecting point and observe again for iron ore.",
+      waitMs: 1500,
+    };
+  },
+};
+
 export const minecraftStrategyRegistry = new Map<string, MinecraftStrategyCode>(
-  [idleObserveStrategy, woodenPickaxeStrategy, woodenShelterStrategy].map((strategy) => [
+  [
+    idleObserveStrategy,
+    woodenPickaxeStrategy,
+    woodenShelterStrategy,
+    ironProspectingStrategy,
+  ].map((strategy) => [
     strategy.id,
     strategy,
   ])

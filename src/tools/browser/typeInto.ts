@@ -1,5 +1,6 @@
 import type { ToolDefinition } from "../../agent/types.js";
 import { getBrowserCursor } from "../../cursors/browser/index.js";
+import { finishBrowserTool } from "./shared.js";
 
 interface BrowserTypeParams {
   text: string;
@@ -66,7 +67,7 @@ const browserTypeTool: ToolDefinition<BrowserTypeParams> = {
       },
       createdAt: Date.now(),
     });
-    return JSON.stringify(result, null, 2);
+    return finishBrowserTool(result);
   },
 };
 

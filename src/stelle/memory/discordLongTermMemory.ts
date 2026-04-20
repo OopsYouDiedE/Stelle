@@ -108,6 +108,7 @@ export class StelleDiscordMemoryManager {
     reviewCount: number,
     source = "AUTO"
   ): Promise<boolean> {
+    void reviewCount;
     if (!recentHistory.length) return true;
     const llmConfig = this.deps.getLlmConfig(this.guildId, this.dmUserId);
     const model = String(llmConfig.model ?? this.defaultModel);
@@ -142,7 +143,6 @@ export class StelleDiscordMemoryManager {
         }));
       if (!eventObjects.length) return true;
 
-      let historySnapshot = "";
       await this.writeLock.runExclusive(async () => {
         const sections = await this.readSections();
         const shortEntries = (sections["短期进程"] ?? "")
@@ -159,16 +159,12 @@ export class StelleDiscordMemoryManager {
         sections["历史事件"] = [sections["历史事件"], ...newEvents]
           .filter(Boolean)
           .join("\n\n");
-        historySnapshot = sections["历史事件"] ?? "";
         await writeMemoryFile(
           this.channelPath,
           `# 历史事件\n\n${sections["历史事件"]}\n\n---\n\n# 短期进程\n\n${sections["短期进程"]}\n\n---\n\n`
         );
       });
 
-      if (reviewCount > 0 && reviewCount % 5 === 0) {
-        void this.runDistill(historySnapshot);
-      }
       return true;
     } catch (error) {
       await this.deps.sendLogDetailed(`? [Stelle Memory Review - ${source}] 异常`, error);
