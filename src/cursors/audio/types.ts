@@ -1,29 +1,29 @@
 import type { CursorActivation, CursorHost, CursorReport } from "../base.js";
 
-export type SpeechCursorStatus =
+export type AudioCursorStatus =
   | "idle"
   | "listening"
   | "transcribing"
   | "speaking"
   | "error";
 
-export interface AudioChunkRef {
+export interface AudioInputRef {
   path: string;
   mimeType?: string;
   durationMs?: number;
   source?: string;
 }
 
-export interface SpeechTranscriptionRequest {
+export interface AudioInputRequest {
   id: string;
-  audio: AudioChunkRef;
+  audio: AudioInputRef;
   language?: string;
   prompt?: string;
   createdAt: number;
   source?: string;
 }
 
-export interface SpeechSynthesisRequest {
+export interface AudioOutputRequest {
   id: string;
   text: string;
   voice?: string;
@@ -33,7 +33,7 @@ export interface SpeechSynthesisRequest {
   source?: string;
 }
 
-export interface SpeechTranscriptionResult {
+export interface AudioInputResult {
   requestId: string;
   ok: boolean;
   text: string;
@@ -43,7 +43,7 @@ export interface SpeechTranscriptionResult {
   timestamp: number;
 }
 
-export interface SpeechSynthesisResult {
+export interface AudioOutputResult {
   requestId: string;
   ok: boolean;
   audioPath: string | null;
@@ -52,23 +52,23 @@ export interface SpeechSynthesisResult {
   timestamp: number;
 }
 
-export interface SpeechEngine {
+export interface AudioEngine {
   transcribe(
-    request: SpeechTranscriptionRequest
-  ): Promise<SpeechTranscriptionResult>;
+    request: AudioInputRequest
+  ): Promise<AudioInputResult>;
   synthesize(
-    request: SpeechSynthesisRequest
-  ): Promise<SpeechSynthesisResult>;
+    request: AudioOutputRequest
+  ): Promise<AudioOutputResult>;
 }
 
-export type SpeechActivation =
+export type AudioActivation =
   | (CursorActivation & {
       type: "audio_input_ready";
-      payload: { request: SpeechTranscriptionRequest };
+      payload: { request: AudioInputRequest };
     })
   | (CursorActivation & {
-      type: "speak_requested";
-      payload: { request: SpeechSynthesisRequest };
+      type: "audio_output_requested" | "speak_requested";
+      payload: { request: AudioOutputRequest };
     })
   | (CursorActivation & {
       type: "playback_finished";
@@ -76,57 +76,68 @@ export type SpeechActivation =
     })
   | CursorActivation;
 
-export interface SpeechCursorContext {
-  queuedActivations: SpeechActivation[];
-  pendingTranscriptions: SpeechTranscriptionRequest[];
-  pendingSyntheses: SpeechSynthesisRequest[];
+export interface AudioCursorContext {
+  queuedActivations: AudioActivation[];
+  pendingInputs: AudioInputRequest[];
+  pendingOutputs: AudioOutputRequest[];
   recentReports: CursorReport[];
   lastActivationAt: number | null;
   lastProcessedAt: number | null;
-  lastTranscript: SpeechTranscriptionResult | null;
-  lastSynthesis: SpeechSynthesisResult | null;
+  lastInput: AudioInputResult | null;
+  lastOutput: AudioOutputResult | null;
 }
 
-export interface SpeechJudgeInput {
+export interface AudioJudgeInput {
   context: Pick<
-    SpeechCursorContext,
-    "pendingTranscriptions" | "pendingSyntheses" | "lastTranscript" | "lastSynthesis"
+    AudioCursorContext,
+    "pendingInputs" | "pendingOutputs" | "lastInput" | "lastOutput"
   >;
-  activation?: SpeechActivation;
-  status: SpeechCursorStatus;
+  activation?: AudioActivation;
+  status: AudioCursorStatus;
 }
 
-export interface SpeechActivationJudgeResult {
+export interface AudioActivationJudgeResult {
   accepted: boolean;
-  queue?: "transcription" | "synthesis";
+  queue?: "input" | "output";
   reason: string;
 }
 
-export interface SpeechTaskJudgeResult {
-  mode: "transcribe" | "synthesize" | "idle";
+export interface AudioTaskJudgeResult {
+  mode: "transcribe_input" | "synthesize_output" | "idle";
   reason: string;
 }
 
-export interface SpeechSnapshot {
+export interface AudioSnapshot {
   cursorId: string;
-  kind: "speech";
-  status: SpeechCursorStatus;
+  kind: "audio";
+  status: AudioCursorStatus;
   queueLength: number;
-  pendingTranscriptions: number;
-  pendingSyntheses: number;
+  pendingInputs: number;
+  pendingOutputs: number;
   lastActivationAt: number | null;
   lastProcessedAt: number | null;
-  lastTranscriptText: string | null;
-  lastSynthesisPath: string | null;
+  lastInputText: string | null;
+  lastOutputPath: string | null;
 }
 
-export interface SpeechCursor extends CursorHost {
-  kind: "speech";
-  submitTranscription(
-    request: SpeechTranscriptionRequest
-  ): Promise<SpeechTranscriptionResult>;
-  submitSynthesis(
-    request: SpeechSynthesisRequest
-  ): Promise<SpeechSynthesisResult>;
-  snapshot(): Promise<SpeechSnapshot>;
+export interface AudioCursor extends CursorHost {
+  kind: "audio";
+  submitInput(request: AudioInputRequest): Promise<AudioInputResult>;
+  submitOutput(request: AudioOutputRequest): Promise<AudioOutputResult>;
+  snapshot(): Promise<AudioSnapshot>;
 }
+
+export type AudioChunkRef = AudioInputRef;
+export type SpeechCursorStatus = AudioCursorStatus;
+export type SpeechTranscriptionRequest = AudioInputRequest;
+export type SpeechSynthesisRequest = AudioOutputRequest;
+export type SpeechTranscriptionResult = AudioInputResult;
+export type SpeechSynthesisResult = AudioOutputResult;
+export type SpeechEngine = AudioEngine;
+export type SpeechActivation = AudioActivation;
+export type SpeechCursorContext = AudioCursorContext;
+export type SpeechJudgeInput = AudioJudgeInput;
+export type SpeechActivationJudgeResult = AudioActivationJudgeResult;
+export type SpeechTaskJudgeResult = AudioTaskJudgeResult;
+export type SpeechSnapshot = AudioSnapshot;
+export type SpeechCursor = AudioCursor;

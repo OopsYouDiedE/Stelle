@@ -23,7 +23,7 @@ import {
   User,
 } from "discord.js";
 import dotenv from "dotenv";
-import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import OpenAI, { APIError } from "openai";
@@ -43,6 +43,12 @@ import {
 } from "../minecraft/index.js";
 import { type DiscordRuntimeDeps } from "./runtime.js";
 import { createToolRegistry } from "../../tools/index.js";
+import {
+  StelleDiscordMemoryManager,
+  clearDiscordChannelMemory,
+  ensureDiscordLongTermMemoryDirs,
+  forgetDiscordUserProfile,
+} from "../../stelle/memory/discordLongTermMemory.js";
 
 dotenv.config();
 
@@ -69,15 +75,11 @@ if (!TOKEN || !DEFAULT_API_KEY) {
 
 const DEBUG_LOG_CHANNEL_ID = "1493818037999243445";
 const MEMORY_DIR = "memories";
-const CHANNEL_MEMORY_DIR = path.join(MEMORY_DIR, "channels");
-const USER_MEMORY_DIR = path.join(MEMORY_DIR, "users");
 const INDEX_PATH = path.join(MEMORY_DIR, "index.json");
 const CONFIG_PATH = "config.yaml";
 
 async function ensureDirs(): Promise<void> {
-  for (const p of [CHANNEL_MEMORY_DIR, USER_MEMORY_DIR]) {
-    if (!existsSync(p)) await mkdir(p, { recursive: true });
-  }
+  await ensureDiscordLongTermMemoryDirs(MEMORY_DIR);
 }
 
 const client = new Client({
@@ -165,7 +167,6 @@ const DEFAULT_CHANNEL_CONFIG = {
 };
 
 const fileLock = new AsyncLock();
-const userFileLock = new AsyncLock();
 
 type YamlRoot = {
   guilds?: Record<string, Record<string, unknown>>;
@@ -776,207 +777,6 @@ function buildCharacterPrompt(isDm: boolean): string {
 [Advanced Format] For professional/long content (code/math/analysis, etc.), STRICTLY wrap it in <embed>detailed content</embed>. Outside the tag, leave ONLY one minimal summary sentence!`;
 }
 
-const MEMORY_REVIEW_PROMPT = `You are OpenClaw. Review the chat history and extract important events.
-Output pure JSON ONLY: {"events": [{"summary": "Description including (ID:xxxx)", "related_user_id": "User ID", "event_time": "YYYY-MM-DD HH:MM", "category": "Category"}]}`;
-
-const MEMORY_DISTILL_PROMPT =
-  "You are OpenClaw. Distill an overall global impression of ID:{user_id} based on these events. Write 3-5 colloquial sentences. Include the timestamp. Leave empty if insignificant.";
-
-// ==========================================
-// 6. 记忆管理器
-// ==========================================
-class MemoryManager {
-  private readonly mdPath: string;
-  private readonly writeLock = new AsyncLock();
-
-  constructor(
-    readonly channelId: string,
-    public guildId: string | null,
-    public dmUserId: string | null
-  ) {
-    this.mdPath = path.join(CHANNEL_MEMORY_DIR, `${channelId}.md`);
-  }
-
-  private async readSections(): Promise<Record<string, string>> {
-    const content = (await readFileUtf8(this.mdPath)) ?? "";
-    const keys = ["历史事件", "短期进程"] as const;
-    const out: Record<string, string> = {};
-    for (const s of keys) {
-      const re = new RegExp(
-        `# ${s}\\n+(.*?)(?=\\n+---|\\n+# |$)`,
-        "s"
-      );
-      const m = content.match(re);
-      out[s] = m?.[1]?.trim() ?? "";
-    }
-    return out;
-  }
-
-  /** 供 slash / distill 读取「历史事件」区块 */
-  async getHistoryEventsText(): Promise<string> {
-    const secs = await this.readSections();
-    return secs["历史事件"] ?? "";
-  }
-
-  async loadContext(
-    guildId: string | null,
-    userId?: string | null
-  ): Promise<string> {
-    const parts: string[] = [];
-    if (userId) {
-      const ucontent =
-        (await readFileUtf8(path.join(USER_MEMORY_DIR, `${userId}.md`))) ??
-        "";
-      const m = ucontent.match(/## 人物印象\n+(.*)/s);
-      const imp = m?.[1]?.trim();
-      if (imp) {
-        const nick =
-          userId === getBotId()
-            ? "Yourself(OpenClaw)"
-            : UserIndex.getName(guildId, userId);
-        parts.push(`[Global profile for ${nick}(ID:${userId})]\n${imp}`);
-      }
-    }
-    const secs = await this.readSections();
-    const evRaw = secs["历史事件"] ?? "";
-    const events = evRaw
-      .split("\n\n")
-      .map((e) => e.trim())
-      .filter(Boolean);
-    if (events.length)
-      parts.push(`[Recent Events]\n` + events.slice(-10).join("\n\n"));
-    return parts.join("\n\n");
-  }
-
-  async runReview(
-    recentHistory: string[],
-    reviewCount: number,
-    source = "AUTO"
-  ): Promise<boolean> {
-    if (!recentHistory.length) return true;
-    const llmCfg = getLlmConfig(this.guildId, this.dmUserId);
-    const model = String(llmCfg.model ?? DEFAULT_MODEL);
-    try {
-      const resp = await getLocalClient(this.guildId, this.dmUserId).chat.completions.create({
-        model,
-        messages: [
-          { role: "system", content: MEMORY_REVIEW_PROMPT },
-          { role: "user", content: recentHistory.join("\n") },
-        ],
-        response_format: { type: "json_object" },
-        temperature: 0.3,
-        max_tokens: 8192,
-      });
-      let content = resp.choices[0]?.message?.content ?? "";
-      content = content.replace(/<thought>.*?(?:<\/thought>|$)/gis, "");
-      const events = (parseJson(content).events as unknown[]) ?? [];
-      const eventObjs = events
-        .filter((e): e is Record<string, unknown> => !!e && typeof e === "object")
-        .map((e) => ({
-          summary: String(e.summary ?? "无摘要"),
-          related_user_id: String(e.related_user_id ?? ""),
-          event_time: String(
-            e.event_time ??
-              new Date()
-                .toISOString()
-                .slice(0, 16)
-                .replace("T", " ")
-          ),
-        }));
-      if (!eventObjs.length) return true;
-
-      let historySnapshot = "";
-      await this.writeLock.runExclusive(async () => {
-        const secs = await this.readSections();
-        const shortEntries = (secs["短期进程"] ?? "")
-          .split("\n\n")
-          .map((e) => e.trim())
-          .filter(Boolean);
-        const newEvents: string[] = [];
-        for (const ev of eventObjs) {
-          const line = `[${ev.event_time}] (相关ID:${ev.related_user_id}) ${ev.summary}`;
-          shortEntries.push(line);
-          newEvents.push(line);
-        }
-        secs["短期进程"] = shortEntries.slice(-50).join("\n\n");
-        secs["历史事件"] = [secs["历史事件"], ...newEvents]
-          .filter(Boolean)
-          .join("\n\n");
-        historySnapshot = secs["历史事件"] ?? "";
-        await writeFileUtf8(
-          this.mdPath,
-          `# 历史事件\n\n${secs["历史事件"]}\n\n---\n\n# 短期进程\n\n${secs["短期进程"]}\n\n---\n\n`
-        );
-      });
-
-      if (reviewCount > 0 && reviewCount % 5 === 0) {
-        void this.runDistill(historySnapshot);
-      }
-      return true;
-    } catch (e) {
-      await sendLogDetailed(`? [Memory Review - ${source}] 异常`, e);
-      return false;
-    }
-  }
-
-  async runDistill(eventText: string): Promise<void> {
-    if (!eventText) return;
-    const llmCfg = getLlmConfig(this.guildId, this.dmUserId);
-    const model = String(llmCfg.model ?? DEFAULT_MODEL);
-    const api = getLocalClient(this.guildId, this.dmUserId);
-    const ids = new Set(
-      [...eventText.matchAll(/ID:(\d+)/g)].map((m) => m[1]!)
-    );
-    for (const uid of ids) {
-      const related = eventText
-        .split("\n")
-        .filter((line) => line.includes(`ID:${uid}`));
-      if (related.length < 3) continue;
-      try {
-        const resp = await api.chat.completions.create({
-          model,
-          messages: [
-            {
-              role: "system",
-              content: MEMORY_DISTILL_PROMPT.replace("{user_id}", uid),
-            },
-            { role: "user", content: related.join("\n") },
-          ],
-          temperature: 0.5,
-          max_tokens: 2048,
-        });
-        let raw = (resp.choices[0]?.message?.content ?? "").trim();
-        raw = raw.replace(/<thought>.*?(?:<\/thought>|$)/gis, "");
-        if (raw) await this.updateUserImpression(uid, raw);
-      } catch (e) {
-        console.error(`[MemoryDistill Error] uid=${uid}:`, e);
-      }
-      await new Promise((r) => setTimeout(r, 2000));
-    }
-  }
-
-  private async updateUserImpression(
-    uid: string,
-    impression: string
-  ): Promise<void> {
-    const userPath = path.join(USER_MEMORY_DIR, `${uid}.md`);
-    await userFileLock.runExclusive(async () => {
-      let content =
-        (await readFileUtf8(userPath)) ??
-        `# ID:${uid} 的全局档案\n\n## 人物印象\n\n`;
-      const stamp = new Date().toISOString().slice(0, 10);
-      const newBlock = `*最后更新：${stamp}*\n${impression}`;
-      const pattern = /(## 人物印象\n+).*?(?=\n# |$)/s;
-      if (pattern.test(content)) {
-        content = content.replace(pattern, `$1${newBlock}\n\n`);
-      } else {
-        content = `${content}\n\n## 人物印象\n\n${newBlock}\n\n`;
-      }
-      await writeFileUtf8(userPath, content.trim() + "\n");
-    });
-  }
-}
-
 function isZh(locale: string | null | undefined): boolean {
   return (locale ?? "").startsWith("zh");
 }
@@ -1007,7 +807,22 @@ const discordRuntimeDeps: DiscordRuntimeDeps = {
     channelId: string,
     guildId: string | null,
     dmUserId: string | null
-  ) => new MemoryManager(channelId, guildId, dmUserId),
+  ) =>
+    new StelleDiscordMemoryManager({
+      channelId,
+      guildId,
+      dmUserId,
+      memoryRoot: MEMORY_DIR,
+      defaultModel: DEFAULT_MODEL,
+      deps: {
+        getBotId,
+        getLlmConfig,
+        getLocalClient,
+        parseJson,
+        getUserDisplayName: UserIndex.getName.bind(UserIndex),
+        sendLogDetailed,
+      },
+    }),
   userIndex: {
     getName: UserIndex.getName.bind(UserIndex),
     getOrCreateNickname: UserIndex.getOrCreateNickname.bind(UserIndex),
@@ -1024,16 +839,10 @@ const discordSlashDeps = {
   loc,
   isAuthorized,
   forgetUserProfile: async (userId: string): Promise<boolean> => {
-    const userPath = path.join(USER_MEMORY_DIR, `${userId}.md`);
-    if (!existsSync(userPath)) return false;
-    await unlink(userPath);
-    return true;
+    return forgetDiscordUserProfile(userId, MEMORY_DIR);
   },
   clearChannelMemory: async (channelId: string): Promise<void> => {
-    const channelPath = path.join(CHANNEL_MEMORY_DIR, `${channelId}.md`);
-    if (existsSync(channelPath)) {
-      await unlink(channelPath);
-    }
+    await clearDiscordChannelMemory(channelId, MEMORY_DIR);
   },
   getChannelConfig,
   defaultChannelConfig: DEFAULT_CHANNEL_CONFIG,

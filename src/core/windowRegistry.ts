@@ -2,6 +2,7 @@ import type { CursorActivation, CursorHost, CursorReport } from "../cursors/base
 
 export interface WindowRegistrySnapshot {
   registeredCursorIds: string[];
+  registeredWindows: Array<{ id: string; kind: string }>;
   lastTickAt: number | null;
   lastAttentionAt: number | null;
   cycleCount: number;
@@ -61,6 +62,10 @@ export class WindowRegistry {
   async snapshot(): Promise<WindowRegistrySnapshot> {
     return {
       registeredCursorIds: [...this.cursors.keys()],
+      registeredWindows: [...this.cursors.values()].map((cursor) => ({
+        id: cursor.id,
+        kind: cursor.kind,
+      })),
       lastTickAt: this.lastTickAt,
       lastAttentionAt: this.lastAttentionAt,
       cycleCount: this.cycleCount,

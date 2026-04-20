@@ -2,9 +2,11 @@ import { WindowRegistry } from "../core/windowRegistry.js";
 import type { CursorActivation, CursorHost, CursorReport } from "../cursors/base.js";
 import { ConsciousnessCursor } from "./consciousness/ConsciousnessCursor.js";
 import { ExperienceStore, type ExperienceSource } from "./ExperienceStore.js";
+import { MemoryStore } from "./memory/MemoryStore.js";
 import type {
   AttentionActivation,
   AttentionCycleResult,
+  MemoryReflection,
   StelleSnapshot,
 } from "./types.js";
 
@@ -16,6 +18,7 @@ export class Stelle {
   readonly windows: WindowRegistry;
   readonly consciousness: ConsciousnessCursor;
   readonly experience: ExperienceStore;
+  readonly memory: MemoryStore;
 
   private attentionRunning = false;
 
@@ -23,10 +26,12 @@ export class Stelle {
     windows?: WindowRegistry;
     consciousness?: ConsciousnessCursor;
     experience?: ExperienceStore;
+    memory?: MemoryStore;
   }) {
     this.windows = options?.windows ?? new WindowRegistry();
     this.consciousness = options?.consciousness ?? new ConsciousnessCursor();
     this.experience = options?.experience ?? new ExperienceStore();
+    this.memory = options?.memory ?? new MemoryStore();
   }
 
   registerWindow(cursor: CursorHost): void {
@@ -57,6 +62,8 @@ export class Stelle {
       return {
         reports: [],
         idleActivations: [],
+        memoryReflections: [],
+        decisions: [],
         ranConsciousness: false,
         timestamp: now(),
       };
@@ -67,6 +74,8 @@ export class Stelle {
       const reports = await this.collectReports(() => this.windows.tickAll());
 
       let idleActivations: AttentionActivation[] = [];
+      let memoryReflections: MemoryReflection[] = [];
+      let decisions: AttentionCycleResult["decisions"] = [];
       let ranConsciousness = false;
 
       if (!reports.length) {
@@ -78,6 +87,9 @@ export class Stelle {
           timestamp,
         });
         idleActivations = idleResult.idleActivations;
+        memoryReflections = idleResult.memoryReflections;
+        decisions = idleResult.decisions;
+        await this.memory.remember(memoryReflections);
         this.ingestReports(idleResult.reports);
         reports.push(...idleResult.reports);
 
@@ -96,6 +108,8 @@ export class Stelle {
       return {
         reports,
         idleActivations,
+        memoryReflections,
+        decisions,
         ranConsciousness,
         timestamp,
       };
@@ -109,6 +123,7 @@ export class Stelle {
       identity: "Stelle",
       windows: await this.windows.snapshot(),
       experience: this.experience.snapshot(),
+      memory: this.memory.snapshot(),
       consciousness: this.consciousness.snapshot(),
     };
   }

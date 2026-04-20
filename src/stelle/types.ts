@@ -1,5 +1,15 @@
 import type { WindowRegistrySnapshot } from "../core/windowRegistry.js";
 import type { CursorActivation, CursorReport } from "../cursors/base.js";
+import type {
+  MemoryReflection,
+  MemoryStoreSnapshot,
+} from "./memory/types.js";
+import type { ConsciousnessStrategyDecision } from "./consciousness/types.js";
+
+export type {
+  MemoryReflection,
+  MemoryStoreSnapshot,
+} from "./memory/types.js";
 
 export interface AttentionActivation {
   cursorId: string;
@@ -9,6 +19,8 @@ export interface AttentionActivation {
 export interface AttentionCycleResult {
   reports: CursorReport[];
   idleActivations: AttentionActivation[];
+  memoryReflections: MemoryReflection[];
+  decisions: ConsciousnessStrategyDecision[];
   ranConsciousness: boolean;
   timestamp: number;
 }
@@ -34,6 +46,7 @@ export interface StelleSnapshot {
   identity: "Stelle";
   windows: WindowRegistrySnapshot;
   experience: ExperienceStoreSnapshot;
+  memory: MemoryStoreSnapshot;
   consciousness: ConsciousnessSnapshot;
 }
 
@@ -43,6 +56,7 @@ export interface ConsciousnessSnapshot {
   currentFocusCursorId: string | null;
   lastReflectionAt: number | null;
   observedExperienceCount: number;
+  lastDecisions: ConsciousnessStrategyDecision[];
 }
 
 export interface ConsciousnessIdleContext {
@@ -54,4 +68,8 @@ export interface ConsciousnessIdleContext {
 export interface ConsciousnessIdleResult {
   reports: CursorReport[];
   idleActivations: AttentionActivation[];
+  memoryReflections: MemoryReflection[];
+  decisions: ConsciousnessStrategyDecision[];
 }
+
+export type { ConsciousnessStrategyDecision } from "./consciousness/types.js";

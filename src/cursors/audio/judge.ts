@@ -1,27 +1,28 @@
 import type {
-  SpeechActivation,
-  SpeechActivationJudgeResult,
-  SpeechJudgeInput,
-  SpeechTaskJudgeResult,
+  AudioActivation,
+  AudioActivationJudgeResult,
+  AudioJudgeInput,
+  AudioTaskJudgeResult,
 } from "./types.js";
 
-export function judgeSpeechActivation(
-  input: SpeechJudgeInput & { activation: SpeechActivation }
-): SpeechActivationJudgeResult {
+export function judgeAudioActivation(
+  input: AudioJudgeInput & { activation: AudioActivation }
+): AudioActivationJudgeResult {
   const activation = input.activation;
 
   switch (activation.type) {
     case "audio_input_ready":
       return {
         accepted: true,
-        queue: "transcription",
+        queue: "input",
         reason: "Audio input should be queued for transcription.",
       };
+    case "audio_output_requested":
     case "speak_requested":
       return {
         accepted: true,
-        queue: "synthesis",
-        reason: "Speech output should be queued for synthesis.",
+        queue: "output",
+        reason: "Audio output should be queued for synthesis.",
       };
     case "playback_finished":
       return {
@@ -31,28 +32,31 @@ export function judgeSpeechActivation(
     default:
       return {
         accepted: false,
-        reason: `Speech cursor ignores activation ${activation.type}.`,
+        reason: `Audio cursor ignores activation ${activation.type}.`,
       };
   }
 }
 
-export function judgeSpeechNextTask(input: SpeechJudgeInput): SpeechTaskJudgeResult {
-  if (input.context.pendingTranscriptions.length) {
+export function judgeAudioNextTask(input: AudioJudgeInput): AudioTaskJudgeResult {
+  if (input.context.pendingInputs.length) {
     return {
-      mode: "transcribe",
-      reason: "Pending transcriptions take priority so incoming audio can be understood quickly.",
+      mode: "transcribe_input",
+      reason: "Pending audio inputs take priority so incoming speech can be understood quickly.",
     };
   }
 
-  if (input.context.pendingSyntheses.length) {
+  if (input.context.pendingOutputs.length) {
     return {
-      mode: "synthesize",
-      reason: "No transcription is pending, so queued speech can be synthesized.",
+      mode: "synthesize_output",
+      reason: "No audio input is pending, so queued speech output can be synthesized.",
     };
   }
 
   return {
     mode: "idle",
-    reason: "No queued speech work is pending.",
+    reason: "No queued audio input or output work is pending.",
   };
 }
+
+export const judgeSpeechActivation = judgeAudioActivation;
+export const judgeSpeechNextTask = judgeAudioNextTask;

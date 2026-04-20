@@ -11,6 +11,7 @@ import type {
 } from "../types.js";
 import { judgeIdleAttention } from "./judge.js";
 import { planIdleWindowActivations } from "./strategies.js";
+import { reflectMemorableExperiences } from "../memory/reflection.js";
 
 const REFLECTION_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -23,6 +24,8 @@ export class ConsciousnessCursor implements CursorHost {
   private lastReflectionAt: number | null = null;
   private observedExperienceCount = 0;
   private lastObservedExperienceId: string | null = null;
+  private readonly rememberedExperienceIds = new Set<string>();
+  private lastDecisions: ConsciousnessIdleResult["decisions"] = [];
 
   async activate(input: CursorActivation): Promise<void> {
     this.activations.push(input);
@@ -67,6 +70,15 @@ export class ConsciousnessCursor implements CursorHost {
     const reports: CursorReport[] = [];
     const idleActivations: AttentionActivation[] =
       planIdleWindowActivations(judgement);
+    this.lastDecisions = judgement.decisions;
+    const memoryReflections = reflectMemorableExperiences({
+      experiences: context.recentExperiences,
+      rememberedExperienceIds: this.rememberedExperienceIds,
+      timestamp: context.timestamp,
+    });
+    for (const reflection of memoryReflections) {
+      this.rememberedExperienceIds.add(reflection.experienceId);
+    }
 
     if (judgement.shouldReflect) {
       this.lastReflectionAt = context.timestamp;
@@ -77,13 +89,20 @@ export class ConsciousnessCursor implements CursorHost {
         payload: {
           focusCursorId: this.currentFocusCursorId,
           registeredWindowIds: context.windows.registeredCursorIds,
+          decisions: judgement.decisions,
           recentExperienceIds: context.recentExperiences.map((item) => item.id),
+          memoryReflectionCount: memoryReflections.length,
         },
         timestamp: context.timestamp,
       });
     }
 
-    return { reports, idleActivations };
+    return {
+      reports,
+      idleActivations,
+      memoryReflections,
+      decisions: judgement.decisions,
+    };
   }
 
   snapshot(): ConsciousnessSnapshot {
@@ -93,6 +112,7 @@ export class ConsciousnessCursor implements CursorHost {
       currentFocusCursorId: this.currentFocusCursorId,
       lastReflectionAt: this.lastReflectionAt,
       observedExperienceCount: this.observedExperienceCount,
+      lastDecisions: this.lastDecisions,
     };
   }
 }

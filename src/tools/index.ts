@@ -1,4 +1,6 @@
 import { ToolRegistry } from "../agent/registry.js";
+import audioSpeakTool from "./audio/speak.js";
+import audioTranscribeFileTool from "./audio/transcribeFile.js";
 import calculatorTool from "./basic/calculator.js";
 import datetimeTool from "./basic/datetime.js";
 import browserBackTool from "./browser/goBack.js";
@@ -31,6 +33,8 @@ export function createToolRegistry(): ToolRegistry {
   const registry = new ToolRegistry();
   registry.register(datetimeTool);
   registry.register(calculatorTool);
+  registry.register(audioTranscribeFileTool);
+  registry.register(audioSpeakTool);
   registry.register(browserBackTool);
   registry.register(browserClickTool);
   registry.register(browserHumanWaitTool);
