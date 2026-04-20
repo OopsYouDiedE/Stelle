@@ -64,22 +64,6 @@ const browserTypeTool: ToolDefinition<BrowserTypeParams> = {
           timeoutMs: timeout_ms,
         },
       },
-      wait: press_enter
-        ? {
-            type: "network_idle",
-            timeoutMs: 5000,
-          }
-        : {
-            type: "none",
-          },
-      expect: press_enter
-        ? {
-            summary: "Submitting input should often change content or URL",
-            mode: "one_of",
-            conditions: [{ type: "content_changed" }, { type: "url_changed" }],
-            onMiss: "reinspect",
-          }
-        : undefined,
       createdAt: Date.now(),
     });
     return JSON.stringify(result, null, 2);

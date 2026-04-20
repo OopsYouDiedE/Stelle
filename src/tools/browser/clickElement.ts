@@ -49,16 +49,6 @@ const browserClickTool: ToolDefinition<BrowserClickParams> = {
           timeoutMs: timeout_ms,
         },
       },
-      wait: {
-        type: "dom_change",
-        timeoutMs: 5000,
-      },
-      expect: {
-        summary: "Clicking should usually change content or page state",
-        mode: "one_of",
-        conditions: [{ type: "content_changed" }, { type: "url_changed" }],
-        onMiss: "reinspect",
-      },
       createdAt: Date.now(),
     });
     return JSON.stringify(result, null, 2);

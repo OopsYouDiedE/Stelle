@@ -12,6 +12,10 @@ import type {
 } from "./types.js";
 import type { MinecraftRuntime } from "./runtime.js";
 import { judgeMinecraftRun } from "./judge.js";
+import { executeMinecraftAction } from "./actions.js";
+import { summarizeInventory } from "./skills/inventory.js";
+import { summarizeNearbyBlocks, summarizeNearbyEntities } from "./skills/world.js";
+import { toPosition } from "./skills/common.js";
 
 export interface MinecraftCursorOptions {
   id?: string;
@@ -20,15 +24,6 @@ export interface MinecraftCursorOptions {
 
 function now(): number {
   return Date.now();
-}
-
-function toPosition(source: any): { x: number; y: number; z: number } | null {
-  if (!source) return null;
-  return {
-    x: Number(source.x ?? 0),
-    y: Number(source.y ?? 0),
-    z: Number(source.z ?? 0),
-  };
 }
 
 export class MineflayerMinecraftCursor implements MinecraftCursor {
@@ -97,13 +92,14 @@ export class MineflayerMinecraftCursor implements MinecraftCursor {
     this.context.connection = config;
     const bot = await this.runtime.createBot(config);
     this.bot = bot;
+    this.bindBotEvents(bot);
+    await this.waitForSpawn(bot, 60000);
     const pathfinder = await this.runtime.loadPathfinder(bot);
     this.goals = pathfinder.goals;
     this.movements = new pathfinder.Movements(bot);
     if (bot.pathfinder?.setMovements) {
       bot.pathfinder.setMovements(this.movements);
     }
-    this.bindBotEvents(bot);
 
     return {
       ok: true,
@@ -216,75 +212,15 @@ export class MineflayerMinecraftCursor implements MinecraftCursor {
   }
 
   private async executeAction(action: MinecraftAction): Promise<MinecraftActionResult> {
-    switch (action.type) {
-      case "connect":
-        return this.connect(action.input);
-      case "disconnect":
-        return this.disconnect();
-      case "chat":
-        this.assertBotReady();
-        this.bot.chat(action.input.message);
-        return {
-          ok: true,
-          actionType: "chat",
-          summary: `Sent Minecraft chat: ${action.input.message}`,
-          timestamp: now(),
-        };
-      case "inspect":
-        return {
-          ok: true,
-          actionType: "inspect",
-          summary: `Observed Minecraft state: ${this.buildSummary()}`,
-          timestamp: now(),
-        };
-      case "goto": {
-        this.assertPathfinderReady();
-        const range = action.input.range ?? 1;
-        const goal = new this.goals!.GoalNear(
-          action.input.x,
-          action.input.y,
-          action.input.z,
-          range
-        );
-        await this.bot.pathfinder.goto(goal);
-        return {
-          ok: true,
-          actionType: "goto",
-          summary: `Moved near (${action.input.x}, ${action.input.y}, ${action.input.z}) with range ${range}.`,
-          timestamp: now(),
-        };
-      }
-      case "follow_player": {
-        this.assertPathfinderReady();
-        const target = this.bot.players[action.input.username]?.entity;
-        if (!target) {
-          throw new Error(`Player "${action.input.username}" is not visible to the bot.`);
-        }
-        const goal = new this.goals!.GoalFollow(target, action.input.range ?? 2);
-        this.bot.pathfinder.setGoal(goal, true);
-        return {
-          ok: true,
-          actionType: "follow_player",
-          summary: `Following player ${action.input.username}.`,
-          timestamp: now(),
-        };
-      }
-      case "stop":
-        this.assertBotReady();
-        if (this.bot.pathfinder?.setGoal) {
-          this.bot.pathfinder.setGoal(null);
-        } else if (this.bot.pathfinder?.stop) {
-          this.bot.pathfinder.stop();
-        }
-        return {
-          ok: true,
-          actionType: "stop",
-          summary: "Stopped current Minecraft movement goal.",
-          timestamp: now(),
-        };
-      default:
-        throw new Error(`Unsupported Minecraft action: ${(action as { type: string }).type}`);
-    }
+    return executeMinecraftAction(action, {
+      runtime: this.runtime,
+      getBot: () => this.bot,
+      getGoals: () => this.goals,
+      assertBotReady: () => this.assertBotReady(),
+      assertPathfinderReady: () => this.assertPathfinderReady(),
+      connect: (input) => this.connect(input),
+      disconnect: () => this.disconnect(),
+    });
   }
 
   private observe(): MinecraftObservation {
@@ -305,10 +241,14 @@ export class MineflayerMinecraftCursor implements MinecraftCursor {
       username: bot?.username ?? this.context.connection?.username ?? null,
       host: this.context.connection?.host ?? null,
       port: this.context.connection?.port ?? 25565,
+      gameMode: bot?.game?.gameMode ?? null,
       health: bot?.health ?? null,
       food: bot?.food ?? null,
       dimension: bot?.game?.dimension ?? null,
       position: toPosition(bot?.entity?.position),
+      inventory: bot ? summarizeInventory(bot, 12) : [],
+      nearbyBlocks: bot ? summarizeNearbyBlocks(bot, 4, 24) : [],
+      nearbyEntities: bot ? summarizeNearbyEntities(bot, 32, 24) : [],
       knownPlayers,
       timestamp: now(),
     };
@@ -367,6 +307,46 @@ export class MineflayerMinecraftCursor implements MinecraftCursor {
       this.pushReport(
         this.makeReport("error", `Minecraft bot error: ${error.message}`)
       );
+    });
+  }
+
+  private async waitForSpawn(bot: any, timeoutMs: number): Promise<void> {
+    if (bot.entity && bot.version) return;
+
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        cleanup();
+        reject(new Error(`Timed out waiting for Minecraft spawn after ${timeoutMs}ms.`));
+      }, timeoutMs);
+
+      const cleanup = () => {
+        clearTimeout(timeout);
+        bot.off?.("spawn", onSpawn);
+        bot.off?.("kicked", onKicked);
+        bot.off?.("error", onError);
+        bot.off?.("end", onEnd);
+      };
+      const onSpawn = () => {
+        cleanup();
+        resolve();
+      };
+      const onKicked = (reason: unknown) => {
+        cleanup();
+        reject(new Error(`Minecraft bot was kicked before spawn: ${String(reason ?? "unknown")}`));
+      };
+      const onError = (error: Error) => {
+        cleanup();
+        reject(error);
+      };
+      const onEnd = (reason: unknown) => {
+        cleanup();
+        reject(new Error(`Minecraft connection ended before spawn: ${String(reason ?? "unknown")}`));
+      };
+
+      bot.once?.("spawn", onSpawn);
+      bot.once?.("kicked", onKicked);
+      bot.once?.("error", onError);
+      bot.once?.("end", onEnd);
     });
   }
 

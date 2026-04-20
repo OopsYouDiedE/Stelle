@@ -9,16 +9,23 @@ import type {
 function defaultWaitPlan(action: BrowserAction): BrowserWaitPolicy | undefined {
   switch (action.type) {
     case "open":
-      return { type: "network_idle", timeoutMs: 10000 };
+      return { type: "network_idle", timeoutMs: 30000 };
     case "click":
-      return { type: "dom_change", timeoutMs: 5000 };
+    case "mouse_click":
+      return { type: "dom_change", timeoutMs: 30000 };
     case "type":
       return action.input.pressEnter
-        ? { type: "network_idle", timeoutMs: 8000 }
-        : { type: "dom_change", timeoutMs: 3000 };
+        ? { type: "network_idle", timeoutMs: 30000 }
+        : { type: "dom_change", timeoutMs: 30000 };
+    case "keyboard_press":
+      return { type: "network_idle", timeoutMs: 30000 };
+    case "keyboard_type":
+      return { type: "dom_change", timeoutMs: 30000 };
+    case "human_wait":
+      return { type: "none" };
     case "back":
     case "refresh":
-      return { type: "navigation", timeoutMs: 8000 };
+      return { type: "navigation", timeoutMs: 30000 };
     default:
       return undefined;
   }
@@ -49,6 +56,20 @@ function defaultExpectation(action: BrowserAction): BrowserExpectation | undefin
             onMiss: "reinspect",
           }
         : undefined;
+    case "back":
+      return {
+        summary: "Going back should usually change URL or content",
+        mode: "one_of",
+        conditions: [{ type: "url_changed" }, { type: "content_changed" }],
+        onMiss: "report",
+      };
+    case "refresh":
+      return {
+        summary: "Refreshing should reload page content or title",
+        mode: "one_of",
+        conditions: [{ type: "content_changed" }, { type: "title_changed" }],
+        onMiss: "report",
+      };
     default:
       return undefined;
   }
@@ -80,6 +101,43 @@ export function judgeBrowserRun(input: BrowserJudgeInput): BrowserJudgeResult {
         waitPlan,
         expectationPlan,
         preObservation: context.lastObservation ? undefined : "interactive",
+      };
+    case "mouse_click":
+      if (!Number.isFinite(actionPlan.input.x) || !Number.isFinite(actionPlan.input.y)) {
+        return {
+          executable: false,
+          reason: "Mouse click requires finite x and y coordinates.",
+          actionPlan,
+          waitPlan,
+          expectationPlan,
+        };
+      }
+      return {
+        executable: true,
+        reason: "Mouse click can execute against the current visible browser page.",
+        actionPlan,
+        waitPlan,
+        expectationPlan,
+        preObservation: "page",
+      };
+    case "keyboard_type":
+    case "keyboard_press":
+      return {
+        executable: true,
+        reason: "Keyboard action can execute against the focused browser page.",
+        actionPlan,
+        waitPlan,
+        expectationPlan,
+        preObservation: "page",
+      };
+    case "human_wait":
+      return {
+        executable: true,
+        reason: "Human handoff wait can execute against the visible browser session.",
+        actionPlan,
+        waitPlan,
+        expectationPlan,
+        preObservation: "page",
       };
     case "type":
       if (!actionPlan.input.selector && !actionPlan.input.placeholder) {
@@ -128,6 +186,7 @@ export function judgeBrowserRun(input: BrowserJudgeInput): BrowserJudgeResult {
         actionPlan,
         waitPlan,
         expectationPlan,
+        preObservation: "page",
       };
     default:
       return {

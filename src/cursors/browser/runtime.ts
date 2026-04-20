@@ -1,12 +1,16 @@
 import {
   ensureBrowserScreenshotDir,
+  getBrowserContext,
   getBrowserPage,
   getBrowserSession,
+  setBrowserPage,
 } from "./session.js";
 
 export interface BrowserRuntime {
   ensureReady(): Promise<void>;
   getPage(): Promise<any>;
+  getContext(): Promise<any>;
+  setPage(page: any): Promise<void>;
   getCurrentUrl(): Promise<string | null>;
   getTitle(): Promise<string | null>;
   ensureScreenshotDir(cwd: string): Promise<string>;
@@ -18,6 +22,12 @@ export const playwrightBrowserRuntime: BrowserRuntime = {
   },
   async getPage(): Promise<any> {
     return getBrowserPage();
+  },
+  async getContext(): Promise<any> {
+    return getBrowserContext();
+  },
+  async setPage(page: any): Promise<void> {
+    await setBrowserPage(page);
   },
   async getCurrentUrl(): Promise<string | null> {
     const page = await getBrowserPage();

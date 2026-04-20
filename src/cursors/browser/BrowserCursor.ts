@@ -1,3 +1,4 @@
+import { rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { CursorActivation, CursorReport } from "../base.js";
 import type {
@@ -11,9 +12,13 @@ import type {
   BrowserEvent,
   BrowserExpectation,
   BrowserExpectedCondition,
+  BrowserHumanWaitAction,
   BrowserInputInfo,
   BrowserInteractiveObservation,
+  BrowserKeyboardPressAction,
+  BrowserKeyboardTypeAction,
   BrowserLinkInfo,
+  BrowserMouseClickAction,
   BrowserObservation,
   BrowserReport,
   BrowserRunRequest,
@@ -58,6 +63,14 @@ function summarizeAction(action: BrowserAction): string {
       return `Click ${action.input.selector ?? action.input.text ?? "target"}`;
     case "type":
       return `Type into ${action.input.selector ?? action.input.placeholder ?? "input"}`;
+    case "mouse_click":
+      return `Mouse click at ${action.input.x},${action.input.y}`;
+    case "keyboard_type":
+      return "Keyboard type text";
+    case "keyboard_press":
+      return `Keyboard press ${action.input.key}`;
+    case "human_wait":
+      return `Wait for human: ${action.input?.reason ?? "manual browser operation"}`;
     case "back":
       return "Go back";
     case "refresh":
@@ -143,6 +156,7 @@ export class PlaywrightBrowserCursor implements BrowserCursor {
   private cwd: string;
   private readonly runtime: BrowserRuntime;
   private uploadAttachment?: BrowserCursorOptions["uploadAttachment"];
+  private screenshotQueue: Promise<unknown> = Promise.resolve();
   private readonly context: BrowserContext = {
     currentUrl: null,
     currentTitle: null,
@@ -150,6 +164,7 @@ export class PlaywrightBrowserCursor implements BrowserCursor {
     waitState: null,
     lastObservation: null,
     lastAction: null,
+    lastScreenshot: null,
     recentActivations: [],
     recentEvents: [],
     recentReports: [],
@@ -305,13 +320,15 @@ export class PlaywrightBrowserCursor implements BrowserCursor {
     let actionResult: BrowserActionResult | undefined;
     let observation: BrowserObservation | BrowserInteractiveObservation | undefined;
     let screenshot: BrowserScreenshotResult | undefined;
-    const previousObservation = this.context.lastObservation;
+    let previousObservation = this.context.lastObservation;
 
     try {
       if (judge.preObservation === "interactive") {
         await this.observeInteractive();
+        previousObservation = this.context.lastObservation;
       } else if (judge.preObservation === "page") {
         await this.observePage();
+        previousObservation = this.context.lastObservation;
       }
 
       const execution = await this.executeAction(judge.actionPlan);
@@ -348,6 +365,13 @@ export class PlaywrightBrowserCursor implements BrowserCursor {
 
       const postObservation = await this.observePage();
       observation = postObservation;
+
+      screenshot =
+        judge.actionPlan.type === "screenshot"
+          ? screenshot
+          : await this.updateCurrentFrame(
+              `Current frame after ${judge.actionPlan.type}`
+            ).catch(() => screenshot);
 
       if (judge.expectationPlan) {
         expectationChecked = true;
@@ -431,6 +455,9 @@ export class PlaywrightBrowserCursor implements BrowserCursor {
         summary,
         timestamp: report.timestamp,
       });
+      screenshot = await this.updateCurrentFrame(
+        `Current frame after browser error: ${judge.actionPlan.type}`
+      ).catch(() => screenshot);
       return {
         requestId: input.id,
         ok: false,
@@ -473,7 +500,12 @@ export class PlaywrightBrowserCursor implements BrowserCursor {
       waitState: this.context.waitState,
       lastObservedAt: this.context.lastObservedAt,
       lastActionAt: this.context.lastActionAt,
+      lastScreenshot: this.context.lastScreenshot,
     };
+  }
+
+  async captureCurrentFrame(reason = "Browser Cursor current frame"): Promise<BrowserScreenshotResult> {
+    return this.updateCurrentFrame(reason);
   }
 
   private async executeAction(action: BrowserAction): Promise<{
@@ -488,6 +520,14 @@ export class PlaywrightBrowserCursor implements BrowserCursor {
         return { actionResult: await this.click(action.input) };
       case "type":
         return { actionResult: await this.type(action.input) };
+      case "mouse_click":
+        return { actionResult: await this.mouseClick(action.input) };
+      case "keyboard_type":
+        return { actionResult: await this.keyboardType(action.input) };
+      case "keyboard_press":
+        return { actionResult: await this.keyboardPress(action.input) };
+      case "human_wait":
+        return { actionResult: await this.humanWait(action.input) };
       case "back":
         return { actionResult: await this.back() };
       case "refresh":
@@ -527,6 +567,10 @@ export class PlaywrightBrowserCursor implements BrowserCursor {
     }
 
     const page = await this.runtime.getPage();
+    const context = await this.runtime.getContext();
+    const popupPromise = context
+      .waitForEvent("page", { timeout: input.timeoutMs ?? 10000 })
+      .catch(() => null);
     if (input.selector) {
       await page.locator(input.selector).first().click({
         timeout: input.timeoutMs ?? 10000,
@@ -534,11 +578,16 @@ export class PlaywrightBrowserCursor implements BrowserCursor {
     } else if (input.text) {
       await clickByVisibleText(page, input.text, input.timeoutMs ?? 10000);
     }
-    await waitForPageSettle(page, 10000);
-    await waitForNetworkIdle(page, 5000);
+    const popup = await popupPromise;
+    const activePage = popup ?? page;
+    if (popup) {
+      await this.runtime.setPage(popup);
+    }
+    await waitForPageSettle(activePage, 10000);
+    await waitForNetworkIdle(activePage, 5000);
     return this.finalizeAction(
       "click",
-      `Clicked ${input.selector ?? input.text ?? "target"}`
+      `Clicked ${input.selector ?? input.text ?? "target"}${popup ? " and switched to new page" : ""}`
     );
   }
 
@@ -559,6 +608,46 @@ export class PlaywrightBrowserCursor implements BrowserCursor {
     return this.finalizeAction(
       "type",
       `Typed into ${input.selector ?? input.placeholder ?? "input"}`
+    );
+  }
+
+  private async mouseClick(input: BrowserMouseClickAction): Promise<BrowserActionResult> {
+    const page = await this.runtime.getPage();
+    await page.mouse.click(input.x, input.y, {
+      button: input.button ?? "left",
+      clickCount: input.clickCount ?? 1,
+    });
+    await waitForPageSettle(page, 30000);
+    await waitForNetworkIdle(page, 30000);
+    return this.finalizeAction(
+      "mouse_click",
+      `Mouse clicked ${input.x},${input.y}`
+    );
+  }
+
+  private async keyboardType(input: BrowserKeyboardTypeAction): Promise<BrowserActionResult> {
+    const page = await this.runtime.getPage();
+    await page.keyboard.type(input.text, { delay: input.delayMs ?? 20 });
+    return this.finalizeAction("keyboard_type", "Keyboard typed text");
+  }
+
+  private async keyboardPress(input: BrowserKeyboardPressAction): Promise<BrowserActionResult> {
+    const page = await this.runtime.getPage();
+    await page.keyboard.press(input.key);
+    await waitForPageSettle(page, 30000);
+    await waitForNetworkIdle(page, 30000);
+    return this.finalizeAction("keyboard_press", `Keyboard pressed ${input.key}`);
+  }
+
+  private async humanWait(input?: BrowserHumanWaitAction): Promise<BrowserActionResult> {
+    const page = await this.runtime.getPage();
+    const timeoutMs = Math.min(Math.max(input?.timeoutMs ?? 45000, 30000), 60000);
+    await new Promise((resolve) => setTimeout(resolve, timeoutMs));
+    await waitForPageSettle(page, 30000);
+    await waitForNetworkIdle(page, 30000);
+    return this.finalizeAction(
+      "human_wait",
+      `Waited ${timeoutMs}ms for human operation${input?.reason ? `: ${input.reason}` : ""}`
     );
   }
 
@@ -635,6 +724,7 @@ export class PlaywrightBrowserCursor implements BrowserCursor {
       return {
         url: location.href,
         title: document.title,
+        textPreview: (document.body?.innerText ?? "").replace(/\s+/g, " ").trim().slice(0, 4000),
         links,
         buttons,
         inputs,
@@ -660,6 +750,18 @@ export class PlaywrightBrowserCursor implements BrowserCursor {
     fileName?: string,
     fullPage = true
   ): Promise<BrowserScreenshotResult> {
+    const run = this.screenshotQueue
+      .catch(() => undefined)
+      .then(() => this.captureScreenshotNow(reason, fileName, fullPage));
+    this.screenshotQueue = run.catch(() => undefined);
+    return run;
+  }
+
+  private async captureScreenshotNow(
+    reason?: string,
+    fileName?: string,
+    fullPage = true
+  ): Promise<BrowserScreenshotResult> {
     const page = await this.runtime.getPage();
     const dir = await this.runtime.ensureScreenshotDir(this.cwd);
     const safeName = safeFileName(
@@ -669,24 +771,34 @@ export class PlaywrightBrowserCursor implements BrowserCursor {
       dir,
       safeName.endsWith(".png") ? safeName : `${safeName}.png`
     );
-    await page.screenshot({
-      path: outputPath,
+    const tempPath = `${outputPath}.${process.pid}.${Date.now()}.tmp`;
+    const image = await page.screenshot({
       fullPage,
       type: "png",
     });
+    await writeFile(tempPath, image);
+    await rename(tempPath, outputPath);
     const uploadMessage = this.uploadAttachment
       ? ((await this.uploadAttachment(
           outputPath,
           reason ? `Browser screenshot: ${reason}` : `Browser screenshot from ${page.url()}`
         )) as string | void)
       : undefined;
-    return {
+    const result = {
       path: outputPath,
       url: page.url(),
       uploaded: !!uploadMessage,
       uploadMessage: uploadMessage ?? null,
       timestamp: now(),
     };
+    this.context.lastScreenshot = result;
+    return result;
+  }
+
+  private async updateCurrentFrame(reason: string): Promise<BrowserScreenshotResult> {
+    // This is the Browser Cursor's internal visual state. It is captured from
+    // the Playwright page, not from an external desktop/window screenshot.
+    return this.captureScreenshot(reason, "browser-current.png", false);
   }
 
   private createWaitState(
@@ -829,9 +941,9 @@ export class PlaywrightBrowserCursor implements BrowserCursor {
       case "title_changed":
         return !!previous && current.title !== previous.title;
       case "text_present":
-        return "textPreview" in current && current.textPreview.includes(condition.text);
+        return Boolean(current.textPreview?.includes(condition.text));
       case "content_changed":
-        return !!previous && "textPreview" in current && "textPreview" in previous
+        return !!previous && current.textPreview !== undefined && previous.textPreview !== undefined
           ? current.textPreview !== previous.textPreview
           : false;
       case "element_visible":

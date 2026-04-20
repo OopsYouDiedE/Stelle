@@ -29,16 +29,41 @@ export interface MinecraftPlayerSummary {
   position?: MinecraftPosition | null;
 }
 
+export interface MinecraftInventoryItemSummary {
+  name: string;
+  count: number;
+  slot: number;
+}
+
+export interface MinecraftBlockSummary {
+  name: string;
+  position: MinecraftPosition;
+  distance: number;
+}
+
+export interface MinecraftEntitySummary {
+  id: number;
+  name: string;
+  type: string;
+  username?: string | null;
+  position: MinecraftPosition | null;
+  distance: number | null;
+}
+
 export interface MinecraftObservation {
   connected: boolean;
   spawned: boolean;
   username: string | null;
   host: string | null;
   port: number | null;
+  gameMode: string | null;
   health: number | null;
   food: number | null;
   dimension: string | null;
   position: MinecraftPosition | null;
+  inventory: MinecraftInventoryItemSummary[];
+  nearbyBlocks: MinecraftBlockSummary[];
+  nearbyEntities: MinecraftEntitySummary[];
   knownPlayers: MinecraftPlayerSummary[];
   timestamp: number;
 }
@@ -48,6 +73,54 @@ export type MinecraftAction =
   | { type: "disconnect" }
   | { type: "chat"; input: { message: string } }
   | { type: "inspect" }
+  | { type: "inventory_snapshot"; input?: { limit?: number } }
+  | { type: "nearby_blocks"; input?: { range?: number; limit?: number } }
+  | { type: "nearby_entities"; input?: { range?: number; limit?: number } }
+  | {
+      type: "give_creative_item";
+      input: { item: string; count?: number; slot?: number };
+    }
+  | {
+      type: "equip_item";
+      input: { item: string; destination?: "hand" | "head" | "torso" | "legs" | "feet" | "off-hand" };
+    }
+  | {
+      type: "mine_block_at";
+      input: { position: MinecraftPosition; timeoutMs?: number };
+    }
+  | {
+      type: "place_block_at";
+      input: {
+        item: string;
+        position: MinecraftPosition;
+        method?: "auto" | "command" | "hand";
+      };
+    }
+  | {
+      type: "collect_blocks";
+      input: { block: string; count?: number; range?: number };
+    }
+  | {
+      type: "craft_recipe";
+      input: {
+        item: string;
+        count?: number;
+        useCraftingTable?: boolean;
+        creativeFallback?: boolean;
+      };
+    }
+  | { type: "set_follow_target"; input: { username: string; range?: number } }
+  | { type: "clear_follow_target" }
+  | { type: "prepare_wooden_pickaxe" }
+  | {
+      type: "build_wooden_house";
+      input?: {
+        origin?: MinecraftPosition;
+        width?: number;
+        depth?: number;
+        height?: number;
+      };
+    }
   | { type: "goto"; input: { x: number; y: number; z: number; range?: number } }
   | { type: "follow_player"; input: { username: string; range?: number } }
   | { type: "stop" };

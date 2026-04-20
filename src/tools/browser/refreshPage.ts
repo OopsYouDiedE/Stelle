@@ -20,16 +20,6 @@ const browserRefreshTool: ToolDefinition = {
       action: {
         type: "refresh",
       },
-      wait: {
-        type: "network_idle",
-        timeoutMs: 10000,
-      },
-      expect: {
-        summary: "Refreshing should usually reload page content",
-        mode: "one_of",
-        conditions: [{ type: "content_changed" }, { type: "title_changed" }],
-        onMiss: "report",
-      },
       createdAt: Date.now(),
     });
     return JSON.stringify(result, null, 2);

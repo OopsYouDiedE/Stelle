@@ -3,6 +3,10 @@ import calculatorTool from "./basic/calculator.js";
 import datetimeTool from "./basic/datetime.js";
 import browserBackTool from "./browser/goBack.js";
 import browserClickTool from "./browser/clickElement.js";
+import browserHumanWaitTool from "./browser/humanWait.js";
+import browserKeyboardPressTool from "./browser/keyboardPress.js";
+import browserKeyboardTypeTool from "./browser/keyboardType.js";
+import browserMouseClickTool from "./browser/mouseClick.js";
 import browserOpenTool from "./browser/openPage.js";
 import browserReadPageTool from "./browser/readPage.js";
 import browserRefreshTool from "./browser/refreshPage.js";
@@ -20,6 +24,8 @@ import writeFileTool from "./fs/writeFile.js";
 import todoTool from "./memory/todo.js";
 import { createShowAvailableToolsTool } from "./meta/showAvailableTools.js";
 import runCommandTool from "./system/runCommand.js";
+import webReadTool from "./search/webRead.js";
+import webSearchTool from "./search/webSearch.js";
 
 export function createToolRegistry(): ToolRegistry {
   const registry = new ToolRegistry();
@@ -27,6 +33,10 @@ export function createToolRegistry(): ToolRegistry {
   registry.register(calculatorTool);
   registry.register(browserBackTool);
   registry.register(browserClickTool);
+  registry.register(browserHumanWaitTool);
+  registry.register(browserKeyboardPressTool);
+  registry.register(browserKeyboardTypeTool);
+  registry.register(browserMouseClickTool);
   registry.register(browserOpenTool);
   registry.register(browserReadPageTool);
   registry.register(browserRefreshTool);
@@ -42,6 +52,8 @@ export function createToolRegistry(): ToolRegistry {
   registry.register(searchFilesTool);
   registry.register(writeFileTool);
   registry.register(runCommandTool);
+  registry.register(webReadTool);
+  registry.register(webSearchTool);
   registry.register(todoTool);
   registry.register(createShowAvailableToolsTool(registry));
   return registry;

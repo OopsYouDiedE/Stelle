@@ -5,6 +5,7 @@ export interface BrowserCursor extends CursorHost {
 
   run(input: BrowserRunRequest): Promise<BrowserRunResult>;
   snapshot(): Promise<BrowserSnapshot>;
+  captureCurrentFrame(reason?: string): Promise<BrowserScreenshotResult>;
 }
 
 export interface BrowserContext {
@@ -16,6 +17,7 @@ export interface BrowserContext {
 
   lastObservation: BrowserObservation | BrowserInteractiveObservation | null;
   lastAction: BrowserActionRecord | null;
+  lastScreenshot: BrowserScreenshotResult | null;
 
   recentActivations: CursorActivation[];
   recentEvents: BrowserEvent[];
@@ -36,6 +38,7 @@ export interface BrowserObservation {
 export interface BrowserInteractiveObservation {
   url: string;
   title: string;
+  textPreview?: string;
   links: BrowserLinkInfo[];
   buttons: BrowserButtonInfo[];
   inputs: BrowserInputInfo[];
@@ -84,6 +87,27 @@ export interface BrowserTypeAction {
   timeoutMs?: number;
 }
 
+export interface BrowserMouseClickAction {
+  x: number;
+  y: number;
+  button?: "left" | "right" | "middle";
+  clickCount?: number;
+}
+
+export interface BrowserKeyboardTypeAction {
+  text: string;
+  delayMs?: number;
+}
+
+export interface BrowserKeyboardPressAction {
+  key: string;
+}
+
+export interface BrowserHumanWaitAction {
+  reason?: string;
+  timeoutMs?: number;
+}
+
 export interface BrowserActionResult {
   ok: boolean;
   actionType: string;
@@ -97,6 +121,10 @@ export type BrowserAction =
   | { type: "open"; input: BrowserOpenAction }
   | { type: "click"; input: BrowserClickAction }
   | { type: "type"; input: BrowserTypeAction }
+  | { type: "mouse_click"; input: BrowserMouseClickAction }
+  | { type: "keyboard_type"; input: BrowserKeyboardTypeAction }
+  | { type: "keyboard_press"; input: BrowserKeyboardPressAction }
+  | { type: "human_wait"; input?: BrowserHumanWaitAction }
   | { type: "back" }
   | { type: "refresh" }
   | { type: "inspect_page" }
@@ -223,6 +251,7 @@ export interface BrowserSnapshot {
   waitState: BrowserWaitState | null;
   lastObservedAt: number | null;
   lastActionAt: number | null;
+  lastScreenshot: BrowserScreenshotResult | null;
 }
 
 export interface BrowserActionRecord {

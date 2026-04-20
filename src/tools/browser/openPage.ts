@@ -31,16 +31,6 @@ const browserOpenTool: ToolDefinition<BrowserOpenParams> = {
         type: "open",
         input: { url },
       },
-      wait: {
-        type: "network_idle",
-        timeoutMs: 10000,
-      },
-      expect: {
-        summary: "Opening a page should usually change URL or content",
-        mode: "one_of",
-        conditions: [{ type: "url_changed" }, { type: "content_changed" }],
-        onMiss: "report",
-      },
       createdAt: Date.now(),
     });
     return JSON.stringify(result, null, 2);
