@@ -1,5 +1,4 @@
 import type { Message, TextBasedChannel } from "discord.js";
-import { ChannelType } from "discord.js";
 import { getDiscordToolClient } from "../../cursors/discord/toolRuntime.js";
 
 export function resolveChannelId(

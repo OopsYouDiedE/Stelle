@@ -4,8 +4,6 @@
  */
 import {
   AttachmentBuilder,
-  ChannelType,
-  ChatInputCommandInteraction,
   Client,
   ColorResolvable,
   Colors,
@@ -33,7 +31,7 @@ import YAML from "yaml";
 import type { AgentStatusUpdate } from "../../agent/types.js";
 import { buildToolAgentPrompt } from "../../agent/prompt.js";
 import { runAgentLoop } from "../../agent/runner.js";
-import { stelleMainLoop } from "../../core/runtime.js";
+import { stelle } from "../../core/runtime.js";
 import {
   DiscordCursorController,
   handleDiscordSlash,
@@ -979,14 +977,6 @@ class MemoryManager {
   }
 }
 
-// ==========================================
-// 7. 事件与定时清理
-// ==========================================
-function dateToSnowflake(date: Date): string {
-  const DISCORD_EPOCH = 1_420_070_400_000n;
-  return String(((BigInt(date.getTime()) - DISCORD_EPOCH) << 22n) | 0n);
-}
-
 function isZh(locale: string | null | undefined): boolean {
   return (locale ?? "").startsWith("zh");
 }
@@ -1059,7 +1049,7 @@ const discordSlashDeps = {
 
 export { client, discordController, discordCursor, discordSlashDeps };
 
-stelleMainLoop.registerCursor(discordCursor);
+stelle.registerWindow(discordCursor);
 
 // ==========================================
 // 9. Slash 命令注册与处理
@@ -1261,7 +1251,6 @@ client.once(Events.ClientReady, async (c) => {
   await initConfig();
   await UserIndex.init();
 
-  stelleMainLoop.setIdleStrategy(async () => []);
   const minecraftConfig = getMinecraftConfigFromEnv();
   if (minecraftConfig) {
     const minecraftCursor = getMinecraftCursor();
@@ -1292,8 +1281,8 @@ client.once(Events.ClientReady, async (c) => {
   console.log(`? OpenClaw 已登录 (ID: ${getBotId()})`);
 
   setInterval(() => {
-    void stelleMainLoop.runAttentionCycle().catch((error) => {
-      void sendLogDetailed("MainLoop attention cycle failed", error);
+    void stelle.runAttentionCycle().catch((error) => {
+      void sendLogDetailed("Stelle attention cycle failed", error);
     });
   }, 15_000);
 
@@ -1303,23 +1292,23 @@ client.once(Events.ClientReady, async (c) => {
 });
 
 client.on(Events.TypingStart, async (t) => {
-  await stelleMainLoop.activateCursor(discordCursor.id, {
+  await stelle.activateCursor(discordCursor.id, {
     type: "typing_start",
     reason: "Discord typing event",
     payload: { typing: t },
     timestamp: Date.now(),
   });
-  await stelleMainLoop.tickCursor(discordCursor.id);
+  await stelle.tickCursor(discordCursor.id);
 });
 
 client.on(Events.MessageCreate, async (msg) => {
-  await stelleMainLoop.activateCursor(discordCursor.id, {
+  await stelle.activateCursor(discordCursor.id, {
     type: "message_create",
     reason: "Discord message event",
     payload: { message: msg },
     timestamp: Date.now(),
   });
-  await stelleMainLoop.tickCursor(discordCursor.id);
+  await stelle.tickCursor(discordCursor.id);
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {

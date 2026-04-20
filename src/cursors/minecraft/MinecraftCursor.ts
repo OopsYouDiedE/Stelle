@@ -9,13 +9,27 @@ import type {
   MinecraftRunRequest,
   MinecraftRunResult,
   MinecraftSnapshot,
+  MinecraftEnvironmentFrame,
+  MinecraftStrategyContext,
+  MinecraftStrategyRunRequest,
+  MinecraftStrategyRunResult,
+  MinecraftStrategyStepResult,
 } from "./types.js";
 import type { MinecraftRuntime } from "./runtime.js";
 import { judgeMinecraftRun } from "./judge.js";
 import { executeMinecraftAction } from "./actions.js";
+import { judgeMinecraftStrategy } from "./strategyJudge.js";
+import { getMinecraftStrategy } from "./strategies.js";
 import { summarizeInventory } from "./skills/inventory.js";
 import { summarizeNearbyBlocks, summarizeNearbyEntities } from "./skills/world.js";
 import { toPosition } from "./skills/common.js";
+import {
+  captureMinecraftViewerImage,
+  closeMinecraftViewer,
+  renderMinecraftFallbackImage,
+  startMinecraftViewer,
+  type MinecraftViewerSession,
+} from "./visual.js";
 
 export interface MinecraftCursorOptions {
   id?: string;
@@ -31,8 +45,11 @@ export class MineflayerMinecraftCursor implements MinecraftCursor {
   readonly kind = "minecraft" as const;
 
   private readonly runtime: MinecraftRuntime;
+  private readonly cwd: string;
+  private readonly viewerPort: number;
   private status: MinecraftSnapshot["status"] = "disconnected";
   private bot: any | null = null;
+  private viewer: MinecraftViewerSession | null = null;
   private movements: any | null = null;
   private goals:
     | {
@@ -53,6 +70,8 @@ export class MineflayerMinecraftCursor implements MinecraftCursor {
   constructor(options: MinecraftCursorOptions) {
     this.id = options.id ?? "minecraft-main";
     this.runtime = options.runtime;
+    this.cwd = process.cwd();
+    this.viewerPort = Number(process.env.MINECRAFT_VIEWER_PORT ?? 3007);
   }
 
   async activate(input: CursorActivation): Promise<void> {
@@ -100,6 +119,7 @@ export class MineflayerMinecraftCursor implements MinecraftCursor {
     if (bot.pathfinder?.setMovements) {
       bot.pathfinder.setMovements(this.movements);
     }
+    await this.startViewer(bot);
 
     return {
       ok: true,
@@ -112,12 +132,14 @@ export class MineflayerMinecraftCursor implements MinecraftCursor {
   async disconnect(): Promise<MinecraftActionResult> {
     if (this.bot) {
       try {
+        closeMinecraftViewer(this.bot);
         this.bot.end?.("Stelle Minecraft cursor disconnect");
       } catch {
         // ignore runtime shutdown errors
       }
     }
     this.bot = null;
+    this.viewer = null;
     this.movements = null;
     this.goals = null;
     this.status = "disconnected";
@@ -196,6 +218,215 @@ export class MineflayerMinecraftCursor implements MinecraftCursor {
     } finally {
       this.context.activeRequest = null;
     }
+  }
+
+  async readEnvironmentFrame(): Promise<MinecraftEnvironmentFrame> {
+    const observation = this.observe();
+    this.context.lastObservation = observation;
+    const image = observation.connected && this.viewer
+      ? await captureMinecraftViewerImage(this.viewer, observation, this.cwd).catch(() =>
+          renderMinecraftFallbackImage(observation, this.cwd).catch(() => null)
+        )
+      : observation.connected
+        ? await renderMinecraftFallbackImage(observation, this.cwd).catch(() => null)
+      : null;
+    return {
+      observation,
+      image,
+      summary: this.buildSummary(),
+      timestamp: now(),
+    };
+  }
+
+  async runStrategy(request: MinecraftStrategyRunRequest): Promise<MinecraftStrategyRunResult> {
+    const strategy = getMinecraftStrategy(request.strategyId);
+    if (!strategy) {
+      const finalFrame = await this.readEnvironmentFrame();
+      return {
+        requestId: request.id,
+        strategyId: request.strategyId,
+        ok: false,
+        summary: `Unknown Minecraft strategy "${request.strategyId}".`,
+        steps: [],
+        finalFrame,
+        reports: [
+          this.makeReport("error", `Unknown Minecraft strategy "${request.strategyId}".`),
+        ],
+      };
+    }
+
+    const maxSteps = Math.max(1, Math.min(request.maxSteps ?? 8, 32));
+    const context: MinecraftStrategyContext = {
+      strategyId: strategy.id,
+      startedAt: now(),
+      stepCount: 0,
+      maxSteps,
+      notes: request.note ? [request.note] : [],
+    };
+    const reports: CursorReport[] = [];
+    const steps: MinecraftStrategyStepResult[] = [];
+    let currentStrategy = strategy;
+
+    for (let index = 0; index < maxSteps; index += 1) {
+      context.stepCount = index;
+      const frame = await this.readEnvironmentFrame();
+      const decision = await currentStrategy.decide(frame, context);
+      const judge = judgeMinecraftStrategy({
+        frame,
+        strategy: context,
+        decision,
+      });
+
+      reports.push(
+        this.makeReport("status", `Minecraft strategy judge: ${judge.reason}`, {
+          strategyId: context.strategyId,
+          decisionType: judge.decision.type,
+          image: frame.image,
+        })
+      );
+
+      if (!judge.executable) {
+        steps.push({
+          index,
+          frame,
+          judge,
+          summary: judge.reason,
+        });
+        const finalFrame = await this.readEnvironmentFrame();
+        return {
+          requestId: request.id,
+          strategyId: request.strategyId,
+          ok: false,
+          summary: judge.reason,
+          steps,
+          finalFrame,
+          reports,
+        };
+      }
+
+      if (judge.decision.type === "complete") {
+        steps.push({
+          index,
+          frame,
+          judge,
+          summary: judge.decision.summary,
+        });
+        const finalFrame = await this.readEnvironmentFrame();
+        return {
+          requestId: request.id,
+          strategyId: request.strategyId,
+          ok: true,
+          summary: judge.decision.summary,
+          steps,
+          finalFrame,
+          reports,
+        };
+      }
+
+      if (judge.decision.type === "fail") {
+        steps.push({
+          index,
+          frame,
+          judge,
+          summary: judge.decision.reason,
+        });
+        const finalFrame = await this.readEnvironmentFrame();
+        return {
+          requestId: request.id,
+          strategyId: request.strategyId,
+          ok: false,
+          summary: judge.decision.reason,
+          steps,
+          finalFrame,
+          reports,
+        };
+      }
+
+      if (judge.decision.type === "switch_strategy") {
+        const next = getMinecraftStrategy(judge.decision.strategyId);
+        if (!next) {
+          steps.push({
+            index,
+            frame,
+            judge,
+            summary: `Requested unknown strategy "${judge.decision.strategyId}".`,
+          });
+          const finalFrame = await this.readEnvironmentFrame();
+          return {
+            requestId: request.id,
+            strategyId: request.strategyId,
+            ok: false,
+            summary: `Requested unknown strategy "${judge.decision.strategyId}".`,
+            steps,
+            finalFrame,
+            reports,
+          };
+        }
+        currentStrategy = next;
+        context.strategyId = next.id;
+        context.notes.push(`Switched strategy: ${judge.decision.reason}`);
+        steps.push({
+          index,
+          frame,
+          judge,
+          summary: `Switched to ${next.id}.`,
+        });
+        continue;
+      }
+
+      if (judge.decision.type === "wait") {
+        await this.wait(judge.decision.waitMs);
+        steps.push({
+          index,
+          frame,
+          judge,
+          summary: judge.decision.reason,
+        });
+        continue;
+      }
+
+      let actionResult: MinecraftActionResult;
+      try {
+        actionResult = await this.executeAction(
+          judge.actionJudge?.actionPlan ?? judge.decision.action
+        );
+      } catch (error) {
+        actionResult = {
+          ok: false,
+          actionType: judge.decision.action.type,
+          summary: `Strategy action failed: ${(error as Error).message}`,
+          timestamp: now(),
+        };
+      }
+      context.lastActionResult = actionResult;
+      steps.push({
+        index,
+        frame,
+        judge,
+        actionResult,
+        summary: actionResult.summary,
+      });
+      reports.push(
+        this.makeReport("task_result", actionResult.summary, {
+          strategyId: context.strategyId,
+          actionType: actionResult.actionType,
+        })
+      );
+      if (judge.decision.waitMs) {
+        await this.wait(judge.decision.waitMs);
+      }
+    }
+
+    const finalFrame = await this.readEnvironmentFrame();
+    return {
+      requestId: request.id,
+      strategyId: request.strategyId,
+      ok: false,
+      summary: `Strategy "${request.strategyId}" reached maxSteps=${maxSteps}.`,
+      steps,
+      finalFrame,
+      reports,
+    };
   }
 
   async snapshot(): Promise<MinecraftSnapshot> {
@@ -291,6 +522,7 @@ export class MineflayerMinecraftCursor implements MinecraftCursor {
         this.makeReport("status", `Minecraft connection ended: ${String(reason ?? "unknown")}`)
       );
       this.bot = null;
+      this.viewer = null;
       this.movements = null;
       this.goals = null;
     });
@@ -350,6 +582,27 @@ export class MineflayerMinecraftCursor implements MinecraftCursor {
     });
   }
 
+  private async startViewer(bot: any): Promise<void> {
+    if (this.viewer) return;
+    try {
+      this.viewer = await startMinecraftViewer(bot, {
+        port: this.viewerPort,
+        firstPerson: true,
+        viewDistance: 6,
+      });
+      this.pushReport(
+        this.makeReport("status", `Minecraft viewer started at ${this.viewer.url}.`, {
+          viewer: this.viewer,
+        })
+      );
+    } catch (error) {
+      this.viewer = null;
+      this.pushReport(
+        this.makeReport("error", `Minecraft viewer failed to start: ${(error as Error).message}`)
+      );
+    }
+  }
+
   private pushReport(report: CursorReport): void {
     this.context.recentReports.push(report);
     if (this.context.recentReports.length > 100) {
@@ -383,5 +636,9 @@ export class MineflayerMinecraftCursor implements MinecraftCursor {
     if (!this.goals || !this.bot.pathfinder) {
       throw new Error("Minecraft pathfinder is not ready.");
     }
+  }
+
+  private async wait(ms: number): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, ms));
   }
 }

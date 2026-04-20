@@ -23,6 +23,7 @@
     "mineflayer-tool": "^1.2.0",
     "openai": "^4.77.0",
     "playwright": "^1.59.1",
+    "prismarine-viewer": "^1.33.0",
     "yaml": "^2.7.0"
   },
   "devDependencies": {

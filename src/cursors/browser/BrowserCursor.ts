@@ -46,11 +46,6 @@ function now(): number {
   return Date.now();
 }
 
-function trimText(value: string | null | undefined, limit = 4000): string {
-  const normalized = (value ?? "").replace(/\s+/g, " ").trim();
-  return normalized.length > limit ? normalized.slice(0, limit) : normalized;
-}
-
 function safeFileName(input: string): string {
   return input.replace(/[<>:"/\\|?*]+/g, "_");
 }

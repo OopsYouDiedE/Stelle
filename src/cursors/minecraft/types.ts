@@ -68,6 +68,20 @@ export interface MinecraftObservation {
   timestamp: number;
 }
 
+export interface MinecraftEnvironmentImage {
+  path: string;
+  mimeType: string;
+  description: string;
+  timestamp: number;
+}
+
+export interface MinecraftEnvironmentFrame {
+  observation: MinecraftObservation;
+  image: MinecraftEnvironmentImage | null;
+  summary: string;
+  timestamp: number;
+}
+
 export type MinecraftAction =
   | { type: "connect"; input: MinecraftConnectionConfig }
   | { type: "disconnect" }
@@ -163,6 +177,80 @@ export interface MinecraftRunResult {
   reports: CursorReport[];
 }
 
+export type MinecraftStrategyDecision =
+  | {
+      type: "continue";
+      action: MinecraftAction;
+      expectation: string;
+      waitMs?: number;
+    }
+  | {
+      type: "switch_strategy";
+      strategyId: string;
+      reason: string;
+    }
+  | {
+      type: "wait";
+      reason: string;
+      waitMs: number;
+    }
+  | {
+      type: "complete";
+      summary: string;
+    }
+  | {
+      type: "fail";
+      reason: string;
+    };
+
+export interface MinecraftStrategyContext {
+  strategyId: string;
+  startedAt: number;
+  stepCount: number;
+  maxSteps: number;
+  lastActionResult?: MinecraftActionResult;
+  notes: string[];
+}
+
+export interface MinecraftStrategyJudgeInput {
+  frame: MinecraftEnvironmentFrame;
+  strategy: MinecraftStrategyContext;
+  decision: MinecraftStrategyDecision;
+}
+
+export interface MinecraftStrategyJudgeResult {
+  executable: boolean;
+  reason: string;
+  decision: MinecraftStrategyDecision;
+  actionJudge?: MinecraftJudgeResult;
+}
+
+export interface MinecraftStrategyRunRequest {
+  id: string;
+  strategyId: string;
+  maxSteps?: number;
+  note?: string;
+  createdAt: number;
+}
+
+export interface MinecraftStrategyStepResult {
+  index: number;
+  frame: MinecraftEnvironmentFrame;
+  judge: MinecraftStrategyJudgeResult;
+  actionResult?: MinecraftActionResult;
+  summary: string;
+}
+
+export interface MinecraftStrategyRunResult {
+  requestId: string;
+  strategyId: string;
+  ok: boolean;
+  summary: string;
+  steps: MinecraftStrategyStepResult[];
+  finalFrame: MinecraftEnvironmentFrame;
+  reports: CursorReport[];
+}
+
 export interface MinecraftSnapshot {
   cursorId: string;
   kind: "minecraft";
@@ -199,5 +287,7 @@ export interface MinecraftCursor extends CursorHost {
   connect(config: MinecraftConnectionConfig): Promise<MinecraftActionResult>;
   disconnect(): Promise<MinecraftActionResult>;
   run(request: MinecraftRunRequest): Promise<MinecraftRunResult>;
+  runStrategy(request: MinecraftStrategyRunRequest): Promise<MinecraftStrategyRunResult>;
+  readEnvironmentFrame(): Promise<MinecraftEnvironmentFrame>;
   snapshot(): Promise<MinecraftSnapshot>;
 }

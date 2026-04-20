@@ -360,12 +360,6 @@ function getStaticContentType(filePath: string): string {
   return "application/octet-stream";
 }
 
-function normalizeUrl(input: string): string {
-  const trimmed = input.trim();
-  if (/^https?:\/\//i.test(trimmed)) return trimmed;
-  return `https://${trimmed}`;
-}
-
 function loadPlannerConfig(): PlannerConfig {
   let config: any = {};
   try {

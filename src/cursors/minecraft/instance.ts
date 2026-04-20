@@ -1,4 +1,4 @@
-import { stelleMainLoop } from "../../core/runtime.js";
+import { stelle } from "../../core/runtime.js";
 import { MineflayerMinecraftCursor } from "./MinecraftCursor.js";
 import { mineflayerRuntime } from "./runtime.js";
 import type { MinecraftConnectionConfig } from "./types.js";
@@ -11,7 +11,7 @@ export function getMinecraftCursor(): MineflayerMinecraftCursor {
       id: "minecraft-main",
       runtime: mineflayerRuntime,
     });
-    stelleMainLoop.registerCursor(minecraftCursorSingleton);
+    stelle.registerWindow(minecraftCursorSingleton);
   }
   return minecraftCursorSingleton;
 }

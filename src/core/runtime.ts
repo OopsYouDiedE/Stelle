@@ -1,3 +1,3 @@
-import { MainLoop } from "./mainLoop.js";
+import { stelle } from "../stelle/instance.js";
 
-export const stelleMainLoop = new MainLoop();
+export { stelle };

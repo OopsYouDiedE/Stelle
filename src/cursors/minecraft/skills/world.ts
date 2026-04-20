@@ -142,9 +142,10 @@ export async function collectBlocks(
   if (!goals || !bot.pathfinder) {
     throw new Error("Pathfinder is not ready for collect_blocks.");
   }
+  const desiredCount = Math.max(1, Math.min(count, 16));
   const targets = summarizeNearbyBlocks(bot, range, 128)
     .filter((block) => block.name === blockName)
-    .slice(0, Math.max(1, Math.min(count, 16)));
+    .slice(0, desiredCount * 4);
 
   if (targets.length === 0 && bot.findBlocks) {
     const blockInfo = bot.registry.blocksByName[blockName];
@@ -154,7 +155,7 @@ export async function collectBlocks(
     const found = bot.findBlocks({
       matching: blockInfo.id,
       maxDistance: Math.max(1, Math.min(range, 128)),
-      count: Math.max(1, Math.min(count, 16)),
+      count: desiredCount * 8,
     });
     targets.push(
       ...found.map((position: Vec3) => ({
@@ -171,36 +172,44 @@ export async function collectBlocks(
 
   let collected = 0;
   for (const target of targets) {
+    if (collected >= desiredCount) break;
     const pos = toVec3(target.position);
-    const blockBeforeMove = bot.blockAt(pos);
-    if (blockBeforeMove && bot.collectBlock?.collect) {
-      await withTimeout(
-        bot.collectBlock.collect(blockBeforeMove),
-        45000,
-        `collect ${blockName}`
-      );
-      await wait(500);
-      collected += 1;
-      continue;
-    }
-
-    await withTimeout(
-      bot.pathfinder.goto(new goals.GoalNear(pos.x, pos.y, pos.z, 1)),
-      20000,
-      `goto ${blockName}`
-    );
-    const block = bot.blockAt(pos);
-    if (block && !isAirLike(block)) {
-      if (bot.tool?.equipForBlock) {
-        await bot.tool.equipForBlock(block, {});
+    try {
+      const blockBeforeMove = bot.blockAt(pos);
+      if (blockBeforeMove && bot.collectBlock?.collect) {
+        await withTimeout(
+          bot.collectBlock.collect(blockBeforeMove),
+          45000,
+          `collect ${blockName}`
+        );
+        await wait(500);
+        collected += 1;
+        continue;
       }
-      await withTimeout(bot.dig(block), 10000, `dig ${blockName}`);
-      await wait(1000);
-      collected += 1;
+
+      await withTimeout(
+        bot.pathfinder.goto(new goals.GoalNear(pos.x, pos.y, pos.z, 1)),
+        20000,
+        `goto ${blockName}`
+      );
+      const block = bot.blockAt(pos);
+      if (block && !isAirLike(block)) {
+        if (bot.tool?.equipForBlock) {
+          await bot.tool.equipForBlock(block, {});
+        }
+        await withTimeout(bot.dig(block), 10000, `dig ${blockName}`);
+        await wait(1000);
+        collected += 1;
+      }
+    } catch {
+      if (bot.pathfinder?.setGoal) bot.pathfinder.setGoal(null);
     }
   }
 
-  return `Collected ${collected}/${targets.length} ${blockName} blocks.`;
+  if (collected === 0) {
+    throw new Error(`Found ${targets.length} ${blockName} candidates, but none were reachable.`);
+  }
+  return `Collected ${collected}/${desiredCount} ${blockName} blocks.`;
 }
 
 function findPlacementReference(bot: any, target: Vec3): { block: any; face: Vec3 } | null {

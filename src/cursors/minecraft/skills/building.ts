@@ -2,7 +2,7 @@ import type { MinecraftRuntime } from "../runtime.js";
 import type { MinecraftPosition } from "../types.js";
 import { Vec3 } from "vec3";
 import { ensureCreativeItem } from "./inventory.js";
-import { isAirLike, toVec3, wait, withTimeout } from "./common.js";
+import { isAirLike, toVec3, wait } from "./common.js";
 import { placeBlockAt } from "./world.js";
 
 export async function buildWoodenHouse(

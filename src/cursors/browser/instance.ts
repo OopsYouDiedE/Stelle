@@ -1,5 +1,5 @@
 import type { ToolContext } from "../../agent/types.js";
-import { stelleMainLoop } from "../../core/runtime.js";
+import { stelle } from "../../core/runtime.js";
 import { PlaywrightBrowserCursor } from "./BrowserCursor.js";
 import { playwrightBrowserRuntime } from "./runtime.js";
 
@@ -13,7 +13,7 @@ export function getBrowserCursor(context?: ToolContext): PlaywrightBrowserCursor
       runtime: playwrightBrowserRuntime,
       uploadAttachment: context?.sendDiscordAttachment,
     });
-    stelleMainLoop.registerCursor(browserCursorSingleton);
+    stelle.registerWindow(browserCursorSingleton);
   } else {
     browserCursorSingleton.configureRuntime({
       cwd: context?.cwd ?? process.cwd(),

@@ -1,6 +1,5 @@
 import type {
   Message,
-  MessageCreateOptions,
   TextBasedChannel,
   User,
 } from "discord.js";
