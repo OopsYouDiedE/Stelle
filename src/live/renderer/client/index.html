@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Stelle Live</title>
+    <script src="/Core/live2dcubismcore.js"></script>
+  </head>
+  <body>
+    <main id="stage">
+      <div id="background"></div>
+      <canvas id="live2d-canvas" aria-label="Live2D model"></canvas>
+      <section id="caption" aria-live="polite"><div id="caption-text"></div></section>
+      <audio id="voice" crossorigin="anonymous" autoplay></audio>
+      <div id="status">Loading Live2D...</div>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

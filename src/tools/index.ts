@@ -1,64 +1,33 @@
-import { ToolRegistry } from "../agent/registry.js";
-import audioSpeakTool from "./audio/speak.js";
-import audioTranscribeFileTool from "./audio/transcribeFile.js";
-import calculatorTool from "./basic/calculator.js";
-import datetimeTool from "./basic/datetime.js";
-import browserBackTool from "./browser/goBack.js";
-import browserClickTool from "./browser/clickElement.js";
-import browserHumanWaitTool from "./browser/humanWait.js";
-import browserKeyboardPressTool from "./browser/keyboardPress.js";
-import browserKeyboardTypeTool from "./browser/keyboardType.js";
-import browserMouseClickTool from "./browser/mouseClick.js";
-import browserOpenTool from "./browser/openPage.js";
-import browserReadPageTool from "./browser/readPage.js";
-import browserRefreshTool from "./browser/refreshPage.js";
-import browserScreenshotTool from "./browser/screenshot.js";
-import browserTypeTool from "./browser/typeInto.js";
-import discordGetChannelHistoryTool from "./discord/getChannelHistory.js";
-import discordGetMessageTool from "./discord/getMessage.js";
-import discordGetMessageReferenceTool from "./discord/getMessageReference.js";
-import discordListChannelsTool from "./discord/listChannels.js";
-import discordSendMessageTool from "./discord/sendMessage.js";
-import listDirectoryTool from "./fs/listDirectory.js";
-import readFileTool from "./fs/readFile.js";
-import searchFilesTool from "./fs/searchFiles.js";
-import writeFileTool from "./fs/writeFile.js";
-import todoTool from "./memory/todo.js";
-import { createShowAvailableToolsTool } from "./meta/showAvailableTools.js";
-import runCommandTool from "./system/runCommand.js";
-import webReadTool from "./search/webRead.js";
-import webSearchTool from "./search/webSearch.js";
+import { CursorRegistry } from "../core/CursorRegistry.js";
+import { echoTool } from "./basic.js";
+import { createBrowserCompatibilityTools } from "./browser.js";
+import { registerCoreTools } from "./core.js";
+import { createDiscordCursorTools } from "./discord.js";
+import { createLiveCursorTools } from "./live.js";
+import { createSearchTools } from "./search.js";
+import { createTtsTools } from "./tts.js";
+import { ToolRegistry } from "./ToolRegistry.js";
 
-export function createToolRegistry(): ToolRegistry {
+export function createDefaultToolRegistry(cursors?: CursorRegistry): ToolRegistry {
   const registry = new ToolRegistry();
-  registry.register(datetimeTool);
-  registry.register(calculatorTool);
-  registry.register(audioTranscribeFileTool);
-  registry.register(audioSpeakTool);
-  registry.register(browserBackTool);
-  registry.register(browserClickTool);
-  registry.register(browserHumanWaitTool);
-  registry.register(browserKeyboardPressTool);
-  registry.register(browserKeyboardTypeTool);
-  registry.register(browserMouseClickTool);
-  registry.register(browserOpenTool);
-  registry.register(browserReadPageTool);
-  registry.register(browserRefreshTool);
-  registry.register(browserScreenshotTool);
-  registry.register(browserTypeTool);
-  registry.register(discordGetChannelHistoryTool);
-  registry.register(discordGetMessageTool);
-  registry.register(discordGetMessageReferenceTool);
-  registry.register(discordListChannelsTool);
-  registry.register(discordSendMessageTool);
-  registry.register(listDirectoryTool);
-  registry.register(readFileTool);
-  registry.register(searchFilesTool);
-  registry.register(writeFileTool);
-  registry.register(runCommandTool);
-  registry.register(webReadTool);
-  registry.register(webSearchTool);
-  registry.register(todoTool);
-  registry.register(createShowAvailableToolsTool(registry));
+  registerCoreTools(registry);
+  registry.register(echoTool);
+  for (const tool of createSearchTools()) {
+    registry.register(tool);
+  }
+  for (const tool of createBrowserCompatibilityTools()) {
+    registry.register(tool);
+  }
+  for (const tool of createTtsTools()) {
+    registry.register(tool);
+  }
+  if (cursors) {
+    for (const tool of createDiscordCursorTools(cursors)) {
+      registry.register(tool);
+    }
+    for (const tool of createLiveCursorTools(cursors)) {
+      registry.register(tool);
+    }
+  }
   return registry;
 }

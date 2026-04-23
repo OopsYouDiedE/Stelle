@@ -1,12 +1,38 @@
-import "dotenv/config";
-import { stelle } from "./stelle/instance.js";
-
-console.log("[Stelle] Core subject activated.");
-
-await import("./cursors/discord/app.js");
-
-console.log(
-  `[Stelle] Discord window activated. Registered windows: ${
-    (await stelle.snapshot()).windows.registeredCursorIds.join(", ") || "none"
-  }`
-);
+export * from "./types.js";
+export * from "./config/AsyncConfigStore.js";
+export * from "./config/StelleConfig.js";
+export * from "./tools/ToolRegistry.js";
+export * from "./tools/basic.js";
+export * from "./tools/browser.js";
+export * from "./tools/discord.js";
+export * from "./tools/live.js";
+export * from "./tools/core.js";
+export * from "./tools/index.js";
+export * from "./tools/search.js";
+export * from "./tools/tts.js";
+export * from "./gemini/GeminiTextProvider.js";
+export * from "./tts/types.js";
+export * from "./tts/GeminiTtsProvider.js";
+export * from "./tts/KokoroTtsProvider.js";
+export * from "./text/sanitize.js";
+export * from "./live/types.js";
+export * from "./live/Live2DModelRegistry.js";
+export * from "./live/ObsWebSocketController.js";
+export * from "./live/LiveRuntime.js";
+export * from "./live/renderer/LiveRendererServer.js";
+export * from "./live/renderer/HttpLiveRendererBridge.js";
+export * from "./discord/types.js";
+export * from "./discord/DiscordRuntime.js";
+export * from "./discord/DiscordChannelSession.js";
+export * from "./cursors/BaseCursor.js";
+export * from "./cursors/InnerCursor.js";
+export * from "./cursors/TestCursor.js";
+export * from "./cursors/discord/DiscordCursor.js";
+export * from "./cursors/live/LiveCursor.js";
+export * from "./core/CursorRegistry.js";
+export * from "./core/CursorRuntime.js";
+export * from "./core/ContextTransfer.js";
+export * from "./core/CoreMind.js";
+export * from "./core/CoreMindMainLoop.js";
+export * from "./stelle/DiscordAttachedCoreMind.js";
+export * from "./stelle/DiscordRouteDecider.js";

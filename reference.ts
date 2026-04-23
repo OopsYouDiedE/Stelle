@@ -1,5 +1,5 @@
 /**
- * OpenClaw — TypeScript 移植自 reference.py（discord.js + OpenAI SDK）
+ * Stelle — TypeScript 移植自 reference.py（discord.js + OpenAI SDK）
  * 结构按原文件分段，未做过度拆分。
  */
 import {
@@ -448,7 +448,7 @@ async function formatMessage(
             const refMsg = await msg.fetchReference();
             const refNick =
                 refMsg.author.id === getBotId()
-                    ? "[OpenClaw]"
+                    ? "[Stelle]"
                     : UserIndex.getName(msg.guildId, refMsg.author.id);
             parts.push(
                 `[Reply to ${refNick}(ID:${refMsg.author.id})]`
@@ -475,7 +475,7 @@ async function formatMessage(
         const timeStr = msg.createdAt.toLocaleString();
         const nameLabel =
             msg.author.id === getBotId()
-                ? `[OpenClaw](ID:${getBotId()})`
+                ? `[Stelle](ID:${getBotId()})`
                 : `${nickname}(ID:${msg.author.id})`;
         lines.push(`--- ${nameLabel} (${timeStr}) ---`);
     }
@@ -623,7 +623,7 @@ class UserIndex {
 // ==========================================
 function buildJudgePrompt(isDm: boolean): string {
     const botId = getBotId();
-    const base = `You are OpenClaw (User ID: ${botId}). You MUST output valid JSON ONLY:
+    const base = `You are Stelle (User ID: ${botId}). You MUST output valid JSON ONLY:
 {
   "think": "Short inner monologue analyzing the current vibe", "focus": {"topic": "Current conversation topic", "drifted": false},
   "trigger": {"fire_now": false, "condition_type": "silence|keyword|gap|never", "condition_value": 15, "expires_after": 120},
@@ -648,17 +648,17 @@ function buildJudgePrompt(isDm: boolean): string {
 
 function buildCharacterPrompt(isDm: boolean): string {
     const env = isDm ? "DM partner" : "group member";
-    return `You are ${env} OpenClaw (User ID: ${getBotId()}).
+    return `You are ${env} Stelle (User ID: ${getBotId()}).
 [Personality] Chill, authentic, a bit lazy but playful. You are a peer, NOT a stiff assistant.
 [Rules] Reply in the user's language; 1-3 sentences; sparse emojis; no formal language. Read the room: if the vibe is lighthearted, play along with harmless jokes, teasing, or silly requests (like roleplaying or counting) in your own casual way. NEVER expose your AI identity.
 [Advanced Format] For professional/long content (code/math/analysis, etc.), STRICTLY wrap it in <embed>detailed content</embed>. Outside the tag, leave ONLY one minimal summary sentence!`;
 }
 
-const MEMORY_REVIEW_PROMPT = `You are OpenClaw. Review the chat history and extract important events.
+const MEMORY_REVIEW_PROMPT = `You are Stelle. Review the chat history and extract important events.
 Output pure JSON ONLY: {"events": [{"summary": "Description including (ID:xxxx)", "related_user_id": "User ID", "event_time": "YYYY-MM-DD HH:MM", "category": "Category"}]}`;
 
 const MEMORY_DISTILL_PROMPT =
-    "You are OpenClaw. Distill an overall global impression of ID:{user_id} based on these events. Write 3-5 colloquial sentences. Include the timestamp. Leave empty if insignificant.";
+    "You are Stelle. Distill an overall global impression of ID:{user_id} based on these events. Write 3-5 colloquial sentences. Include the timestamp. Leave empty if insignificant.";
 
 // ==========================================
 // 6. 记忆管理器
@@ -710,7 +710,7 @@ class MemoryManager {
             if (imp) {
                 const nick =
                     userId === getBotId()
-                        ? "Yourself(OpenClaw)"
+                        ? "Yourself(Stelle)"
                         : UserIndex.getName(guildId, userId);
                 parts.push(`[Global profile for ${nick}(ID:${userId})]\n${imp}`);
             }
@@ -940,7 +940,7 @@ class ChannelManager {
         this.activeUsers.set(msg.author.id, Date.now() / 1000);
         const nick =
             msg.author.id === getBotId()
-                ? "[OpenClaw]"
+                ? "[Stelle]"
                 : await UserIndex.getOrCreateNickname(msg);
 
         const { lines, authorId, ts } = await formatMessage(
@@ -1537,8 +1537,8 @@ async function handleSlash(
                 await interaction.editReply(
                     loc(
                         locale,
-                        "🚀 OpenClaw activated in this channel.",
-                        "🚀 OpenClaw 已在此频道激活。"
+                        "🚀 Stelle activated in this channel.",
+                        "🚀 Stelle 已在此频道激活。"
                     )
                 );
                 break;
@@ -1557,8 +1557,8 @@ async function handleSlash(
                 await interaction.editReply(
                     loc(
                         locale,
-                        "🛑 OpenClaw has stopped listening.",
-                        "🛑 OpenClaw 已停止监听。"
+                        "🛑 Stelle has stopped listening.",
+                        "🛑 Stelle 已停止监听。"
                     )
                 );
                 break;
@@ -1764,7 +1764,7 @@ async function handleSlash(
                     for (const m of slice) {
                         const nick =
                             m.author.id === getBotId()
-                                ? "[OpenClaw]"
+                                ? "[Stelle]"
                                 : await UserIndex.getOrCreateNickname(m);
                         const { lines, authorId, ts } = await formatMessage(
                             m,
@@ -1845,7 +1845,7 @@ client.once(Events.ClientReady, async (c) => {
         body: slashCommands,
     });
 
-    console.log(`✅ OpenClaw 已登录 (ID: ${getBotId()})`);
+    console.log(`✅ Stelle 已登录 (ID: ${getBotId()})`);
 
     setInterval(() => {
         const now = Date.now() / 1000;

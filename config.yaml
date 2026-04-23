@@ -5,6 +5,11 @@ channels:
     activated: true
 guilds:
   '1235845356194103377':
-    api_key: AIzaSyB2dcJxN5wybik4Hih4DS5ENi00uYW5dig
+    api_key: AIzaSyBPHcmDz8XoMfRjjBEX7yX-5p9ksEOkIN4
     base_url: https://generativelanguage.googleapis.com/v1beta/openai/
-    model: gemma-4-31b-it
+    model: gemini-3.1-flash-lite-preview
+  '1371274662213980201':
+    api_key: AIzaSyBPHcmDz8XoMfRjjBEX7yX-5p9ksEOkIN4
+    base_url: https://generativelanguage.googleapis.com/v1beta/openai/
+    model: gemini-3.1-flash-lite-preview
+

@@ -1,0 +1,36 @@
+{
+  "ok": true,
+  "summary": "Kokoro TTS wrote 2 audio artifact(s).",
+  "data": {
+    "artifacts": [
+      {
+        "index": 0,
+        "path": "C:\\Users\\iii\\Desktop\\Stelle\\test\\kokoro-tool-audio\\kokoro-smoke-000.wav",
+        "mimeType": "audio/wav",
+        "byteLength": 26,
+        "text": "Kokoro stream chunk one."
+      },
+      {
+        "index": 1,
+        "path": "C:\\Users\\iii\\Desktop\\Stelle\\test\\kokoro-tool-audio\\kokoro-smoke-001.wav",
+        "mimeType": "audio/wav",
+        "byteLength": 26,
+        "text": "Kokoro stream chunk two."
+      }
+    ]
+  },
+  "requests": [
+    {
+      "model": "kokoro",
+      "input": "Kokoro stream chunk one.",
+      "voice": "af_heart",
+      "response_format": "wav"
+    },
+    {
+      "model": "kokoro",
+      "input": "Kokoro stream chunk two.",
+      "voice": "af_heart",
+      "response_format": "wav"
+    }
+  ]
+}

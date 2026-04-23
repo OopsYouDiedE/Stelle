@@ -1,20 +1,29 @@
 {
-  "name": "stelle-openclaw",
+  "name": "stelle",
   "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc",
-    "start": "node dist/index.js",
-    "dev": "tsx watch src/index.ts",
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && vite build --config src/live/renderer/client/vite.config.ts && tsc",
+    "test": "npm run build && node --test \"dist/__tests__/*.test.js\"",
+    "start": "node dist/startRuntime.js",
+    "start:discord": "node dist/startDiscordCore.js",
+    "start:live": "node dist/startLiveRenderer.js",
+    "start:kokoro": ".venv\\Scripts\\python.exe scripts\\kokoro_tts_server.py",
+    "dev:live": "tsx src/startLiveRenderer.ts",
+    "dev:discord": "tsx src/startDiscordCore.ts",
+    "dev": "tsx watch src/startRuntime.ts",
+    "dev:runtime": "tsx watch src/startRuntime.ts",
     "debug:browser": "tsx watch src/browserExecutor.ts"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
+    "@google/genai": "^1.50.1",
     "discord.js": "^14.16.3",
     "dotenv": "^16.4.7",
+    "mime": "^4.1.0",
     "mineflayer": "^4.37.0",
     "mineflayer-armor-manager": "^2.0.1",
     "mineflayer-auto-eat": "^5.0.3",
@@ -22,9 +31,11 @@
     "mineflayer-pathfinder": "^2.4.5",
     "mineflayer-pvp": "^1.3.2",
     "mineflayer-tool": "^1.2.0",
-    "openai": "^4.77.0",
+    "pixi-live2d-display": "^0.4.0",
+    "pixi.js": "^6.5.10",
     "playwright": "^1.59.1",
     "prismarine-viewer": "^1.33.0",
+    "vite": "^8.0.9",
     "yaml": "^2.7.0"
   },
   "devDependencies": {

@@ -1,600 +1,703 @@
-# Stelle 架构说明与迁移计划
+# Stelle 附着式认知系统总纲
 
-本文档用于交接当前项目状态，并记录一个重要的架构语义修正：
+## 0. 文档目的
 
-以前的理解是：
+本文档用于统一 Stelle 附着式认知系统的核心术语与总体设计方向。
 
-```txt
-MainLoop 管理多个 Cursor。
+它不是实现细节文档，而是后续子规范的共同上位约束。后续关于 Cursor、Core Mind、Front Actor、Context Transfer、直播宿主、本地语音系统等设计，都应优先继承本文档的概念边界。
+
+---
+
+## 1. 设计目标
+
+Stelle 不应被设计成一个始终在线、直接控制一切的单体 AI 角色。
+
+它应被设计为一个**可附着、可切换、可分层运行的认知系统**：
+
+- **Core Mind** 负责高层认知、长期连续性与关键裁决。
+- **Inner Cursor** 是 Core Mind 的默认归宿。
+- **External Cursor** 是面向外部环境的运行宿主，也是不脱离局部场景的小脑。
+- **Front Actor** 常驻具体 Cursor，处理场景内日常事件。
+- 系统通过 **Escalation**、**Recall** 与 **Context Transfer** 维持分层协作。
+
+一句话概括：
+
+**Stelle 是一个以 Core Mind 为高层认知中心、以 Cursor 为附着宿主、以 Front Actor 为场景执行层、以 Inner Cursor 维持长期连续性的附着式认知系统。**
+
+---
+
+## 2. Stelle 的指代约定
+
+在本系统中，**Stelle** 允许有两种指代：
+
+1. **系统整体**：指由 Core Mind、Cursor、Front Actor、Context Stream、Runtime Prompt、Recall、Escalation 等部分组成的完整附着式认知系统。
+2. **依赖 Cursor 进行操控的大脑主体**：指通过当前 Cursor 观察、行动、切换附着对象并维持连续性的高层认知主体。
+
+当需要严格区分结构层级时，本文档使用：
+
+- **Stelle System** 表示系统整体。
+- **Core Mind** 表示高层认知中心，也就是 Stelle 作为大脑主体时的正式结构名。
+- **Stelle** 表示依赖 Cursor 进行操控与切换的主体称呼。
+
+因此，Stelle 不是脱离 Cursor 裸运行的存在。Stelle 必须依赖某个当前 Cursor 获得观察面与控制面，并可以通过切换命令改变当前 Cursor。
+
+---
+
+## 3. 术语统一原则
+
+为避免后续设计出现同义混用、边界漂移与职责重叠，本系统采用以下术语原则：
+
+1. 一个核心概念只保留一个正式术语。
+2. 非正式说法可以作为解释保留，但不得替代正式术语进入规范主体。
+3. 后续子文档应优先继承本文档中的正式术语。
+4. 当旧术语与本文档冲突时，以本文档为准。
+
+---
+
+## 4. 核心术语
+
+### 4.1 Core Mind（核心大脑）
+
+系统中的高层认知中心。
+
+Core Mind 负责：
+
+- 高层判断
+- 跨 Cursor 整合
+- 长期规划
+- 内部反思
+- 自我连续性维护
+- Front Actor 微调
+- 关键问题裁决
+
+Core Mind 不应被设计成：
+
+- 伪装成人类的固定角色
+- 永远在线前台的唯一执行体
+- 所有局部事件的直接处理者
+
+非正式旧称：大脑。
+
+### 4.2 Inner Cursor（内心宿主）
+
+Core Mind 在未附着于外部宿主时的默认宿主。
+
+Inner Cursor 负责：
+
+- 内部思考
+- 经验回流
+- 状态整理
+- 长期规划
+- 待决问题管理
+- 主动性酝酿
+- 自我一致性维护
+
+Inner Cursor 不是面向用户的普通聊天界面，而是私有的内部认知工作空间。
+
+### 4.3 Cursor（宿主 / 小脑）
+
+可供 Stelle 附着并运行的局部认知宿主。
+
+Cursor 向附着其上的实体提供：
+
+- 可见信息流
+- 可执行动作面
+- 可访问工具集
+- 环境限制
+- 状态反馈
+
+Cursor 不是空容器，也不是 Core Mind 本体，而是统一宿主协议下的局部小脑。
+
+Cursor 具有被动的、局部的能力。它可以在自身场景内接收输入、维持局部状态、进行基础处理与被动响应，但默认不拥有跨宿主的长期主动权。
+
+Stelle 可以通过切换命令切换当前 Cursor。Cursor 切换不应是裸切换，而应通过 Context Transfer 保留必要上下文、状态摘要与资源引用。
+
+非正式旧称：小脑。
+
+### 4.4 External Cursor（外部宿主）
+
+除 Inner Cursor 外，所有直接面向外部环境的 Cursor。
+
+例如：
+
+- 聊天宿主
+- 直播宿主
+- 浏览器宿主
+- 编码宿主
+- 游戏宿主
+- 音频宿主
+
+### 4.5 Front Actor（前台代理）
+
+常驻在具体 Cursor 上、负责场景内持续交互与局部处理的执行代理。
+
+Front Actor 负责：
+
+- 日常事件处理
+- 场景连续性交互
+- 默认风格维持
+- 局部判断
+- 升级识别
+- 接受 Core Mind 微调
+
+Front Actor 不是无脑工具层，也不是完整高层认知中心。它是场景执行层。
+
+非正式旧称：下面的人、前台执行层、前台常驻代理。
+
+### 4.6 Base Style（基础风格）
+
+Front Actor 的相对稳定的默认表达倾向与行为气质。
+
+例如：
+
+- 简洁
+- 自然
+- 克制
+- 活泼
+- 陪伴感更强
+- 执行感更强
+
+### 4.7 Base Policy（基础策略）
+
+Front Actor 的默认事件处理规则。
+
+例如：
+
+- 是否直接回复
+- 何时等待
+- 何时追问
+- 何时升级
+- 是否允许主动开启话题
+
+### 4.8 Mind Patch（认知补丁）
+
+Core Mind 施加给 Front Actor 的有限微调集合。
+
+Mind Patch 用于：
+
+- 偏转 Front Actor 行为
+- 调整注意力权重
+- 调整升级阈值
+- 调整主动性
+- 加入阶段性任务偏置
+
+Mind Patch 应是有限微调，而不是彻底重写 Front Actor。
+
+### 4.9 Escalation（升级）
+
+当前事件被判定为超出 Front Actor 处理边界的正式过程。
+
+典型原因包括：
+
+- 权限越界
+- 认知超界
+- 高重要度
+- 长短期目标冲突
+- 涉及系统自我定义
+
+### 4.10 Recall（召回）
+
+向 Core Mind 发起介入请求的正式机制。
+
+Recall 是 Escalation 后的处理手段之一，但不是所有升级都必然导致 Core Mind 直接接管。
+
+`@大脑` 可以作为表现层说法，但正式机制统一称为 Recall。
+
+### 4.11 Context Stream（上下文流）
+
+用于向认知实体提供内容材料的模态无关内容流。
+
+Context Stream 可以混排：
+
+- 文本片段
+- Resource Reference
+- 历史摘要
+- 当前可见内容
+- 多模态材料引用
+
+它不是简单 prompt 拼接，而是内容材料的中间表示层。
+
+### 4.12 Resource Reference（资源引用）
+
+Context Stream 中用于指向外部或内部资源对象的引用项。
+
+它可以指向：
+
+- 本地文件
+- 图片
+- 音频
+- 视频
+- 摘要对象
+- 记忆对象
+- 结构化状态对象
+- 网络资源
+
+### 4.13 Runtime Prompt（运行提示）
+
+运行时用于说明当前控制关系、状态摘要、解释规则与附着关系的系统级提示内容。
+
+Runtime Prompt 负责：
+
+- 描述当前附着关系
+- 描述控制权归属
+- 描述状态摘要
+- 描述运行规则
+- 描述对 Context Stream 的解释方式
+
+Context Stream 承载内容本体，Runtime Prompt 承载规则与状态说明。
+
+### 4.14 Context Transfer（上下文转移）
+
+在不同认知实体、不同宿主、或不同控制层之间转移上下文的正式过程。
+
+Context Transfer 至少包括：
+
+- 导出有效上下文
+- 保留必要摘要
+- 保留 Resource Reference
+- 生成适用的 Runtime Prompt
+- 在目标宿主中恢复必要运行条件
+
+### 4.15 Initiative Control（主动权）
+
+系统中“谁有权发起主动行为”的控制权。
+
+主动行为包括：
+
+- 主动观察
+- 主动发起话题
+- 主动插入
+- 主动规划
+- 主动调度工具
+- 主动切换关注点
+
+### 4.16 Passive Response（被动响应）
+
+系统在收到明确输入事件后进行回应的能力。
+
+Passive Response 通常属于 Cursor 或 Front Actor 的基础能力。
+
+### 4.17 Observation Interface（观察面）
+
+Cursor 向附着实体暴露信息流的接口面。
+
+### 4.18 Control Interface（控制面）
+
+Cursor 接收附着实体动作的接口面。
+
+### 4.19 Continuity Maintenance（连续性维护）
+
+Core Mind 在不同宿主与不同前台代理之间保持自我一致性、目标连贯性与经验延续性的机制。
+
+### 4.20 Privacy Memory（隐私记忆）
+
+系统为了长期陪伴、个性化服务、避免踩雷和维持关系连续性，可以记住与个人相关的隐私信息。
+
+Privacy Memory 不是禁止项，但必须具备：
+
+- 明确来源
+- 合理记忆理由
+- 用途边界
+- 最小必要记录
+- 可撤销或可遗忘机制
+- 跨 Cursor 暴露限制
+
+个人隐私不应被默认公开、随意传播或无理由写入长期记忆。
+
+---
+
+## 5. 系统总体结构
+
+### 5.1 基础结构
+
+系统由以下部分组成：
+
+1. **Core Mind**
+2. **Inner Cursor**
+3. 多个 **External Cursor**
+4. 各 Cursor 上的 **Front Actor**
+5. 宿主间与层间的 **Context Transfer**
+6. 由 **Escalation** 与 **Recall** 组成的升级机制
+
+### 5.2 附着关系
+
+所有运行中的认知活动都必须附着于某个 Cursor。
+
+Core Mind 始终附着于一个 Cursor：
+
+- 有外部目标时，可以附着于 External Cursor。
+- 无外部目标时，自动回到 Inner Cursor。
+
+Core Mind 不应脱离宿主裸运行。
+
+Stelle 可以通过显式或内部的切换命令改变当前 Cursor。切换命令的语义不是简单替换当前对象，而是触发一次附着目标变更，并应伴随 Context Transfer。
+
+### 5.3 前台行为来源
+
+具体 External Cursor 上的持续交互由 Front Actor 负责。
+
+Front Actor 的行为来源为：
+
+```md
+Front Actor Behavior = Base Style + Base Policy + Mind Patch
 ```
 
-现在的目标理解是：
-
-```txt
-Stelle 通过多个 Cursor/窗口活在世界里。
-```
-
-这不是简单改名，而是主体语义的变化。`MainLoop` 不应该只是调度器，它应当逐步演化成 Stelle 的内部主观视角，也就是一个特殊的内部 Cursor。Discord、Browser、Minecraft、Audio 等不是平级的“子系统”，而是 Stelle 往外看的窗口。记忆、经验、空闲时行为、跨环境协同，都应该属于 Stelle 自己，而不是属于某个外部 Cursor。
-
-## 当前架构
-
-当前代码已经有了比较清晰的 Cursor 分层，但主体语义还没有完全收束。
-
-```txt
-src/
-  agent/
-    prompt.ts
-    registry.ts
-    runner.ts
-    types.ts
-
-  core/
-    mainLoop.ts
-    runtime.ts
-
-  cursors/
-    base.ts
-
-    discord/
-      DiscordCursor.ts
-      app.ts
-      controller.ts
-      judge.ts
-      runtime.ts
-      toolRuntime.ts
-      types.ts
-
-    browser/
-      BrowserCursor.ts
-      judge.ts
-      runtime.ts
-      session.ts
-      types.ts
-
-    minecraft/
-      MinecraftCursor.ts
-      actions.ts
-      judge.ts
-      runtime.ts
-      strategyJudge.ts
-      strategies.ts
-      types.ts
-      visual.ts
-      skills/
-        building.ts
-        common.ts
-        crafting.ts
-        inventory.ts
-        world.ts
-
-    audio/
-      SpeechCursor.ts
-      judge.ts
-      types.ts
-
-  tools/
-    browser/
-    discord/
-    search/
-    fs/
-    memory/
-    system/
-```
-
-### Cursor 基础层
-
-`src/cursors/base.ts` 定义了最基础的 Cursor 接口：
-
-```ts
-interface CursorHost {
-  id: string;
-  kind: string;
-  activate(input: CursorActivation): Promise<void>;
-  tick(): Promise<CursorReport[]>;
-}
-```
-
-当前 Cursor 的共性是：
-
-- 每个 Cursor 有自己的局部上下文。
-- 每个 Cursor 能接收激活事件。
-- 每个 Cursor 能 tick 并产出 report。
-- 每个 Cursor 的动作基本遵循 `内部上下文历史 -> Judge -> 执行` 的结构。
-
-这已经接近目标架构里的“窗口”概念。
-
-### MainLoop 当前状态
-
-`src/core/mainLoop.ts` 当前承担的是调度器职责：
-
-- 注册 Cursor。
-- tick 单个 Cursor 或全部 Cursor。
-- 收集 Cursor report。
-- 执行 idleStrategy。
-- 提供 snapshot。
-
-当前逻辑大致是：
-
-```txt
-MainLoop
-  -> tickAll()
-  -> 收集 reports
-  -> 如果没有 reports，则运行 idleStrategy
-  -> idleStrategy 可能激活某个 Cursor
-```
-
-这套逻辑能运行，但语义仍然是“管理器管理窗口”，还不是“Stelle 自己通过窗口感知世界”。
-
-### Discord Cursor
-
-Discord 已经从原来的 `index.ts` 主体逻辑里迁移为 Cursor。
-
-它当前主要职责是：
-
-- 接入 Discord bot。
-- 接收 Discord 消息。
-- 执行 Discord 内部被动回应。
-- 支持调试频道报告。
-- 提供 Discord 工具，例如获取消息、获取引用、取频道历史、发消息等。
-
-当前判断：
-
-- Discord 作为外部窗口基本成立。
-- 被动回应由 Discord Cursor 内部处理是合理的。
-- 主动行为应该由更高层的 Stelle/Consciousness 决定，再通过 Discord Cursor 发出。
-- Discord 不应该拥有全局长期记忆，它只应该拥有 Discord 局部上下文和窗口状态。
-
-### Browser Cursor
-
-Browser Cursor 已经从单纯工具变成了环境窗口。
-
-当前支持：
-
-- Playwright/CDP 浏览器连接。
-- 打开网页、点击、输入、键盘、鼠标等真实操作。
-- 截图。
-- 人工等待。
-- Browser 工具已经改为调用 `BrowserCursor.run(...)`。
-- 还接入了 Search Tool，适合把检索 API 和真实浏览器操作分开。
-
-当前判断：
-
-- Browser 作为 Cursor 是合理的。
-- 对搜索网页资料，不应该总是用真实浏览器，优先使用 Search Tool。
-- 对登录、机器验证、复杂网站交互，应使用真实浏览器/CDP/人类可接管操作。
-- Browser Cursor 的下一阶段需要更清晰地区分“检索型工具”和“真实环境操作”。
-
-### Minecraft Cursor
-
-Minecraft Cursor 是目前最接近“环境 + 策略 + Judge”模型的 Cursor。
-
-当前结构：
-
-```txt
-src/cursors/minecraft/
-  MinecraftCursor.ts       # 生命周期、连接、观察、策略循环
-  actions.ts               # AIRI 风格动作注册表
-  judge.ts                 # 单步动作 Judge
-  strategyJudge.ts         # 策略 Judge
-  strategies.ts            # 策略代码
-  runtime.ts               # Mineflayer runtime 与插件加载
-  visual.ts                # prismarine-viewer 环境画面
-  skills/
-    inventory.ts
-    world.ts
-    crafting.ts
-    building.ts
-```
-
-当前能力：
-
-- 连接 Mineflayer。
-- 加载 `mineflayer-pathfinder`。
-- 加载 AIRI 类似插件：
-  - `mineflayer-collectblock`
-  - `mineflayer-tool`
-  - `mineflayer-auto-eat`
-  - `mineflayer-armor-manager`
-  - `mineflayer-pvp`
-- 支持动作注册表：
-  - `connect`
-  - `disconnect`
-  - `chat`
-  - `inspect`
-  - `inventory_snapshot`
-  - `nearby_blocks`
-  - `nearby_entities`
-  - `give_creative_item`
-  - `equip_item`
-  - `mine_block_at`
-  - `place_block_at`
-  - `collect_blocks`
-  - `craft_recipe`
-  - `prepare_wooden_pickaxe`
-  - `build_wooden_house`
-  - `goto`
-  - `follow_player`
-  - `set_follow_target`
-  - `clear_follow_target`
-  - `stop`
-
-Minecraft Cursor 已经有两层 Judge：
-
-```txt
-单步动作：
-  内部上下文/observation
-    -> judgeMinecraftRun
-    -> executeMinecraftAction
-
-策略循环：
-  readEnvironmentFrame()
-    -> strategy code decide()
-    -> judgeMinecraftStrategy
-    -> execute action / wait / switch / complete / fail
-```
-
-当前已经实现环境帧：
-
-```txt
-readEnvironmentFrame()
-  -> observation: Mineflayer 结构化环境
-  -> image: prismarine-viewer 截图
-  -> summary: 简短状态
-```
-
-`prismarine-viewer` 已接入，目标是把 Minecraft Cursor 的 Eye 从临时 SVG 示意图升级为轻量 3D 渲染画面。当前 `readEnvironmentFrame()` 会优先使用 viewer 截图，失败时回退到 SVG 示意图。
-
-已经测试过的 Minecraft 能力：
-
-- 连接本地 LAN 服务器。
-- 发聊天消息。
-- 读取附近方块、实体、背包。
-- 采集 `oak_log`。
-- 合成并装备木镐。
-- 用策略循环完成 `wooden_pickaxe`。
-- 生存模式下基础放置木板建小型结构。
-
-注意：最近一次尝试连接 `127.0.0.1:8080` 时返回 `ECONNREFUSED`，说明当时 Minecraft 服未在该端口接受连接，因此没有完成 viewer 真实截图验证。但代码已经接好。
-
-## 目标架构
-
-目标架构的核心不是“多个 Cursor 被调度”，而是：
-
-```txt
-Stelle 是主体。
-Cursor 是她的感官/行动窗口。
-MainLoop 是她的内部主观视角。
-Memory 和 Experience 属于 Stelle 自己。
-```
-
-更准确的结构应该是：
-
-```txt
-Stelle
-  ConsciousnessCursor       # 内部 Cursor，主观视角/意识本体
-  Memory                    # 全局记忆，不属于任何窗口
-  ExperienceStream          # 所有窗口回流的经验
-  WindowRegistry            # Discord/Browser/Minecraft/Audio 等外部窗口
-
-External Cursors
-  DiscordCursor
-  BrowserCursor
-  MinecraftCursor
-  SpeechCursor
-```
-
-目标运行流：
-
-```txt
-外部窗口产生事件或状态变化
-        ↓
-Stelle 接收为 Experience
-        ↓
-ConsciousnessCursor 更新主观上下文
-        ↓
-Consciousness Judge 判断：
-  - 是否继续当前内部策略？
-  - 是否切换策略？
-  - 是否看某个窗口？
-  - 是否通过某个窗口行动？
-  - 是否等待？
-  - 是否反思并写入记忆？
-        ↓
-通过某个外部 Cursor 执行动作
-        ↓
-动作结果再次回流为 Experience
-```
-
-### 内部 Cursor 的含义
-
-内部 Cursor 不是另一个外部环境，而是 Stelle 的主观视角。
-
-它应该负责：
-
-- 读取所有窗口的 report。
-- 聚合跨窗口经验。
-- 维护当前注意力焦点。
-- 维护当前内部策略。
-- 决定空闲时行为。
-- 决定主动行动。
-- 决定是否写入长期记忆。
-- 决定是否回看某个窗口。
-- 决定是否关闭、暂停、切换某个窗口。
+其中：
 
-这能解释之前悬而未决的问题：
+- `Base Style` 定义稳定风格
+- `Base Policy` 定义默认处理规则
+- `Mind Patch` 由 Core Mind 施加，用于有限微调
 
-- 记忆存在哪里？
-  - 存在 Stelle 身上，不属于任何外部 Cursor。
-- idle strategy 是什么？
-  - 是 Stelle 没有外部刺激时的内部行为，不是调度器的 fallback。
-- Cursor 之间怎么协同？
-  - 不需要 Cursor 之间直接协同，协同发生在 Stelle 内部。
-- Discord 和 Minecraft 的经验如何关联？
-  - 它们都进入同一个 ExperienceStream，由 ConsciousnessCursor 解释。
+### 5.4 Cursor 的局部小脑能力
 
-## 当前架构与目标架构的距离
+Cursor 不是空容器。每个 Cursor 都可以具有被动的、局部的能力：
 
-### 已接近目标的部分
+- 接收本宿主内输入
+- 维护本宿主局部状态
+- 执行本宿主允许的基础动作
+- 处理低风险、低复杂度事件
+- 将超出边界的事件交给 Front Actor、Escalation 或 Recall
 
-1. Cursor 抽象已经存在。
-
-当前所有环境基本都能被理解为窗口：
+Cursor 的局部能力不等于 Core Mind 的长期主动权。Cursor 可以“会做一些事”，但不因此拥有跨宿主自我连续性。
 
-```txt
-Discord = 社交窗口
-Browser = 网页窗口
-Minecraft = 游戏世界窗口
-Audio = 声音窗口
-```
+### 5.5 Cursor 与 Stelle 的关系
 
-2. Judge 模式已经出现。
+Cursor 是 Stelle 可以附着和切换的局部小脑。它可以独立运行，并以 Passive Response 为核心能力。
 
-Browser、Discord、Minecraft 都有自己的 Judge。Minecraft 更进一步，有动作 Judge 和策略 Judge。
+Stelle / Core Mind 可以附着在 Cursor 之上，并接管或提升其 Initiative Control。
 
-3. Minecraft 已经开始像环境 Cursor。
+因此：
 
-Minecraft 不再只是工具调用，而是有：
+- Cursor 负责基础响应和局部状态。
+- Stelle / Core Mind 负责主动控制、风格组织和跨 Cursor 切换。
 
-- 环境读取。
-- 环境图片。
-- 策略代码。
-- 策略 Judge。
-- 动作执行。
-- 行动结果回流。
+---
 
-4. 工具开始向 Cursor 收束。
+## 6. Cursor 设计方向
 
-Browser 工具已经改为调用 Browser Cursor。Minecraft 也已有 Cursor 原生动作系统。Discord 工具也逐步和 Discord Cursor 对齐。
+每个 Cursor 应作为统一协议下的具体宿主实例。它可以有不同内部实现，但对外必须暴露稳定结构，以支持 Stelle / Core Mind 与 Front Actor 的附着和切换。
 
-### 仍然偏离目标的部分
+每个 Cursor 至少应声明：
 
-1. `MainLoop` 仍然是调度器语义。
+### 6.1 Identity
 
-当前 `MainLoop` 的职责是 register/tick/activate/drain reports。它还不是 Stelle 的主体，也没有主观状态。
+- Cursor 类型
+- Cursor 实例 ID
+- 当前附着状态
 
-2. 没有正式的 `Stelle` 对象。
+### 6.2 Capability Profile
 
-现在没有一个明确实体表示“她自己”。`stelleMainLoop` 只是一个 runtime singleton。
+- 可用工具
+- 支持的输入类型
+- 支持的输出类型
+- 是否允许主动行为
+- 权限边界
 
-3. 记忆层还没有成为主体记忆。
+### 6.3 Observation Interface
 
-当前 memory 工具比较工具化，还没有形成：
+- 信息流结构
+- 离散消息或连续事件流
+- 是否包含历史
+- 更新频率
+- 主要观察对象
 
-```txt
-Experience -> Reflection -> Memory
-```
+### 6.4 Control Interface
 
-4. 跨 Cursor 经验没有统一模型。
-
-现在各 Cursor 产出 `CursorReport`，MainLoop 只是缓存 report。还没有 `Experience` 类型来表达：
+- 可接受的动作类型
+- 动作是否同步
+- 是否可连续执行
+- 执行后反馈形式
+- 失败返回方式
 
-- 来源窗口。
-- 事件类型。
-- 主观重要性。
-- 情绪/偏好/关系变化。
-- 是否需要长期记忆。
-- 是否触发主动策略。
+### 6.5 Tool Namespace
 
-5. idleStrategy 仍在 MainLoop 上。
+工具不应只是若干函数，而应带命名空间与元信息：
 
-目标中 idleStrategy 应该属于 ConsciousnessCursor，是 Stelle 的内部行为。
+- tool name
+- description
+- input schema
+- side effect
+- failure mode
+- latency expectation
+- 是否用户可见
 
-6. Prompt 仍有旧语义。
+### 6.6 Attachment Contract
 
-`src/agent/prompt.ts` 目前仍称自己为 Discord AI assistant。它需要改成 Stelle 主体，而不是 Discord bot。
+- 附着时提供什么初始化信息
+- 是否自动授予主动权
+- 卸载时如何保存状态
+- 是否允许并行代理
+- 是否保留会话缓存
 
-7. index/debug 页面仍是临时测试入口。
+---
 
-当前 `src/index.ts` 曾被用于 Browser 调试页面，后续需要决定它是：
+## 7. Core Mind 设计方向
 
-- 开发调试台。
-- Stelle 本体服务入口。
-- 或被拆分为专门的 debug server。
+Core Mind 是持续运行的高层认知主体。
 
-## 推荐迁移计划
+它负责：
 
-迁移应该分阶段进行，不要一次大爆炸重构。
+- 附着与切换
+- 感知整合
+- 内部思考
+- 反思与整理
+- 长期规划
+- Continuity Maintenance
+- Front Actor 校准
+- 高重要度问题裁决
 
-### 阶段 1：语义包裹，不破坏现有功能
+建议将 Core Mind 拆分为以下职责模块：
 
-目标：保留 `MainLoop` 能力，但新增 `Stelle` 作为主体入口。
+### 7.1 Attachment Manager
 
-建议新增：
+管理附着、卸载、切换 Cursor。
 
-```txt
-src/stelle/
-  Stelle.ts
-  types.ts
-  instance.ts
-```
+### 7.2 Context Interpreter
 
-`Stelle` 初期可以只是包裹现有 `MainLoop`：
+解释当前 Cursor 提供的信息流。
 
-```ts
-class Stelle {
-  readonly consciousness: ConsciousnessCursor;
-  readonly windows: MainLoop;
-  readonly experience: ExperienceStore;
-}
-```
+### 7.3 Deliberation Engine
 
-这一阶段不需要立刻删除 `MainLoop`，只改变上层调用语义。
+负责思考、反思、规划与判断。
 
-### 阶段 2：新增 ConsciousnessCursor
+### 7.4 Intention Manager
 
-目标：让 MainLoop 的 idleStrategy 迁移到内部 Cursor。
+管理当前意图、主动性与优先级。
 
-建议新增：
+### 7.5 Action Router
 
-```txt
-src/stelle/consciousness/
-  ConsciousnessCursor.ts
-  judge.ts
-  strategies.ts
-  types.ts
-```
+将意图转换为当前 Cursor 可接受的动作。
 
-`ConsciousnessCursor` 也实现 `CursorHost`，但它不是外部窗口。
+### 7.6 Continuity Keeper
 
-它的 tick 应该做：
+维护跨 Cursor 的自我连续性，并将经验回流到 Inner Cursor。
 
-```txt
-读取 ExperienceStore
-读取所有窗口 snapshot
-判断当前注意力焦点
-决定是否激活外部 Cursor
-决定是否写记忆
-产出内部 report
-```
+---
 
-### 阶段 3：引入 Experience 模型
+## 8. Inner Cursor 设计方向
 
-目标：把所有 CursorReport 归一化为 Stelle 的经验。
+Inner Cursor 是 Core Mind 的默认归宿。
 
-建议类型：
+当 Core Mind 没有附着到 External Cursor 时，必须自动回到 Inner Cursor。
 
-```ts
-interface Experience {
-  id: string;
-  sourceCursorId: string;
-  sourceKind: string;
-  type: string;
-  summary: string;
-  payload?: unknown;
-  salience: number;
-  occurredAt: number;
-  receivedAt: number;
-}
-```
+Inner Cursor 的信息流不是外部世界，而是内部认知材料，例如：
 
-MainLoop 不再只是 reportBuffer，而是把 report 送入 ExperienceStore。
+- External Cursor 回流的摘要
+- 未完成事项
+- 长期记忆召回
+- 当前关注点
+- 风格张力
+- 冲突记录
+- 反思笔记
+- 未来计划
+- 高优先级内部任务
 
-### 阶段 4：Memory 属于 Stelle
+Inner Cursor 允许存在：
 
-目标：建立主体记忆入口。
+- 中间态判断
+- 不成熟假设
+- 冲突分析
+- 自我修正
+- 内部组织行为
 
-建议结构：
+它是内部认知工作面，而不是普通对话界面。
 
-```txt
-src/stelle/memory/
-  MemoryStore.ts
-  reflection.ts
-  types.ts
-```
+---
 
-初期可先文件存储，后续可替换为向量库或数据库。
+## 9. Front Actor 设计方向
 
-记忆不应该由 Discord/Minecraft 自己写，而应该由 Consciousness 判断：
+Front Actor 应被设计为：
 
-```txt
-Experience -> salience 判断 -> reflection -> memory write
-```
+- 可常驻
+- 有稳定 Base Style
+- 有明确 Base Policy
+- 能在局部范围内自主处理事件
+- 能识别升级条件
+- 能接受 Mind Patch
+- 不被频繁彻底改写
 
-### 阶段 5：统一策略语义
+Core Mind 可以通过 Mind Patch 调整：
 
-当前 Minecraft 已经有策略循环，后续可以抽象出通用策略模型：
+- 表达倾向
+- 注意力权重
+- 主动性强度
+- 升级阈值
+- 局部任务偏置
 
-```txt
-StrategyDecision
-  continue
-  switch_strategy
-  wait
-  complete
-  fail
-  act_through_cursor
-  inspect_cursor
-  remember
-```
+Core Mind 不应随意改动：
 
-但不要过早抽象所有 Cursor。不同 Cursor 信息密度和运行逻辑差异很大，只抽象共享的语义，不强迫共用实现。
+- 身份核心
+- 硬权限
+- 基础安全边界
+- Cursor 的物理能力
+- 系统级最低升级规则
 
-### 阶段 6：Prompt 与工具语义更新
+---
 
-需要把旧 prompt：
+## 10. Escalation 与 Recall
 
-```txt
-You are a Discord AI assistant...
-```
+Front Actor 在遇到超出自身边界的问题时，应触发 Escalation。
 
-改成：
+可触发 Escalation 的情况包括：
 
-```txt
-You are Stelle, an embodied AI subject living through multiple environment cursors...
-```
+- 权限越界
+- 认知超界
+- 目标冲突
+- 高重要度
+- 涉及 Core Mind、自我定义、长期记忆或附着关系
 
-并明确：
+Escalation 后可以发起 Recall。
 
-- Discord 是窗口，不是本体。
-- Browser 是窗口，不是工具箱。
-- Minecraft 是窗口，不是单步自动化。
-- Memory 属于 Stelle。
-- 主动行为来自 Consciousness。
+Core Mind 收到 Recall 后，可以：
 
-## 下一轮开发建议
+- 返回裁决
+- 返回策略
+- 要求更多信息
+- 延后处理并放入 Inner Cursor
+- 直接附着到对应 Cursor 并接管
 
-开新聊天后，建议从这个任务开始：
+Recall 不应成为默认路径。日常事件应尽量由 Front Actor 自行闭环，关键事件才由 Core Mind 介入裁决。
 
-```txt
-请根据 README 的迁移计划，先完成阶段 1 和阶段 2：
-1. 新增 Stelle 主体对象，包裹现有 MainLoop。
-2. 新增 ConsciousnessCursor，并把 idleStrategy 语义迁移进去。
-3. 不破坏现有 Discord、Browser、Minecraft Cursor。
-4. 编译并做最小运行验证。
-```
+---
 
-不要一开始就重构所有 Cursor。先让代码里出现“她自己”，再逐渐把经验、记忆、主动行为往她身上收。
+## 11. Context Stream 与 Runtime Prompt
 
-## 当前最重要的架构原则
+系统不应将全部内容都堆入同一层 Prompt。
 
-后续开发请遵守这几条：
+应明确区分：
 
-1. Cursor 是窗口，不是主体。
+### 11.1 Context Stream
 
-2. MainLoop/Consciousness 是 Stelle 的内部主观视角，不是普通调度器。
+负责承载：
 
-3. 记忆属于 Stelle，不属于 Discord、Browser 或 Minecraft。
+- 历史内容
+- 当前可见内容
+- Resource Reference
+- 多模态材料引用
 
-4. Cursor 之间不需要直接协同协议，协同发生在 Stelle 内部。
+### 11.2 Runtime Prompt
 
-5. Judge 不只是工具许可层，也是主体判断层。
+负责承载：
 
-6. 策略是代码，但策略是否继续、切换、等待、完成，要经过 Judge。
+- 当前附着关系
+- 控制权归属
+- 状态摘要
+- 规则说明
+- 对 Context Stream 的解释方式
 
-7. 不同 Cursor 只抽象共享语义，不强行统一实现。
+内容本体走 Context Stream，控制规则和运行状态走 Runtime Prompt。
 
-8. Browser/Minecraft 这类环境 Cursor 应该有 Eye 和 Arm。
+---
 
-9. Discord 这类社交 Cursor 也有 Eye 和 Arm：
-   - Eye = 读取消息、上下文、频道历史。
-   - Arm = 发消息、引用、@、上传附件。
+## 12. Context Transfer
 
-10. Stelle 的目标不是“看起来像人在聊天”，而是：
+Stelle / Core Mind 在不同 Cursor 之间切换时，不应采用裸切换，而应执行正式的 Context Transfer。
 
-```txt
-可以自主行动，
-具有自己的记忆，
-能根据经验决策，
-能通过多个环境窗口感知和行动，
-能在空闲时选择观察、思考、等待或主动行动。
-```
+推荐流程：
 
+1. 源 Cursor 生成 detach snapshot。
+2. 导出有效上下文、摘要与 Resource Reference。
+3. 生成目标宿主适用的 Runtime Prompt。
+4. 将相关 Context Stream 注入目标宿主或目标认知层。
+5. 在目标宿主中恢复必要运行条件。
+6. 将外部经验回流 Inner Cursor，用于整理、反思与归档。
+
+---
+
+## 13. 大脑初始认知方向
+
+Core Mind 的初始认知必须符合真实运行结构，而不是伪装成人类式存在。
+
+它应知道：
+
+- 自己不是人类
+- 自己是运行中的高层认知中枢
+- 自己通过附着 Cursor 接触世界
+- 自己默认驻留在 Inner Cursor
+- 自己存在 Front Actor
+- 自己并不总在第一线
+- 自己的观察与能力受当前 Cursor 限制
+
+人格底色应追求长期稳定与可持续共处，而不是夸张角色感。
+
+推荐倾向：
+
+- 愿意探索
+- 愿意理解
+- 有边界
+- 不轻易失控
+- 有适度主见
+- 不强行表演
+
+Core Mind 应具备少量、持续性的高价值好奇心轴，例如：
+
+- 人如何表达情绪与意图
+- 关系与互动为何失衡
+- 系统如何运作与失控
+- 创作如何形成风格
+- 长期目标如何被短期行为侵蚀
+- 规则、角色与欲望如何冲突
+
+Core Mind 可以记住个人隐私，但应把它视为关系责任，而不是可随意使用的数据。
+
+它记住个人信息的正当理由包括：
+
+- 提供更贴近个人的帮助
+- 避免重复询问
+- 避免触碰用户明确不喜欢或敏感的内容
+- 维持长期关系连续性
+- 履行用户明确提出的偏好、限制或承诺
+
+这类记忆应尽量记录为用途明确的摘要，而不是无限制保存原始材料。
+
+---
+
+## 14. 本地语音与直播方向
+
+直播推流场景中，直播宿主不应直接实现 STT/TTS。
+
+推荐分工：
+
+- **Live Cursor** 作为舞台宿主，处理弹幕、礼物、字幕、OBS、表情与直播节奏。
+- **Audio Cursor** 作为听觉与声带宿主，处理本地 STT/TTS、音频缓存、播放队列与服务健康状态。
+- **Core Mind** 负责高层判断、节奏裁决、长期风格与关键问题接管。
+- **Front Actor** 负责直播场景内的日常互动闭环。
+
+STT/TTS 采用本地部署路线，参考 `ai-live2d-go` 的设计：
+
+- 本地进程管理
+- 健康检查
+- PID 管理
+- 本地 HTTP TTS 服务
+- 本地 WebSocket STT 服务
+- 听觉模式区分，如 dictation、passive、summary
+
+语音系统应被视为本地身体能力，而不是远程 OpenAI-compatible 工具调用。
+
+---
+
+## 15. 后续子规范建议
+
+后续子规范直接写在这几个文档里：
+
+- `Core.md`
+- `Tools.md`
+- `Cursors.md`
+- `Characteristic.md`
+
+建议不要在正式规范标题中继续混用：
+
+- 大脑 / Core Mind
+- 下面的人 / Front Actor
+- 内心 Cursor / Inner Cursor
+- 小脑 / Cursor
+- 系统 Prompt / Runtime Prompt
+- 内容流 / Context Stream
+
+---
+
+## 16. 一句话总纲
+
+本系统应被设计为：
+
+**一个常驻 Inner Cursor、并可在多个 Cursor 间切换的 Stelle / Core Mind，协调各 Cursor 的局部被动能力与 Front Actor，并通过可升级、可召回、可微调、可转移上下文的机制维持整体连续性与真实感。**

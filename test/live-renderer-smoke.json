@@ -1,0 +1,21 @@
+{
+  "liveUrl": "http://127.0.0.1:8787/live",
+  "screenshot": "C:\\Users\\iii\\Desktop\\Stelle\\test\\live-renderer-smoke.png",
+  "caption": "这里是 Stelle 当前正在说的话。OBS 可以直接捕获这个页面。",
+  "status": "Hiyori_pro",
+  "canvasPixels": 2073600,
+  "consoleMessages": [
+    "log: \n %c %c %c PixiJS 6.5.10 - ✰ WebGL 2 ✰  %c  %c  http://www.pixijs.com/  %c %c ♥%c♥%c♥ \n\n background: #ff66a5; padding:5px 0; background: #ff66a5; padding:5px 0; color: #ff66a5; background: #030307; padding:5px 0; background: #ff66a5; padding:5px 0; background: #ffc3dc; padding:5px 0; background: #ff66a5; padding:5px 0; color: #ff2424; background: #fff; padding:5px 0; color: #ff2424; background: #fff; padding:5px 0; color: #ff2424; background: #fff; padding:5px 0;",
+    "warning: WebGL: CONTEXT_LOST_WEBGL: loseContext: context lost",
+    "warning: WebGL: CONTEXT_LOST_WEBGL: loseContext: context lost",
+    "log: [CSM][I]Live2D Cubism Core version: 05.01.0000 (83951616)\n",
+    "log: [CSM][I]CubismFramework.startUp() is complete.\n",
+    "log: [CSM][I]CubismFramework.initialize() is complete.\n",
+    "log: Live2D Cubism SDK Core Version 5.1.0",
+    "warning: [.WebGL-0x2884001a6c00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels",
+    "warning: [.WebGL-0x2884001a6c00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels",
+    "warning: [.WebGL-0x2884001a6c00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels",
+    "warning: [.WebGL-0x2884001a6c00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels (this message will no longer repeat)"
+  ],
+  "pageErrors": []
+}
