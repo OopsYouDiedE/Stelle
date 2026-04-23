@@ -4,7 +4,13 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { GeminiTextProvider, KokoroTtsProvider, createTtsTools, ToolRegistry } from "../index.js";
+import {
+  GeminiTextProvider,
+  KokoroTtsProvider,
+  createTtsTools,
+  sentenceChunksFromTextStream,
+  ToolRegistry,
+} from "../index.js";
 
 class FakeGeminiModels {
   textCalls: string[] = [];
@@ -52,6 +58,37 @@ test("GeminiTextProvider uses primary and secondary model routes", async () => {
     "gemini-3.1-flash-lite-preview",
   ]);
   assert.equal(models.streamCalls[0]?.config?.thinkingConfig?.thinkingLevel, "MINIMAL");
+});
+
+test("GeminiTextProvider exposes structured stream events while keeping aggregate compatibility", async () => {
+  const models = new FakeGeminiModels();
+  const provider = new GeminiTextProvider({
+    config: {
+      apiKey: "test-key",
+      primaryModel: "gemini-3.1-flash-lite-preview",
+      secondaryModel: "gemini-3.1-flash-lite-preview",
+      ttsModel: "gemini-3.1-flash-tts-preview",
+    },
+    ai: { models } as never,
+  });
+
+  const events = [];
+  for await (const event of provider.generateTextEvents("event stream", { role: "primary" })) events.push(event);
+
+  assert.deepEqual(events.map((event) => event.type), ["delta", "delta", "done"]);
+  assert.equal(events[0]?.text, "hello ");
+  assert.equal(events[2]?.text, "hello stream");
+});
+
+test("sentenceChunksFromTextStream turns token deltas into TTS-sized sentence chunks", async () => {
+  const chunks: string[] = [];
+  for await (const chunk of sentenceChunksFromTextStream(asyncGenerator(["你好，", "这是第一句。第二", "句继续", "输出。尾巴"]), {
+    maxChars: 12,
+  })) {
+    chunks.push(chunk);
+  }
+
+  assert.deepEqual(chunks, ["你好，这是第一句。", "第二句继续输出。", "尾巴"]);
 });
 
 test("KokoroTtsProvider accepts streamed text chunks and writes wav artifacts", async () => {

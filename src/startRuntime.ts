@@ -30,7 +30,7 @@ async function warmupKokoro(baseUrl: string, timeoutMs: number): Promise<boolean
     input: process.env.KOKORO_WARMUP_TEXT ?? "你好，直播语音预热完成。",
     voice: process.env.KOKORO_TTS_VOICE ?? "zf_xiaobei",
     response_format: process.env.KOKORO_TTS_RESPONSE_FORMAT ?? "wav",
-    ...(process.env.KOKORO_TTS_LANGUAGE ? { language: process.env.KOKORO_TTS_LANGUAGE } : {}),
+    language: process.env.KOKORO_TTS_LANGUAGE ?? "z",
   };
   while (Date.now() < deadline) {
     try {
@@ -80,14 +80,20 @@ const liveServer = new LiveRendererServer({ host: liveHost, port: livePort });
 const liveUrl = await liveServer.start();
 process.env.LIVE_RENDERER_URL = liveUrl;
 const modelConfig = loadStelleModelConfig();
+const liveTtsEnabled = process.env.LIVE_TTS_ENABLED !== "false";
+const kokoroAutoStart = process.env.KOKORO_AUTO_START !== "false";
+const liveTtsOutput = process.env.LIVE_TTS_OUTPUT ?? process.env.LIVE_AUDIO_OUTPUT ?? "python-device";
 
 console.log(`[Stelle] Live renderer ready: ${liveUrl}/live`);
 console.log("[Stelle] OBS browser source should point at the live URL above.");
 console.log(
   `[Stelle] Text models: primary=${modelConfig.primaryModel} secondary=${modelConfig.secondaryModel} base=${modelConfig.baseUrl ?? "default"}`
 );
+console.log(
+  `[Stelle] Live TTS enabled=${liveTtsEnabled}; output=${liveTtsOutput}; Kokoro auto-start=${kokoroAutoStart}; audio device=${process.env.KOKORO_AUDIO_DEVICE ?? "system default"}.`
+);
 
-if (process.env.LIVE_TTS_ENABLED === "true") {
+if (liveTtsEnabled && kokoroAutoStart) {
   const kokoroUrl = process.env.KOKORO_TTS_BASE_URL ?? "http://127.0.0.1:8880";
   const healthUrl = `${kokoroUrl.replace(/\/+$/, "")}/health`;
   let reachable = await canReach(healthUrl);
@@ -98,6 +104,10 @@ if (process.env.LIVE_TTS_ENABLED === "true") {
   }
   const warmed = reachable && (await warmupKokoro(kokoroUrl, Number(process.env.KOKORO_WARMUP_TIMEOUT_MS ?? process.env.KOKORO_START_TIMEOUT_MS ?? 45000)));
   console.log(warmed ? `[Stelle] Kokoro TTS ready and warmed: ${kokoroUrl}` : `[Stelle] Kokoro TTS did not become ready in time: ${kokoroUrl}`);
+} else if (!liveTtsEnabled) {
+  console.log("[Stelle] Kokoro TTS startup skipped because LIVE_TTS_ENABLED=false.");
+} else {
+  console.log("[Stelle] Kokoro TTS startup skipped because KOKORO_AUTO_START=false.");
 }
 
 const app = await startDiscordAttachedCoreMind({ defaultChannelId });

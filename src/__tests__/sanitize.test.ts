@@ -69,3 +69,18 @@ test("Kokoro TTS tool sanitizes speech input before synthesis", async () => {
   assert.equal((calls[0] as { input?: string }).input, "第一句");
   assert.equal((calls[1] as { input?: string }).input, "第二句");
 });
+test("LiveRuntime sanitizes Kokoro stream commands before renderer output", async () => {
+  const commands: LiveRendererCommand[] = [];
+  const runtime = new LiveRuntime(new Live2DModelRegistry(), undefined as never, {
+    publish(command) {
+      commands.push(command);
+    },
+  });
+
+  await runtime.playTtsStream("stream<thought>hidden</thought>visible", { voiceName: "zf_xiaobei", language: "z" });
+
+  assert.equal(commands[0]?.type, "audio:stream");
+  assert.equal((commands[0] as { text?: string }).text, "streamvisible");
+  assert.equal((commands[0] as { request?: { input?: string; stream?: boolean } }).request?.input, "streamvisible");
+  assert.equal((commands[0] as { request?: { stream?: boolean } }).request?.stream, true);
+});

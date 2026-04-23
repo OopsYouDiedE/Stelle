@@ -15,6 +15,7 @@ export * from "./tts/types.js";
 export * from "./tts/GeminiTtsProvider.js";
 export * from "./tts/KokoroTtsProvider.js";
 export * from "./text/sanitize.js";
+export * from "./text/TextStream.js";
 export * from "./live/types.js";
 export * from "./live/Live2DModelRegistry.js";
 export * from "./live/ObsWebSocketController.js";

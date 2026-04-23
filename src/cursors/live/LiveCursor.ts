@@ -54,7 +54,7 @@ export class LiveCursor extends BaseCursor {
           model: process.env.LIVE2D_DEFAULT_MODEL ?? "Hiyori_pro",
         },
         runtime: {
-          resourcesRoot: process.env.LIVE2D_RESOURCES_ROOT ?? "ai-live2d-go/public/Resources",
+          resourcesRoot: process.env.LIVE2D_RESOURCES_ROOT ?? "assets/live2d/public/Resources",
           obsUrl: process.env.OBS_WEBSOCKET_URL ?? "ws://127.0.0.1:4455",
         },
         permissions: {
@@ -159,11 +159,7 @@ export class LiveCursor extends BaseCursor {
     const nextSpeech = this.speechQueue.shift();
     if (nextSpeech) {
       const caption = await this.live.setCaption(nextSpeech.text);
-      await this.live.startSpeech(estimateSpeechDurationMs(nextSpeech.text));
-      const audio = await this.synthesizeQueuedSpeech(nextSpeech.text, nextSpeech.id);
-      if (audio) {
-        await this.live.playAudio(audio.url, nextSpeech.text);
-      }
+      await this.speakQueuedSpeech(nextSpeech.text, nextSpeech.id);
       this.stream.push(this.liveEvent(`Live speech queue played ${nextSpeech.id}: ${caption.summary}`));
       reports.push(
         this.report("live_speech_queue_played", "info", `Played queued live speech ${nextSpeech.id}.`, false, {
@@ -190,13 +186,29 @@ export class LiveCursor extends BaseCursor {
     return reports;
   }
 
-  private async synthesizeQueuedSpeech(text: string, filePrefix: string): Promise<{ url: string } | undefined> {
+  private async speakQueuedSpeech(text: string, filePrefix: string): Promise<void> {
     if (process.env.LIVE_TTS_ENABLED !== "true") return undefined;
     const provider = this.ttsProvider ?? new KokoroTtsProvider();
+    if (liveTtsOutputMode() === "python-device" && provider.playToDevice) {
+      await this.live.startSpeech(estimateSpeechDurationMs(text));
+      try {
+        await provider.playToDevice(text, {
+          filePrefix,
+          outputDevice: process.env.KOKORO_AUDIO_DEVICE,
+        });
+      } finally {
+        await this.live.stopSpeech();
+      }
+      return;
+    }
+    if (!this.ttsProvider && process.env.LIVE_TTS_STREAMING !== "false") {
+      await this.live.playTtsStream(text);
+      return;
+    }
+    await this.live.startSpeech(estimateSpeechDurationMs(text));
     const artifacts = await provider.synthesizeToFiles(text, { filePrefix });
     const first = artifacts[0];
-    if (!first) return undefined;
-    return { url: artifactPathToRendererUrl(first.path) };
+    if (first) await this.live.playAudio(artifactPathToRendererUrl(first.path), text);
   }
 
   async passiveRespond(input: ContextStreamItem): Promise<CursorReport[]> {
@@ -260,6 +272,12 @@ function estimateSpeechDurationMs(text: string): number {
   const cjkChars = Array.from(text).filter((char) => /[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]/u.test(char)).length;
   const latinWords = text.match(/[A-Za-z0-9]+/g)?.length ?? 0;
   return Math.max(1200, Math.min(20000, Math.round(cjkChars * 220 + latinWords * 360)));
+}
+
+function liveTtsOutputMode(): "python-device" | "browser" | "artifact" {
+  const value = (process.env.LIVE_TTS_OUTPUT ?? process.env.LIVE_AUDIO_OUTPUT ?? "python-device").toLowerCase();
+  if (value === "browser" || value === "artifact") return value;
+  return "python-device";
 }
 
 function artifactPathToRendererUrl(filePath: string): string {

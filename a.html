@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>流式音频播放测试 (小星星)</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f2f5;
+        }
+        .container {
+            background: white;
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            text-align: center;
+            max-width: 400px;
+        }
+        button {
+            background-color: #10b981;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 1.1rem;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background 0.2s;
+            margin: 10px 0;
+        }
+        button:hover { background-color: #059669; }
+        button:disabled { background-color: #9ca3af; cursor: not-allowed; }
+        #status { margin-top: 15px; color: #4b5563; font-size: 0.9rem; }
+        #log {
+            margin-top: 15px;
+            font-size: 0.8rem;
+            color: #6b7280;
+            height: 120px;
+            overflow-y: auto;
+            text-align: left;
+            background: #f9fafb;
+            padding: 8px;
+            border-radius: 4px;
+            border: 1px solid #e5e7eb;
+        }
+        #unlockOverlay {
+            position: fixed;
+            top: 0; left: 0; width: 100vw; height: 100vh;
+            background: rgba(239, 68, 68, 0.95);
+            color: white;
+            font-size: 1.5rem;
+            font-weight: bold;
+            z-index: 9999;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+<div id="unlockOverlay">
+    <div style="font-size: 3rem; margin-bottom: 20px;">🔇</div>
+    <div>浏览器拦截了自动播放</div>
+    <div style="font-size: 1.2rem; margin-top: 15px; font-weight: normal;">点击屏幕任意位置解锁声音</div>
+</div>
+
+<div class="container">
+    <h2>流式播放测试</h2>
+    <p style="font-size: 0.9rem; color: #666;">页面加载后会自动尝试播放。<br>如果听不到声音，请<strong>点击页面任意位置</strong>解锁浏览器限制。</p>
+    <button id="startBtn">手动开始播放</button>
+    <div id="status">状态: 准备就绪</div>
+    <div id="log"></div>
+</div>
+
+<script>
+    const startBtn = document.getElementById('startBtn');
+    const statusDiv = document.getElementById('status');
+    const logDiv = document.getElementById('log');
+
+    function addLog(msg) {
+        logDiv.innerHTML += `<div>${new Date().toLocaleTimeString()} - ${msg}</div>`;
+        logDiv.scrollTop = logDiv.scrollHeight;
+    }
+
+    // 音符频率 (Hz)
+    const notes = {
+        'C4': 261.63, 'D4': 293.66, 'E4': 329.63,
+        'F4': 349.23, 'G4': 392.00, 'A4': 440.00
+    };
+
+    // 小星星的简谱音符 (1 1 5 5 6 6 5)
+    const melody = [
+        notes.C4, notes.C4, notes.G4, notes.G4,
+        notes.A4, notes.A4, notes.G4
+    ];
+
+    let audioContext;
+    let nextPlayTime = 0; 
+    let isPlaying = false;
+
+    // 核心函数：将 Float32 的 PCM 数据块排队播放
+    function playAudioChunk(pcmData) {
+        if (!audioContext) return;
+
+        const buffer = audioContext.createBuffer(1, pcmData.length, audioContext.sampleRate);
+        buffer.copyToChannel(pcmData, 0);
+
+        const source = audioContext.createBufferSource();
+        source.buffer = buffer;
+        source.connect(audioContext.destination);
+
+        const currentTime = audioContext.currentTime;
+        const playTime = Math.max(currentTime, nextPlayTime);
+        
+        source.start(playTime);
+        nextPlayTime = playTime + buffer.duration;
+    }
+
+    // 模拟生成 PCM 数据块
+    function generateToneChunk(frequency, durationSec, sampleRate) {
+        const numSamples = durationSec * sampleRate;
+        const pcmData = new Float32Array(numSamples);
+        
+        for (let i = 0; i < numSamples; i++) {
+            const t = i / sampleRate;
+            let sample = Math.sin(2 * Math.PI * frequency * t);
+            
+            if (i < 500) sample *= (i / 500); 
+            if (numSamples - i < 500) sample *= ((numSamples - i) / 500); 
+            
+            pcmData[i] = sample * 0.3; 
+        }
+        return pcmData;
+    }
+
+    // 启动播放流程的主函数
+    async function startPlayback() {
+        if (isPlaying) return;
+        isPlaying = true;
+
+        startBtn.disabled = true;
+        statusDiv.innerText = "状态: 尝试自动播放...";
+        logDiv.innerHTML = '';
+
+        try {
+            window.AudioContext = window.AudioContext || window.webkitAudioContext;
+            audioContext = new AudioContext({ sampleRate: 44100 });
+            
+            // 尝试唤醒（可能会被浏览器静默拦截）
+            await audioContext.resume();
+            
+            if (audioContext.state === 'suspended') {
+                addLog("⚠️ 浏览器拦截了自动播放，数据在流转但没有声音！");
+                addLog("👉 请点击页面任意位置激活声音。");
+                statusDiv.innerText = "状态: 静音生成中 (等待点击)";
+                
+                document.getElementById('unlockOverlay').style.display = 'flex';
+                
+                // 注册一次性全局点击事件，用于恢复声音
+                document.body.addEventListener('click', async () => {
+                    if (audioContext.state === 'suspended') {
+                        await audioContext.resume();
+                        document.getElementById('unlockOverlay').style.display = 'none';
+                        addLog("✅ AudioContext 已被点击激活，声音恢复！");
+                        statusDiv.innerText = "状态: 正在播放...";
+                    }
+                }, { once: true });
+            } else {
+                addLog("✅ AudioContext 成功自动激活");
+                statusDiv.innerText = "状态: 正在播放...";
+            }
+            
+            nextPlayTime = audioContext.currentTime + 0.1;
+            
+        } catch (e) {
+            addLog("初始化失败: " + e.message);
+            statusDiv.innerText = "状态: 错误";
+            isPlaying = false;
+            startBtn.disabled = false;
+            return;
+        }
+
+        addLog("开始模拟流式接收...");
+
+        let noteIndex = 0;
+        
+        const streamInterval = setInterval(() => {
+            if (noteIndex >= melody.length) {
+                clearInterval(streamInterval);
+                addLog("流式接收完毕。");
+                setTimeout(() => {
+                    statusDiv.innerText = "状态: 播放结束";
+                    startBtn.disabled = false;
+                    isPlaying = false;
+                }, 1000);
+                return;
+            }
+
+            const freq = melody[noteIndex];
+            const duration = (noteIndex === melody.length - 1) ? 1.0 : 0.5; 
+            
+            addLog(`收到数据块: 音符 ${noteIndex + 1} (${freq}Hz)`);
+            const pcmChunk = generateToneChunk(freq, duration, audioContext.sampleRate);
+            playAudioChunk(pcmChunk);
+
+            noteIndex++;
+        }, 500); 
+    }
+
+    // 绑定按钮手动点击
+    startBtn.addEventListener('click', (e) => {
+        e.stopPropagation(); // 防止触发 body 的点击恢复事件
+        startPlayback();
+    });
+
+    // 页面一加载就尝试自动播放
+    window.addEventListener('DOMContentLoaded', () => {
+        addLog("页面已加载，尝试触发自动播放...");
+        startPlayback();
+    });
+
+</script>
+</body>
+</html>

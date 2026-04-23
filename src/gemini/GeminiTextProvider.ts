@@ -1,6 +1,7 @@
 import { GoogleGenAI, ThinkingLevel, type Content } from "@google/genai";
 import { loadStelleModelConfig, type StelleModelConfig } from "../config/StelleConfig.js";
-import { sanitizeExternalText, sanitizeExternalTextChunk } from "../text/sanitize.js";
+import { sanitizeExternalTextChunk } from "../text/sanitize.js";
+import { collectTextStream, textEventsFromChunks, type TextStreamEvent } from "../text/TextStream.js";
 
 export type GeminiModelRole = "primary" | "secondary";
 
@@ -23,9 +24,14 @@ export class GeminiTextProvider {
   }
 
   async generateText(prompt: string, options?: { role?: GeminiModelRole; temperature?: number; maxOutputTokens?: number; contents?: Content[] }): Promise<string> {
-    const chunks: string[] = [];
-    for await (const chunk of this.generateTextStream(prompt, options)) chunks.push(chunk);
-    return sanitizeExternalText(chunks.join(""));
+    return collectTextStream(this.generateTextStream(prompt, options));
+  }
+
+  generateTextEvents(
+    prompt: string,
+    options?: { role?: GeminiModelRole; temperature?: number; maxOutputTokens?: number; contents?: Content[] }
+  ): AsyncIterable<TextStreamEvent> {
+    return textEventsFromChunks(this.generateTextStream(prompt, options));
   }
 
   async *generateTextStream(

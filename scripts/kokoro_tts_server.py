@@ -5,35 +5,44 @@ Windows usage:
 
 API:
   GET  /health
+  GET  /audio/devices
+  POST /warmup
   POST /v1/audio/speech
-       { "model": "kokoro", "input": "...", "voice": "zf_xiaobei", "response_format": "wav", "language": "z" }
+  POST /v1/audio/speech/play
 """
 
 from __future__ import annotations
 
 import io
 import os
+import struct
+import threading
 from functools import lru_cache
-from typing import Any
+from typing import Any, Iterator
 
 import numpy as np
 import soundfile as sf
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 
 SAMPLE_RATE = 24000
+DEFAULT_WARMUP_TEXT = (
+    "\u4f60\u597d\uff0c\u76f4\u64ad\u8bed\u97f3\u9884\u70ed\u5b8c\u6210\u3002"
+)
 
 
 class SpeechRequest(BaseModel):
     model: str = "kokoro"
     input: str = Field(min_length=1)
-    voice: str = "af_heart"
+    voice: str = "zf_xiaobei"
     response_format: str = "wav"
     speed: float = 1.0
-    language: str | None = None
+    language: str | None = "z"
+    stream: bool = False
+    output_device: str | int | None = None
 
 
 app = FastAPI(title="Stelle Kokoro TTS Server", version="0.1.0")
@@ -47,6 +56,7 @@ app.add_middleware(
 preload_error: str | None = None
 preloaded_voice: str | None = None
 preloaded_language: str | None = None
+playback_lock = threading.Lock()
 
 
 @lru_cache(maxsize=8)
@@ -66,7 +76,20 @@ async def health():
         "preloaded_voice": preloaded_voice,
         "preloaded_language": preloaded_language,
         "preload_error": preload_error,
+        "audio_output_device": os.environ.get("KOKORO_AUDIO_DEVICE"),
     }
+
+
+@app.get("/audio/devices")
+async def audio_devices():
+    try:
+        return {
+            "status": "ok",
+            "default_output": default_output_device(),
+            "devices": list_audio_devices(),
+        }
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=str(error)) from error
 
 
 @app.on_event("startup")
@@ -75,7 +98,7 @@ async def startup_preload() -> None:
         return
     voice = os.environ.get("KOKORO_TTS_VOICE", "zf_xiaobei")
     language = normalize_lang_code(os.environ.get("KOKORO_TTS_LANGUAGE"), voice)
-    warmup_text = os.environ.get("KOKORO_WARMUP_TEXT", "你好，直播语音预热完成。")
+    warmup_text = os.environ.get("KOKORO_WARMUP_TEXT", DEFAULT_WARMUP_TEXT)
     await warmup_pipeline(language, voice, warmup_text)
 
 
@@ -83,7 +106,7 @@ async def startup_preload() -> None:
 async def warmup(request: SpeechRequest | None = None):
     voice = request.voice if request else os.environ.get("KOKORO_TTS_VOICE", "zf_xiaobei")
     language = normalize_lang_code(request.language if request else os.environ.get("KOKORO_TTS_LANGUAGE"), voice)
-    text = (request.input if request else os.environ.get("KOKORO_WARMUP_TEXT", "你好，直播语音预热完成。")).strip()
+    text = (request.input if request else os.environ.get("KOKORO_WARMUP_TEXT", DEFAULT_WARMUP_TEXT)).strip()
     await warmup_pipeline(language, voice, text)
     return {
         "status": "ok",
@@ -104,8 +127,11 @@ async def speech(request: SpeechRequest):
     lang_code = normalize_lang_code(request.language, request.voice)
     try:
         pipeline = pipeline_for(lang_code)
+        items = pipeline(text, voice=request.voice, speed=request.speed, split_pattern=r"\n+")
+        if request.stream:
+          return StreamingResponse(stream_wav(items), media_type="audio/wav")
         segments: list[np.ndarray] = []
-        for item in pipeline(text, voice=request.voice, speed=request.speed, split_pattern=r"\n+"):
+        for item in items:
             audio = extract_audio(item)
             if audio is not None and audio.size:
                 segments.append(audio)
@@ -113,6 +139,31 @@ async def speech(request: SpeechRequest):
             raise RuntimeError("Kokoro produced no audio")
         audio = np.concatenate(segments)
         return Response(content=to_wav(audio), media_type="audio/wav")
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=str(error)) from error
+
+
+@app.post("/v1/audio/speech/play")
+def speech_play(request: SpeechRequest):
+    text = request.input.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="input is empty")
+    lang_code = normalize_lang_code(request.language, request.voice)
+    try:
+        pipeline = pipeline_for(lang_code)
+        items = pipeline(text, voice=request.voice, speed=request.speed, split_pattern=r"\n+")
+        result = play_audio_items(items, request.output_device)
+        return {
+            "status": "ok",
+            "engine": "kokoro",
+            "sample_rate": SAMPLE_RATE,
+            "voice": request.voice,
+            "language": lang_code,
+            "text_length": len(text),
+            **result,
+        }
+    except HTTPException:
+        raise
     except Exception as error:
         raise HTTPException(status_code=500, detail=str(error)) from error
 
@@ -142,6 +193,130 @@ def to_wav(audio: np.ndarray) -> bytes:
     buffer = io.BytesIO()
     sf.write(buffer, audio, SAMPLE_RATE, format="WAV")
     return buffer.getvalue()
+
+
+def stream_wav(items: Iterator[Any]):
+    produced = False
+    yield wav_stream_header(SAMPLE_RATE)
+    for item in items:
+        audio = extract_audio(item)
+        if audio is not None and audio.size:
+            produced = True
+            yield pcm16_bytes(audio)
+    if not produced:
+        raise RuntimeError("Kokoro produced no audio")
+
+
+def wav_stream_header(sample_rate: int) -> bytes:
+    channels = 1
+    bits_per_sample = 16
+    byte_rate = sample_rate * channels * bits_per_sample // 8
+    block_align = channels * bits_per_sample // 8
+    data_size = 0xFFFFFFFF
+    riff_size = 36 + data_size
+    return b"RIFF" + struct.pack(
+        "<I4s4sIHHIIHH4sI",
+        riff_size & 0xFFFFFFFF,
+        b"WAVE",
+        b"fmt ",
+        16,
+        1,
+        channels,
+        sample_rate,
+        byte_rate,
+        block_align,
+        bits_per_sample,
+        b"data",
+        data_size,
+    )
+
+
+def pcm16_bytes(audio: np.ndarray) -> bytes:
+    clipped = np.clip(audio, -1.0, 1.0)
+    return (clipped * 32767.0).astype("<i2").tobytes()
+
+
+def list_audio_devices() -> list[dict[str, Any]]:
+    import sounddevice as sd
+
+    devices = []
+    for index, info in enumerate(sd.query_devices()):
+        devices.append(
+            {
+                "index": index,
+                "name": info["name"],
+                "hostapi": info["hostapi"],
+                "max_input_channels": info["max_input_channels"],
+                "max_output_channels": info["max_output_channels"],
+                "default_samplerate": info["default_samplerate"],
+            }
+        )
+    return devices
+
+
+def default_output_device() -> dict[str, Any] | None:
+    import sounddevice as sd
+
+    default = sd.default.device
+    index = default[1] if isinstance(default, (list, tuple)) else default
+    if index is None or index < 0:
+        return None
+    info = sd.query_devices(index)
+    return {"index": index, "name": info["name"]}
+
+
+def resolve_output_device(device: str | int | None) -> tuple[int | None, str]:
+    import sounddevice as sd
+
+    requested = device if device is not None else os.environ.get("KOKORO_AUDIO_DEVICE")
+    if requested is None or requested == "":
+        default = default_output_device()
+        return None, default["name"] if default else "system default output"
+    if isinstance(requested, int) or str(requested).strip().isdigit():
+        index = int(requested)
+        info = sd.query_devices(index)
+        if info["max_output_channels"] <= 0:
+            raise HTTPException(status_code=400, detail=f"audio device {index} has no output channels")
+        return index, info["name"]
+
+    needle = str(requested).strip().lower()
+    for index, info in enumerate(sd.query_devices()):
+        if info["max_output_channels"] > 0 and needle in str(info["name"]).lower():
+            return index, info["name"]
+    raise HTTPException(status_code=400, detail=f"audio output device not found: {requested}")
+
+
+def play_audio_items(items: Iterator[Any], output_device: str | int | None) -> dict[str, Any]:
+    import sounddevice as sd
+
+    device_index, device_name = resolve_output_device(output_device)
+    frames = 0
+    chunks = 0
+    blocksize = int(os.environ.get("KOKORO_AUDIO_BLOCKSIZE", "0"))
+    with playback_lock:
+        with sd.OutputStream(
+            samplerate=SAMPLE_RATE,
+            channels=1,
+            dtype="float32",
+            device=device_index,
+            blocksize=blocksize,
+        ) as stream:
+            for item in items:
+                audio = extract_audio(item)
+                if audio is None or not audio.size:
+                    continue
+                chunk = np.asarray(audio, dtype=np.float32).reshape(-1, 1)
+                stream.write(chunk)
+                frames += int(chunk.shape[0])
+                chunks += 1
+    if chunks == 0:
+        raise RuntimeError("Kokoro produced no audio")
+    return {
+        "device": device_name,
+        "frames": frames,
+        "chunks": chunks,
+        "duration_ms": round(frames / SAMPLE_RATE * 1000),
+    }
 
 
 async def warmup_pipeline(lang_code: str, voice: str, text: str) -> None:

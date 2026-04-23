@@ -4,7 +4,7 @@ import type { StreamingTtsProvider } from "../tts/types.js";
 import { sanitizeExternalText } from "../text/sanitize.js";
 
 export function createTtsTools(provider: StreamingTtsProvider = new KokoroTtsProvider()): ToolDefinition[] {
-  const streamSpeechTool: ToolDefinition<{ text?: string; chunks?: string[]; output_dir?: string; file_prefix?: string; voice_name?: string; speed?: number; language?: string }> = {
+  const streamSpeechTool: ToolDefinition<{ text?: string; chunks?: string[]; output_dir?: string; file_prefix?: string; voice_name?: string; speed?: number; language?: string; stream?: boolean }> = {
     identity: {
       namespace: "tts",
       name: "kokoro_stream_speech",
@@ -26,6 +26,7 @@ export function createTtsTools(provider: StreamingTtsProvider = new KokoroTtsPro
         voice_name: { type: "string", description: "Kokoro voice name. Defaults to KOKORO_TTS_VOICE or af_heart." },
         speed: { type: "number", description: "Optional Kokoro speech speed." },
         language: { type: "string", description: "Optional language hint for Kokoro-compatible servers." },
+        stream: { type: "boolean", description: "True to consume Kokoro's streaming response while writing the artifact." },
       },
     },
     sideEffects: {
@@ -62,6 +63,7 @@ export function createTtsTools(provider: StreamingTtsProvider = new KokoroTtsPro
         voiceName: input.voice_name,
         speed: input.speed,
         language: input.language,
+        stream: input.stream,
       });
       return {
         ok: true,

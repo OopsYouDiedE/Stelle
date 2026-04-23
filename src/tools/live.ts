@@ -3,7 +3,7 @@ import { CursorRegistry } from "../core/CursorRegistry.js";
 import { LiveCursor } from "../cursors/live/LiveCursor.js";
 import type { Live2DMotionPriority, LiveActionResult } from "../live/types.js";
 import { KokoroTtsProvider } from "../tts/KokoroTtsProvider.js";
-import type { StreamingTtsProvider, TtsStreamArtifact } from "../tts/types.js";
+import type { StreamingTtsProvider, TtsPlaybackResult, TtsStreamArtifact } from "../tts/types.js";
 import { sanitizeExternalText } from "../text/sanitize.js";
 
 function getLiveCursor(cursors: CursorRegistry, cursorId?: string): LiveCursor | ToolResult {
@@ -667,7 +667,7 @@ export function createLiveCursorTools(cursors: CursorRegistry, options: LiveCurs
     },
   };
 
-  const liveTtsStreamTool: ToolDefinition<{ text?: string; chunks?: string[]; output_dir?: string; file_prefix?: string; voice_name?: string; speed?: number; language?: string }> = {
+  const liveTtsStreamTool: ToolDefinition<{ text?: string; chunks?: string[]; output_dir?: string; file_prefix?: string; voice_name?: string; speed?: number; language?: string; stream?: boolean }> = {
     identity: {
       namespace: "live",
       name: "stelle_stream_tts_caption",
@@ -688,6 +688,7 @@ export function createLiveCursorTools(cursors: CursorRegistry, options: LiveCurs
         voice_name: { type: "string", description: "Kokoro voice name." },
         speed: { type: "number", description: "Optional Kokoro speech speed." },
         language: { type: "string", description: "Optional language hint for Kokoro-compatible servers." },
+        stream: { type: "boolean", description: "True to stream Kokoro audio directly through the live renderer. Defaults to true." },
       },
     },
     sideEffects: {
@@ -723,27 +724,59 @@ export function createLiveCursorTools(cursors: CursorRegistry, options: LiveCurs
       let caption = "";
       const tts = options.ttsProvider ?? new KokoroTtsProvider();
       const artifacts: TtsStreamArtifact[] = [];
+      const playbackResults: TtsPlaybackResult[] = [];
+      const outputMode = liveTtsOutputMode();
+      const usePythonDeviceOutput = outputMode === "python-device" && Boolean(tts.playToDevice);
+      const useLiveAudioStream =
+        !usePythonDeviceOutput && input.stream !== false && !options.ttsProvider && process.env.LIVE_TTS_STREAMING !== "false";
       for (let index = 0; index < visibleChunks.length; index++) {
         const chunk = visibleChunks[index]!;
         caption += chunk;
         await cursor.live.setCaption(caption);
-        await cursor.live.startSpeech(estimateSpeechDurationMs(chunk));
-        const chunkArtifacts = await tts.synthesizeToFiles(chunk, {
-          outputDir: input.output_dir,
-          filePrefix: `${input.file_prefix ?? "live-tts"}-${String(index).padStart(3, "0")}`,
-          voiceName: input.voice_name,
-          speed: input.speed,
-          language: input.language,
-        });
-        for (const artifact of chunkArtifacts) {
-          artifacts.push(artifact);
-          await cursor.live.playAudio(artifactPathToRendererUrl(artifact.path), artifact.text);
+        if (usePythonDeviceOutput && tts.playToDevice) {
+          await cursor.live.startSpeech(estimateSpeechDurationMs(chunk));
+          try {
+            playbackResults.push(
+              await tts.playToDevice(chunk, {
+                voiceName: input.voice_name,
+                speed: input.speed,
+                language: input.language,
+                outputDevice: process.env.KOKORO_AUDIO_DEVICE,
+              })
+            );
+          } finally {
+            await cursor.live.stopSpeech();
+          }
+        } else if (useLiveAudioStream) {
+          await cursor.live.playTtsStream(chunk, {
+            voiceName: input.voice_name,
+            speed: input.speed,
+            language: input.language,
+          });
+        } else {
+          await cursor.live.startSpeech(estimateSpeechDurationMs(chunk));
+          const chunkArtifacts = await tts.synthesizeToFiles(chunk, {
+            outputDir: input.output_dir,
+            filePrefix: `${input.file_prefix ?? "live-tts"}-${String(index).padStart(3, "0")}`,
+            voiceName: input.voice_name,
+            speed: input.speed,
+            language: input.language,
+            stream: input.stream,
+          });
+          for (const artifact of chunkArtifacts) {
+            artifacts.push(artifact);
+            await cursor.live.playAudio(artifactPathToRendererUrl(artifact.path), artifact.text);
+          }
         }
       }
       return {
         ok: true,
-        summary: `Streamed ${visibleChunks.length} caption chunk(s), wrote ${artifacts.length} TTS artifact(s), and queued live audio playback.`,
-        data: { chunks: visibleChunks, artifacts, caption },
+        summary: usePythonDeviceOutput
+          ? `Streamed ${visibleChunks.length} caption chunk(s) and played Kokoro audio through the Python output device.`
+          : useLiveAudioStream
+          ? `Streamed ${visibleChunks.length} caption chunk(s) and queued Kokoro live audio stream playback.`
+          : `Streamed ${visibleChunks.length} caption chunk(s), wrote ${artifacts.length} TTS artifact(s), and queued live audio playback.`,
+        data: { chunks: visibleChunks, artifacts, playbackResults, caption, streamingAudio: useLiveAudioStream, outputMode },
         sideEffects: [
           {
             type: "live_caption",
@@ -845,6 +878,12 @@ function estimateSpeechDurationMs(text: string): number {
   const cjkChars = Array.from(text).filter((char) => /[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]/u.test(char)).length;
   const latinWords = text.match(/[A-Za-z0-9]+/g)?.length ?? 0;
   return Math.max(1200, Math.min(20000, Math.round(cjkChars * 220 + latinWords * 360)));
+}
+
+function liveTtsOutputMode(): "python-device" | "browser" | "artifact" {
+  const value = (process.env.LIVE_TTS_OUTPUT ?? process.env.LIVE_AUDIO_OUTPUT ?? "python-device").toLowerCase();
+  if (value === "browser" || value === "artifact") return value;
+  return "python-device";
 }
 
 function splitLiveSpeech(text: string): string[] {

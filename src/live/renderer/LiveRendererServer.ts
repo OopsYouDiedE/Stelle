@@ -3,7 +3,7 @@ import { EventEmitter } from "node:events";
 import type { AddressInfo } from "node:net";
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { Live2DStageState, LiveRendererBridge, LiveRendererCommand } from "../types.js";
+import type { Live2DStageState, LiveRendererAudioStatus, LiveRendererBridge, LiveRendererCommand } from "../types.js";
 
 export interface LiveRendererServerOptions {
   host?: string;
@@ -17,7 +17,16 @@ const DEFAULT_BACKGROUND =
 export class LiveRendererServer implements LiveRendererBridge {
   private readonly events = new EventEmitter();
   private readonly server: http.Server;
+  private readonly audioStreams = new Map<string, Extract<LiveRendererCommand, { type: "audio:stream" }>>();
   private state: Live2DStageState;
+  private audioStatus: LiveRendererAudioStatus = {
+    queued: 0,
+    playing: false,
+    playedCount: 0,
+    activated: true,
+    updatedAt: Date.now(),
+    lastEvent: "server_started",
+  };
 
   constructor(private readonly options: LiveRendererServerOptions = {}) {
     this.state = options.initialState ?? {
@@ -62,9 +71,13 @@ export class LiveRendererServer implements LiveRendererBridge {
     return cloneState(this.state);
   }
 
+  getAudioStatus(): LiveRendererAudioStatus {
+    return { ...this.audioStatus };
+  }
+
   publish(command: LiveRendererCommand): void {
     this.apply(command);
-    this.events.emit("command", command);
+    this.events.emit("command", commandForRendererClient(command));
   }
 
   private async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
@@ -89,7 +102,22 @@ export class LiveRendererServer implements LiveRendererBridge {
     }
     if (request.method === "GET" && url.pathname === "/state") {
       response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
-      response.end(JSON.stringify({ ok: true, state: this.state }));
+      response.end(JSON.stringify({ ok: true, state: this.state, audio: this.audioStatus }));
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/audio-status") {
+      response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+      response.end(JSON.stringify({ ok: true, audio: this.audioStatus }));
+      return;
+    }
+    if (request.method === "GET" && url.pathname.startsWith("/tts/kokoro/")) {
+      await this.serveKokoroStream(url.pathname, response);
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/audio-status") {
+      this.updateAudioStatus(JSON.parse(await readBody(request)) as Partial<LiveRendererAudioStatus>);
+      response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+      response.end(JSON.stringify({ ok: true, audio: this.audioStatus }));
       return;
     }
     if (request.method === "POST" && url.pathname === "/command") {
@@ -124,6 +152,20 @@ export class LiveRendererServer implements LiveRendererBridge {
     if (command.type === "caption:clear") this.state = { ...this.state, caption: undefined };
     if (command.type === "background:set") this.state = { ...this.state, background: command.source };
     if (command.type === "model:load") this.state = { ...this.state, model: command.model ?? this.state.model };
+    if (command.type === "audio:play" || command.type === "audio:stream") {
+      this.updateAudioStatus({
+        queued: this.audioStatus.queued + 1,
+        playing: this.audioStatus.playing,
+        playedCount: this.audioStatus.playedCount,
+        lastEvent: "command_queued",
+        lastUrl: command.url,
+        lastText: command.text,
+        lastError: undefined,
+        errorName: undefined,
+        mediaErrorCode: undefined,
+        mediaErrorMessage: undefined,
+      });
+    }
     if (command.type === "motion:trigger") {
       this.state = {
         ...this.state,
@@ -131,8 +173,28 @@ export class LiveRendererServer implements LiveRendererBridge {
       };
     }
     if (command.type === "expression:set") this.state = { ...this.state, expression: command.expression };
-    if (command.type === "mouth:set" || command.type === "speech:start" || command.type === "speech:stop" || command.type === "audio:play") {
+    if (command.type === "audio:stream") this.audioStreams.set(command.url.split("/").pop() ?? command.url, command);
+    if (
+      command.type === "mouth:set" ||
+      command.type === "speech:start" ||
+      command.type === "speech:stop" ||
+      command.type === "audio:play" ||
+      command.type === "audio:stream"
+    ) {
       this.state = { ...this.state };
+    }
+  }
+
+  private updateAudioStatus(status: Partial<LiveRendererAudioStatus>): void {
+    this.audioStatus = {
+      ...this.audioStatus,
+      ...status,
+      updatedAt: Date.now(),
+    };
+    if (status.lastError) {
+      console.warn(
+        `[Stelle] Live renderer audio ${status.lastEvent ?? "error"}: ${status.errorName ? `${status.errorName}: ` : ""}${status.lastError}`
+      );
     }
   }
 
@@ -153,7 +215,7 @@ export class LiveRendererServer implements LiveRendererBridge {
       ? path.resolve("dist/live-renderer")
       : pathname.startsWith("/artifacts/")
         ? path.resolve("artifacts")
-        : path.resolve("ai-live2d-go/public");
+        : path.resolve(process.env.LIVE2D_PUBLIC_ROOT ?? "assets/live2d/public");
     const relativePath = pathname.startsWith("/artifacts/")
       ? pathname.slice("/artifacts/".length)
       : "." + decodeURIComponent(pathname);
@@ -170,6 +232,54 @@ export class LiveRendererServer implements LiveRendererBridge {
     } catch {
       response.writeHead(404);
       response.end("Not found");
+    }
+  }
+
+  private async serveKokoroStream(pathname: string, response: ServerResponse): Promise<void> {
+    const id = decodeURIComponent(pathname.split("/").pop() ?? "");
+    const command = this.audioStreams.get(id);
+    if (!command) {
+      response.writeHead(404, { "content-type": "application/json; charset=utf-8" });
+      response.end(JSON.stringify({ ok: false, error: "unknown Kokoro stream id" }));
+      return;
+    }
+    const baseUrl = (process.env.KOKORO_TTS_BASE_URL ?? "http://127.0.0.1:8880").replace(/\/+$/, "");
+    const endpointPath = process.env.KOKORO_TTS_ENDPOINT_PATH ?? "/v1/audio/speech";
+    const apiKey = process.env.KOKORO_TTS_API_KEY;
+    const upstream = await fetch(`${baseUrl}${endpointPath.startsWith("/") ? "" : "/"}${endpointPath}`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: command.request.response_format === "mp3" ? "audio/mpeg" : `audio/${command.request.response_format ?? "wav"}`,
+        ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
+      },
+      body: JSON.stringify({ ...command.request, stream: true }),
+    });
+    if (!upstream.ok) {
+      response.writeHead(upstream.status, { "content-type": "text/plain; charset=utf-8" });
+      response.end(await upstream.text().catch(() => upstream.statusText));
+      return;
+    }
+    response.writeHead(200, {
+      "content-type": upstream.headers.get("content-type") ?? "audio/wav",
+      "cache-control": "no-store",
+      "access-control-allow-origin": "*",
+    });
+    if (!upstream.body) {
+      response.end(Buffer.from(await upstream.arrayBuffer()));
+      return;
+    }
+    const reader = upstream.body.getReader();
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value?.byteLength) response.write(Buffer.from(value));
+      }
+    } finally {
+      reader.releaseLock();
+      response.end();
+      this.audioStreams.delete(id);
     }
   }
 }
@@ -199,6 +309,10 @@ function readBody(request: IncomingMessage): Promise<string> {
 
 function cloneState(state: Live2DStageState): Live2DStageState {
   return JSON.parse(JSON.stringify(state)) as Live2DStageState;
+}
+
+function commandForRendererClient(command: LiveRendererCommand): LiveRendererCommand {
+  return command;
 }
 
 function renderHtml(initialState: Live2DStageState): string {
@@ -257,10 +371,16 @@ function renderHtml(initialState: Live2DStageState): string {
         queued: audioQueue.length,
         playing: audioPlaying,
         playedCount: (window.__stelleAudioState && window.__stelleAudioState.playedCount) || 0,
+        activated: true,
         lastUrl: window.__stelleAudioState && window.__stelleAudioState.lastUrl,
         lastText: window.__stelleAudioState && window.__stelleAudioState.lastText,
-        lastError: window.__stelleAudioState && window.__stelleAudioState.lastError
+        lastEvent: window.__stelleAudioState && window.__stelleAudioState.lastEvent,
+        lastError: window.__stelleAudioState && window.__stelleAudioState.lastError,
+        errorName: window.__stelleAudioState && window.__stelleAudioState.errorName,
+        mediaErrorCode: window.__stelleAudioState && window.__stelleAudioState.mediaErrorCode,
+        mediaErrorMessage: window.__stelleAudioState && window.__stelleAudioState.mediaErrorMessage
       }, patch || {});
+      try { fetch("/audio-status", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(window.__stelleAudioState), keepalive: true }); } catch {}
     }
     function applyState(next) {
       Object.assign(state, next);
@@ -283,9 +403,9 @@ function renderHtml(initialState: Live2DStageState): string {
         const card = document.getElementById("model-card");
         card.animate([{ transform: "translateY(0) scale(1)" }, { transform: "translateY(-3%) scale(1.035)" }, { transform: "translateY(0) scale(1)" }], { duration: 520, easing: "ease-out" });
       }
-      if (command.type === "audio:play") {
+      if (command.type === "audio:play" || command.type === "audio:stream") {
         audioQueue.push(command);
-        updateAudioState({ queued: audioQueue.length, lastUrl: command.url, lastText: command.text, lastError: undefined });
+        updateAudioState({ queued: audioQueue.length, lastEvent: "queued", lastUrl: command.url, lastText: command.text, lastError: undefined, errorName: undefined, mediaErrorCode: undefined, mediaErrorMessage: undefined });
         void playNextAudio();
       }
     }
@@ -302,25 +422,32 @@ function renderHtml(initialState: Live2DStageState): string {
       voice.loop = false;
       voice.muted = false;
       voice.src = next.url;
-      updateAudioState({ queued: audioQueue.length, playing: true, lastUrl: next.url, lastText: next.text, lastError: undefined });
-      try { await voice.play(); audioQueue.shift(); updateAudioState({ queued: audioQueue.length, playing: true, lastError: undefined }); } catch (error) { console.warn("Live audio play failed", error); audioPlaying = false; updateAudioState({ playing: false, lastError: error instanceof Error ? error.message : String(error) }); scheduleAudioRetry(); }
+      updateAudioState({ queued: audioQueue.length, playing: true, lastEvent: "play_requested", lastUrl: next.url, lastText: next.text, lastError: undefined, errorName: undefined, mediaErrorCode: undefined, mediaErrorMessage: undefined });
+      try { await voice.play(); audioQueue.shift(); updateAudioState({ queued: audioQueue.length, playing: true, lastEvent: "play_resolved", lastError: undefined, errorName: undefined, mediaErrorCode: undefined, mediaErrorMessage: undefined }); } catch (error) { audioPlaying = false; const message = error instanceof Error ? error.message : String(error); const errorName = error instanceof Error ? error.name : undefined; const mediaError = describeMediaError(); updateAudioState(Object.assign({ playing: false, activated: true, lastEvent: "play_rejected", lastError: message, errorName }, mediaError)); scheduleAudioRetry(); }
     }
     async function primeAudioElement() {
       primingAudio = true;
       voice.muted = true;
       voice.loop = true;
       voice.src = silentWavDataUrl;
-      try { await voice.play(); updateAudioState({ lastError: undefined }); } catch (error) { primingAudio = false; updateAudioState({ lastError: "audio priming blocked: " + (error instanceof Error ? error.message : String(error)) }); }
+      updateAudioState({ playing: false, activated: true, lastEvent: "priming_requested", lastError: undefined, errorName: undefined, mediaErrorCode: undefined, mediaErrorMessage: undefined });
+      try { await voice.play(); updateAudioState({ playing: false, activated: true, lastEvent: "primed", lastError: undefined, errorName: undefined, mediaErrorCode: undefined, mediaErrorMessage: undefined }); } catch (error) { primingAudio = false; updateAudioState(Object.assign({ playing: false, activated: true, lastEvent: "priming_blocked", lastError: "audio priming blocked: " + (error instanceof Error ? error.message : String(error)), errorName: error instanceof Error ? error.name : undefined }, describeMediaError())); }
+    }
+    function describeMediaError() {
+      return {
+        mediaErrorCode: voice.error && voice.error.code || undefined,
+        mediaErrorMessage: voice.error && voice.error.message || undefined
+      };
     }
     function scheduleAudioRetry() {
       if (retryTimer !== undefined || !audioQueue.length) return;
       retryTimer = setTimeout(() => { retryTimer = undefined; void playNextAudio(); }, 2500);
     }
-    voice.addEventListener("play", () => { if (primingAudio) return; updateAudioState({ playing: true, lastError: undefined }); applyCommand({ type: "speech:start", durationMs: Math.max(1400, Math.min(20000, Math.round((voice.duration || 3) * 1000))) }); });
-    voice.addEventListener("ended", () => { if (primingAudio) return; audioPlaying = false; updateAudioState({ playing: false, playedCount: ((window.__stelleAudioState && window.__stelleAudioState.playedCount) || 0) + 1 }); applyCommand({ type: "speech:stop" }); void playNextAudio(); });
-    voice.addEventListener("error", () => { if (primingAudio) { primingAudio = false; updateAudioState({ lastError: "audio priming failed" }); return; } audioPlaying = false; audioQueue.shift(); updateAudioState({ playing: false, queued: audioQueue.length, lastError: "audio element error" }); void playNextAudio(); });
+    voice.addEventListener("play", () => { if (primingAudio) return; updateAudioState({ playing: true, lastEvent: "play", lastError: undefined }); applyCommand({ type: "speech:start", durationMs: Math.max(1400, Math.min(20000, Math.round((voice.duration || 3) * 1000))) }); });
+    voice.addEventListener("ended", () => { if (primingAudio) return; audioPlaying = false; updateAudioState({ playing: false, lastEvent: "ended", playedCount: ((window.__stelleAudioState && window.__stelleAudioState.playedCount) || 0) + 1 }); applyCommand({ type: "speech:stop" }); void playNextAudio(); });
+    voice.addEventListener("error", () => { const mediaError = describeMediaError(); if (primingAudio) { primingAudio = false; updateAudioState(Object.assign({ lastEvent: "priming_error", lastError: "audio priming failed" }, mediaError)); return; } audioPlaying = false; audioQueue.shift(); updateAudioState(Object.assign({ playing: false, queued: audioQueue.length, lastEvent: "error", lastError: "audio element error" }, mediaError)); void playNextAudio(); });
     voice.autoplay = true;
-    updateAudioState({});
+    updateAudioState({ lastEvent: "priming_requested", activated: true });
     void primeAudioElement();
     applyState(state);
     const events = new EventSource("/events");

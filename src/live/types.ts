@@ -62,6 +62,21 @@ export interface LiveRuntimeStatus {
   obs: ObsStatus;
 }
 
+export interface LiveRendererAudioStatus {
+  queued: number;
+  playing: boolean;
+  playedCount: number;
+  activated: boolean;
+  updatedAt: number;
+  lastUrl?: string;
+  lastText?: string;
+  lastEvent?: string;
+  lastError?: string;
+  errorName?: string;
+  mediaErrorCode?: number;
+  mediaErrorMessage?: string;
+}
+
 export interface LiveActionResult {
   ok: boolean;
   summary: string;
@@ -93,7 +108,14 @@ export type LiveRendererCommand =
   | { type: "mouth:set"; value: number }
   | { type: "speech:start"; durationMs?: number }
   | { type: "speech:stop" }
-  | { type: "audio:play"; url: string; text?: string };
+  | { type: "audio:play"; url: string; text?: string }
+  | {
+      type: "audio:stream";
+      url: string;
+      text?: string;
+      provider: "kokoro";
+      request: Record<string, string | number | boolean>;
+    };
 
 export interface LiveRendererBridge {
   publish(command: LiveRendererCommand): Promise<void> | void;

@@ -13,6 +13,7 @@ import { GeminiTextProvider } from "../gemini/GeminiTextProvider.js";
 import { loadStelleModelConfig } from "../config/StelleConfig.js";
 import { DiscordRouteDecider, type DiscordRouteDecision } from "./DiscordRouteDecider.js";
 import { sanitizeExternalText } from "../text/sanitize.js";
+import { collectTextStream, sentenceChunksFromTextStream } from "../text/TextStream.js";
 
 export interface DiscordAttachedCoreMindOptions {
   token?: string;
@@ -273,10 +274,10 @@ export class DiscordAttachedCoreMind {
     }
 
     try {
-      const response = await this.textProvider.generateText(prompt, {
+      const response = await collectTextStream(this.textProvider.generateTextStream(prompt, {
         role: "primary",
         temperature: 0.7,
-      });
+      }));
       return truncate(response || "我在。", this.maxReplyChars);
     } catch (error) {
       console.warn(`[Stelle] Core reply model failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -311,10 +312,10 @@ export class DiscordAttachedCoreMind {
     }
 
     try {
-      const response = await this.textProvider.generateText(prompt, {
+      const response = await collectTextStream(this.textProvider.generateTextStream(prompt, {
         role: "secondary",
         temperature: 0.45,
-      });
+      }));
       return truncate(response || "我在。", this.maxReplyChars);
     } catch (error) {
       console.warn(`[Stelle] Cursor reply model failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -355,7 +356,7 @@ export class DiscordAttachedCoreMind {
       return `${target} 被 Stelle 点名了：你这反应速度像是在后台加载人生补丁，但还挺可爱。`;
     }
     try {
-      return truncate(await this.textProvider.generateText(prompt, { role: "primary", temperature: 0.8 }), this.maxReplyChars);
+      return truncate(await collectTextStream(this.textProvider.generateTextStream(prompt, { role: "primary", temperature: 0.8 })), this.maxReplyChars);
     } catch (error) {
       console.warn(`[Stelle] Social reply model failed: ${error instanceof Error ? error.message : String(error)}`);
       return `${target} 被 Stelle 点名了：你这反应速度像是在后台加载人生补丁，但还挺可爱。`;
@@ -397,30 +398,17 @@ export class DiscordAttachedCoreMind {
     const prompt = this.liveScriptPrompt(text);
     const filePrefix = `live-discord-${Date.now()}`;
     const playedChunks: string[] = [];
-    let buffer = "";
     let toolResult: ToolResult | undefined;
     try {
-      for await (const token of this.textProvider.generateTextStream(prompt, {
+      const stream = this.textProvider.generateTextStream(prompt, {
         role: "primary",
         temperature: 0.7,
         maxOutputTokens: 280,
-      })) {
-        buffer += token;
-        const ready = takeReadyLiveChunks(buffer);
-        buffer = ready.rest;
-        for (const chunk of ready.chunks) {
-          playedChunks.push(chunk);
-          toolResult = await this.core.useTool("live.stelle_stream_tts_caption", {
-            chunks: [chunk],
-            file_prefix: `${filePrefix}-${String(playedChunks.length - 1).padStart(3, "0")}`,
-          });
-        }
-      }
-      const tail = buffer.trim();
-      if (tail) {
-        playedChunks.push(tail);
+      });
+      for await (const chunk of sentenceChunksFromTextStream(stream, { maxChars: 48 })) {
+        playedChunks.push(chunk);
         toolResult = await this.core.useTool("live.stelle_stream_tts_caption", {
-          chunks: [tail],
+          chunks: [chunk],
           file_prefix: `${filePrefix}-${String(playedChunks.length - 1).padStart(3, "0")}`,
         });
       }
@@ -445,7 +433,7 @@ export class DiscordAttachedCoreMind {
       return this.generateFallbackLiveScript(text);
     }
     try {
-      return truncate(await this.textProvider.generateText(prompt, { role: "primary", temperature: 0.7, maxOutputTokens: 280 }), 1000);
+      return truncate(await collectTextStream(this.textProvider.generateTextStream(prompt, { role: "primary", temperature: 0.7, maxOutputTokens: 280 })), 1000);
     } catch (error) {
       console.warn(`[Stelle] Live script model failed: ${error instanceof Error ? error.message : String(error)}`);
       return this.generateFallbackLiveScript(text);
@@ -489,30 +477,10 @@ export async function startDiscordAttachedCoreMind(options: DiscordAttachedCoreM
 
 function splitLiveSpeech(text: string): string[] {
   return text
-    .split(/(?<=[。！？!?；;])\s*|\n+/u)
+    .split(/(?<=[\u3002\uff01\uff1f.!?])\s*|\n+/u)
     .map((part) => part.trim())
     .filter(Boolean)
     .slice(0, 8);
-}
-
-function takeReadyLiveChunks(buffer: string): { chunks: string[]; rest: string } {
-  const chunks: string[] = [];
-  let rest = buffer;
-  while (rest.length) {
-    const match = /[。！？!?；;]\s*/u.exec(rest);
-    if (!match || match.index < 0) break;
-    const end = match.index + match[0].length;
-    const chunk = rest.slice(0, end).trim();
-    if (chunk) chunks.push(chunk);
-    rest = rest.slice(end);
-  }
-  if (!chunks.length && Array.from(rest).length >= 48) {
-    const chars = Array.from(rest);
-    const chunk = chars.slice(0, 48).join("").trim();
-    if (chunk) chunks.push(chunk);
-    rest = chars.slice(48).join("");
-  }
-  return { chunks, rest };
 }
 
 function estimateSpeechDurationMs(text: string): number {

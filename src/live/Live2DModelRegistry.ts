@@ -3,7 +3,7 @@ import path from "node:path";
 import type { Live2DModelConfig } from "./types.js";
 
 function defaultResourcesRoot(): string {
-  return path.resolve(process.env.LIVE2D_RESOURCES_ROOT ?? "ai-live2d-go/public/Resources");
+  return path.resolve(process.env.LIVE2D_RESOURCES_ROOT ?? "assets/live2d/public/Resources");
 }
 
 export function createHiyoriModelConfigs(resourcesRoot = defaultResourcesRoot()): Live2DModelConfig[] {

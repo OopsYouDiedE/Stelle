@@ -398,6 +398,8 @@ level:
 
 ```env
 LIVE_TTS_ENABLED=true
+LIVE_TTS_STREAMING=true
+KOKORO_TTS_STREAM_RESPONSE_FORMAT=wav
 OBS_CONTROL_ENABLED=false
 ```
 
@@ -489,9 +491,9 @@ stelle_enqueue_speech(text)
 -> tick()
 -> pop queue item
 -> setCaption
--> startSpeech
--> if LIVE_TTS_ENABLED: Kokoro synthesize file
--> renderer audio:play
+-> if LIVE_TTS_ENABLED and LIVE_TTS_STREAMING: renderer audio:stream
+-> LiveRendererServer proxies Kokoro streaming response
+-> OBS browser source plays audio as it arrives
 ```
 
 ---
@@ -692,11 +694,9 @@ generateLiveScript()
 Stelle live command
 -> live.stelle_stream_tts_caption
 -> split text into chunks
--> Kokoro TTS synthesizes one chunk at a time
--> artifacts/tts/*.wav per chunk
--> LiveRendererServer serves /artifacts/tts/*.wav
--> renderer receives audio:play command for each finished chunk
--> browser source plays audio
+-> renderer receives audio:stream command for each chunk
+-> LiveRendererServer POSTs Kokoro with stream=true
+-> browser source plays /tts/kokoro/:id as bytes arrive
 -> OBS captures browser source audio
 ```
 

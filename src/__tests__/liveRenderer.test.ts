@@ -57,6 +57,36 @@ test("HttpLiveRendererBridge sends runtime commands to an external renderer serv
   }
 });
 
+test("LiveRendererServer records browser audio diagnostics", async () => {
+  const server = new LiveRendererServer({ port: 0 });
+  const url = await server.start();
+  try {
+    const response = await fetch(`${url}/audio-status`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        queued: 0,
+        playing: false,
+        playedCount: 0,
+        activated: false,
+        lastEvent: "play_rejected",
+        lastError: "play() failed because the user did not interact with the document first",
+        errorName: "NotAllowedError",
+      }),
+    });
+    assert.equal(response.ok, true);
+
+    const stateResponse = await fetch(`${url}/state`);
+    const state = (await stateResponse.json()) as { audio: { activated?: boolean; lastEvent?: string; lastError?: string; errorName?: string } };
+    assert.equal(state.audio.activated, false);
+    assert.equal(state.audio.lastEvent, "play_rejected");
+    assert.equal(state.audio.errorName, "NotAllowedError");
+    assert.match(state.audio.lastError ?? "", /interact/);
+  } finally {
+    await server.stop();
+  }
+});
+
 test("Live renderer page renders nonblank OBS layout with caption", async () => {
   const server = new LiveRendererServer({ port: 0 });
   const url = await server.start();
