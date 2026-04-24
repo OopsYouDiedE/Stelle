@@ -13,7 +13,11 @@ export class DiscordReplyComposer {
     private readonly maxReplyChars: number
   ) {}
 
-  async generateCoreReply(observationStream: Parameters<typeof contextText>[0], latestText: string): Promise<string> {
+  async generateCoreReply(
+    observationStream: Parameters<typeof contextText>[0],
+    latestText: string,
+    memoryContext = ""
+  ): Promise<string> {
     return this.generateReply(
       [
       "You are Stelle, the Core Mind currently attached to Discord Cursor.",
@@ -23,6 +27,7 @@ export class DiscordReplyComposer {
       "",
       "Current Discord context:",
       contextText(observationStream),
+      memoryContext ? `\nRelevant long-term memory:\n${memoryContext}` : "",
       "",
       `Latest direct input: ${latestText}`,
       ],
@@ -37,7 +42,12 @@ export class DiscordReplyComposer {
     );
   }
 
-  async generateCursorReply(latestText: string, channelId: string, decision?: DiscordRouteDecision): Promise<string> {
+  async generateCursorReply(
+    latestText: string,
+    channelId: string,
+    decision?: DiscordRouteDecision,
+    memoryContext = ""
+  ): Promise<string> {
     const localContext = this.discordCursor.getChannelContextText(channelId);
     const searchSummary = decision?.needsVerification ? await this.verifyPublicSearch(latestText) : "";
     const noProviderFallback = searchSummary
@@ -58,6 +68,7 @@ export class DiscordReplyComposer {
       `Route reason: ${decision?.reason ?? "local cursor handling"}`,
       "Recent Discord context:",
       localContext,
+      memoryContext ? `\nRelevant long-term memory:\n${memoryContext}` : "",
       searchSummary ? `\nPublic verification snippets:\n${searchSummary}` : "",
       "",
       `Latest direct input: ${latestText}`,

@@ -90,6 +90,20 @@ export interface LiveActionResult {
   };
 }
 
+export interface LiveRuntimeEvent {
+  action: string;
+  ok: boolean;
+  summary: string;
+  timestamp: number;
+  text?: string;
+  source?: string;
+  stage?: Live2DStageState;
+  obs?: ObsStatus;
+  metadata?: Record<string, unknown>;
+}
+
+export type LiveRuntimeEventSink = (event: LiveRuntimeEvent) => void | Promise<void>;
+
 export interface ObsController {
   getStatus(): Promise<ObsStatus>;
   startStream(): Promise<LiveActionResult>;

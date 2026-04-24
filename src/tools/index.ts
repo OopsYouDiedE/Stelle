@@ -1,6 +1,5 @@
 import { CursorRegistry } from "../core/CursorRegistry.js";
-import { echoTool } from "./basic.js";
-import { createBrowserCompatibilityTools } from "./browser.js";
+import { createMemoryTools } from "./memory.js";
 import { registerCoreTools } from "./core.js";
 import { createDiscordCursorTools } from "./discord.js";
 import { createLiveCursorTools } from "./live.js";
@@ -11,21 +10,16 @@ import { ToolRegistry } from "./ToolRegistry.js";
 export function createDefaultToolRegistry(cursors?: CursorRegistry): ToolRegistry {
   const registry = new ToolRegistry();
   registerCoreTools(registry);
-  registry.register(echoTool);
-  for (const tool of createSearchTools()) {
-    registry.register(tool);
-  }
-  for (const tool of createBrowserCompatibilityTools()) {
-    registry.register(tool);
-  }
-  for (const tool of createTtsTools()) {
-    registry.register(tool);
-  }
-  if (cursors) {
-    for (const tool of createDiscordCursorTools(cursors)) {
-      registry.register(tool);
-    }
-    for (const tool of createLiveCursorTools(cursors)) {
+
+  const toolGroups = [
+    createMemoryTools(),
+    createSearchTools(),
+    createTtsTools(),
+    ...(cursors ? [createDiscordCursorTools(cursors), createLiveCursorTools(cursors)] : []),
+  ];
+
+  for (const group of toolGroups) {
+    for (const tool of group) {
       registry.register(tool);
     }
   }

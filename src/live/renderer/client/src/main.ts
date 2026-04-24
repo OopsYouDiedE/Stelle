@@ -1,6 +1,6 @@
-import * as PIXI from "pixi.js";
-import { Live2DModel, MotionPriority } from "pixi-live2d-display/cubism4";
 import "./style.css";
+import type { Application } from "pixi.js";
+import type { Live2DModel } from "pixi-live2d-display/cubism4";
 import type { Live2DModelConfig, Live2DStageState, LiveRendererAudioStatus, LiveRendererCommand } from "../../../types.js";
 import {
   AUDIO_OWNER_HEARTBEAT_MS,
@@ -17,6 +17,7 @@ import {
   type StelleAudioState,
   writeAudioOwnership,
 } from "./audioShared.js";
+import { loadLive2dRuntime, type Live2dRuntime } from "./live2dRuntime.js";
 
 const canvas = document.getElementById("live2d-canvas") as HTMLCanvasElement;
 const stage = document.getElementById("stage") as HTMLElement;
@@ -26,7 +27,7 @@ const status = document.getElementById("status") as HTMLElement;
 const audioHint = document.getElementById("audio-hint") as HTMLElement;
 const voiceElement = document.getElementById("voice") as HTMLAudioElement;
 
-let app: PIXI.Application;
+let app: Application;
 let model: Live2DModel | undefined;
 let currentModelId = "Hiyori_pro";
 let speechUntil = 0;
@@ -44,6 +45,7 @@ let streamDiscardingBlocked = false;
 const audioInstanceId = `audio-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 let audioOwnershipTimer: number | undefined;
 let audioOwner = false;
+let live2dRuntime: Live2dRuntime | undefined;
 
 declare global {
   interface Window {
@@ -115,8 +117,8 @@ updateAudioState();
 void boot();
 
 async function boot(): Promise<void> {
-  Live2DModel.registerTicker(PIXI.Ticker);
-  app = new PIXI.Application({
+  live2dRuntime = await loadLive2dRuntime();
+  app = new live2dRuntime.PIXI.Application({
     view: canvas,
     resizeTo: stage,
     backgroundAlpha: 0,
@@ -176,15 +178,16 @@ async function boot(): Promise<void> {
   } catch (error) {
     status.textContent = `Model load failed: ${error instanceof Error ? error.message : String(error)}`;
   }
-  app.ticker.add(updateMouth, undefined, PIXI.UPDATE_PRIORITY.LOW);
+  app.ticker.add(updateMouth, undefined, live2dRuntime.PIXI.UPDATE_PRIORITY.LOW);
   window.addEventListener("resize", fitModel);
 }
 
 async function loadModel(modelId: string, config?: Live2DModelConfig): Promise<void> {
+  if (!live2dRuntime) throw new Error("Live2D runtime not loaded.");
   currentModelId = modelId;
   status.textContent = `Loading ${config?.displayName ?? modelId}...`;
   const modelUrl = modelUrlFor(modelId, config);
-  const next = await Live2DModel.from(modelUrl, {
+  const next = await live2dRuntime.Live2DModel.from(modelUrl, {
     autoInteract: false,
     motionPreload: "IDLE" as never,
     idleMotionGroup: "Idle",
@@ -194,7 +197,7 @@ async function loadModel(modelId: string, config?: Live2DModelConfig): Promise<v
   app.stage.addChild(model);
   fitModel();
   status.textContent = config?.displayName ?? modelId;
-  await model.motion("Idle", undefined, MotionPriority.IDLE).catch(() => undefined);
+  await model.motion("Idle", undefined, live2dRuntime.MotionPriority.IDLE).catch(() => undefined);
 }
 
 function fitModel(): void {
@@ -664,9 +667,13 @@ function scheduleAudioRetry(): void {
 }
 
 async function triggerMotion(group: string, priority: "idle" | "normal" | "force" = "normal"): Promise<void> {
-  if (!model) return;
+  if (!model || !live2dRuntime) return;
   const mapped =
-    priority === "force" ? MotionPriority.FORCE : priority === "idle" ? MotionPriority.IDLE : MotionPriority.NORMAL;
+    priority === "force"
+      ? live2dRuntime.MotionPriority.FORCE
+      : priority === "idle"
+        ? live2dRuntime.MotionPriority.IDLE
+        : live2dRuntime.MotionPriority.NORMAL;
   const ok = await model.motion(group, undefined, mapped).catch(() => false);
   if (!ok) {
     status.textContent = `Motion unavailable: ${group}`;

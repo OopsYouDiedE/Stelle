@@ -1,10 +1,14 @@
 import type {
   AuthorityClass,
   ToolAuditRecord,
+  ToolAuthorityRequirement,
+  ToolDescription,
   ToolDefinition,
   ToolExecutionContext,
   ToolIdentity,
+  ToolInputSchema,
   ToolResult,
+  ToolSideEffectProfile,
 } from "../types.js";
 
 function fullName(identity: ToolIdentity): string {
@@ -51,6 +55,24 @@ export class ToolRegistry {
     return [...this.tools.values()]
       .filter((tool) => !filter?.authorityClass || tool.identity.authorityClass === filter.authorityClass)
       .map((tool) => tool.identity);
+  }
+
+  describe(filter?: { authorityClass?: AuthorityClass }): Array<{
+    identity: ToolIdentity;
+    description: ToolDescription;
+    inputSchema: ToolInputSchema;
+    authority: ToolAuthorityRequirement;
+    sideEffects: ToolSideEffectProfile;
+  }> {
+    return [...this.tools.values()]
+      .filter((tool) => !filter?.authorityClass || tool.identity.authorityClass === filter.authorityClass)
+      .map((tool) => ({
+        identity: tool.identity,
+        description: tool.description,
+        inputSchema: tool.inputSchema,
+        authority: tool.authority,
+        sideEffects: tool.sideEffects,
+      }));
   }
 
   async execute(
@@ -112,6 +134,15 @@ export class ToolRegistry {
         return fail("invalid_input", `Missing required field: ${key}`);
       }
     }
+    const properties = (tool.inputSchema.properties ?? {}) as Record<
+      string,
+      { type?: string; items?: { type?: string } }
+    >;
+    for (const [key, schema] of Object.entries(properties)) {
+      if (!(key in input) || input[key] === undefined) continue;
+      const issue = validateValueAgainstSchema(key, input[key], schema);
+      if (issue) return fail("invalid_input", issue);
+    }
     return undefined;
   }
 
@@ -119,4 +150,46 @@ export class ToolRegistry {
     const keys = Object.keys(input);
     return keys.length ? `fields: ${keys.join(", ")}` : "empty object";
   }
+}
+
+function validateValueAgainstSchema(
+  key: string,
+  value: unknown,
+  schema: { type?: string; items?: { type?: string } }
+): string | undefined {
+  const type = schema.type;
+  if (!type) return undefined;
+
+  if (type === "string") {
+    return typeof value === "string" ? undefined : `Field ${key} must be a string.`;
+  }
+  if (type === "boolean") {
+    return typeof value === "boolean" ? undefined : `Field ${key} must be a boolean.`;
+  }
+  if (type === "number") {
+    return typeof value === "number" && Number.isFinite(value) ? undefined : `Field ${key} must be a finite number.`;
+  }
+  if (type === "integer") {
+    return typeof value === "number" && Number.isInteger(value) ? undefined : `Field ${key} must be an integer.`;
+  }
+  if (type === "array") {
+    if (!Array.isArray(value)) return `Field ${key} must be an array.`;
+    if (!schema.items?.type) return undefined;
+    const itemType = schema.items.type;
+    for (const item of value) {
+      if (itemType === "string" && typeof item !== "string") return `Field ${key} must be an array of strings.`;
+      if (itemType === "number" && (typeof item !== "number" || !Number.isFinite(item))) {
+        return `Field ${key} must be an array of finite numbers.`;
+      }
+      if (itemType === "integer" && (typeof item !== "number" || !Number.isInteger(item))) {
+        return `Field ${key} must be an array of integers.`;
+      }
+      if (itemType === "boolean" && typeof item !== "boolean") return `Field ${key} must be an array of booleans.`;
+    }
+    return undefined;
+  }
+  if (type === "object") {
+    return value && typeof value === "object" && !Array.isArray(value) ? undefined : `Field ${key} must be an object.`;
+  }
+  return undefined;
 }

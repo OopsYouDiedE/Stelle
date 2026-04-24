@@ -167,6 +167,7 @@ export class CoreMind {
     const context: ToolExecutionContext = {
       caller: "stelle",
       cursorId: this.attachment.currentCursorId,
+      cwd: process.cwd(),
       authority: {
         caller: "stelle",
         allowedAuthorityClasses: ["cursor", "stelle"],

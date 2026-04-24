@@ -3,17 +3,10 @@ import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ToolDefinition, ToolExecutionContext, ToolResult } from "../types.js";
 import { ToolRegistry } from "./ToolRegistry.js";
+import { fail, ok, sideEffects } from "./shared.js";
 
 const SAFE_EXPR = /^[0-9+\-*/().,%\s]+$/;
 const todoStores = new Map<string, unknown[]>();
-
-function ok(summary: string, data?: Record<string, unknown>): ToolResult {
-  return { ok: true, summary, data };
-}
-
-function fail(code: string, message: string): ToolResult {
-  return { ok: false, summary: message, error: { code, message, retryable: false } };
-}
 
 function workspacePath(context: ToolExecutionContext, filePath?: string): string {
   const cwd = path.resolve(context.cwd ?? process.cwd());
@@ -44,7 +37,7 @@ export function createCoreTools(registry?: ToolRegistry): ToolDefinition[] {
       identity: { namespace: "basic", name: "calculate", authorityClass: "cursor", version: "0.1.0" },
       description: { summary: "Evaluate basic arithmetic.", whenToUse: "Use for simple arithmetic expressions." },
       inputSchema: { type: "object", properties: { expression: { type: "string" } }, required: ["expression"] },
-      sideEffects: none(false),
+      sideEffects: sideEffects(),
       authority: { level: "read", scopes: ["basic"], requiresUserConfirmation: false },
       execute(input) {
         const expression = String(input.expression ?? "");
@@ -61,7 +54,7 @@ export function createCoreTools(registry?: ToolRegistry): ToolDefinition[] {
       identity: { namespace: "basic", name: "datetime", authorityClass: "cursor", version: "0.1.0" },
       description: { summary: "Get current local date/time.", whenToUse: "Use when current runtime time is needed." },
       inputSchema: { type: "object", properties: {} },
-      sideEffects: none(false),
+      sideEffects: sideEffects(),
       authority: { level: "read", scopes: ["basic"], requiresUserConfirmation: false },
       execute() {
         const now = new Date();
@@ -72,7 +65,7 @@ export function createCoreTools(registry?: ToolRegistry): ToolDefinition[] {
       identity: { namespace: "fs", name: "list_directory", authorityClass: "cursor", version: "0.1.0" },
       description: { summary: "List workspace directory entries.", whenToUse: "Use to inspect files in the workspace." },
       inputSchema: { type: "object", properties: { directory_path: { type: "string" } } },
-      sideEffects: none(false),
+      sideEffects: sideEffects(),
       authority: { level: "read", scopes: ["workspace"], requiresUserConfirmation: false },
       async execute(input, context) {
         const cwd = path.resolve(context.cwd ?? process.cwd());
@@ -100,7 +93,7 @@ export function createCoreTools(registry?: ToolRegistry): ToolDefinition[] {
         properties: { file_path: { type: "string" }, start_line: { type: "integer" }, end_line: { type: "integer" } },
         required: ["file_path"],
       },
-      sideEffects: none(false),
+      sideEffects: sideEffects(),
       authority: { level: "read", scopes: ["workspace"], requiresUserConfirmation: false },
       async execute(input, context) {
         const target = workspacePath(context, String(input.file_path));
@@ -125,7 +118,7 @@ export function createCoreTools(registry?: ToolRegistry): ToolDefinition[] {
         properties: { query: { type: "string" }, directory_path: { type: "string" }, max_results: { type: "integer" } },
         required: ["query"],
       },
-      sideEffects: none(false),
+      sideEffects: sideEffects(),
       authority: { level: "read", scopes: ["workspace"], requiresUserConfirmation: false },
       async execute(input, context) {
         const cwd = path.resolve(context.cwd ?? process.cwd());
@@ -155,7 +148,7 @@ export function createCoreTools(registry?: ToolRegistry): ToolDefinition[] {
       identity: { namespace: "fs", name: "write_file", authorityClass: "stelle", version: "0.1.0" },
       description: { summary: "Write a UTF-8 workspace file.", whenToUse: "Use for approved workspace file writes." },
       inputSchema: { type: "object", properties: { file_path: { type: "string" }, content: { type: "string" } }, required: ["file_path", "content"] },
-      sideEffects: { ...none(false), writesFileSystem: true },
+      sideEffects: sideEffects({ writesFileSystem: true }),
       authority: { level: "local_write", scopes: ["workspace"], requiresUserConfirmation: false },
       async execute(input, context) {
         const target = workspacePath(context, String(input.file_path));
@@ -169,7 +162,7 @@ export function createCoreTools(registry?: ToolRegistry): ToolDefinition[] {
       identity: { namespace: "system", name: "run_command", authorityClass: "stelle", version: "0.1.0" },
       description: { summary: "Run a workspace shell command.", whenToUse: "Use for approved command execution.", whenNotToUse: "Do not expose to Cursor passive flows." },
       inputSchema: { type: "object", properties: { command: { type: "string" }, timeout_ms: { type: "integer" } }, required: ["command"] },
-      sideEffects: { ...none(false), startsProcess: true },
+      sideEffects: sideEffects({ startsProcess: true }),
       authority: { level: "process_control", scopes: ["workspace"], requiresUserConfirmation: false },
       execute(input, context) {
         return new Promise<ToolResult>((resolve) => {
@@ -195,7 +188,7 @@ export function createCoreTools(registry?: ToolRegistry): ToolDefinition[] {
       identity: { namespace: "memory", name: "todo", authorityClass: "cursor", version: "0.1.0" },
       description: { summary: "Read or replace conversation todos.", whenToUse: "Use for local task tracking." },
       inputSchema: { type: "object", properties: { todos: { type: "array" } } },
-      sideEffects: none(false),
+      sideEffects: sideEffects(),
       authority: { level: "read", scopes: ["memory.todo"], requiresUserConfirmation: false },
       execute(input, context) {
         const key = context.conversationId ?? context.cursorId ?? "default";
@@ -207,7 +200,7 @@ export function createCoreTools(registry?: ToolRegistry): ToolDefinition[] {
       identity: { namespace: "meta", name: "show_available_tools", authorityClass: "cursor", version: "0.1.0" },
       description: { summary: "List registered tools.", whenToUse: "Use to inspect tool availability." },
       inputSchema: { type: "object", properties: {} },
-      sideEffects: none(false),
+      sideEffects: sideEffects(),
       authority: { level: "read", scopes: ["meta"], requiresUserConfirmation: false },
       execute() {
         return ok("Available tools listed.", { tools: registry?.list() ?? [] });
@@ -215,18 +208,6 @@ export function createCoreTools(registry?: ToolRegistry): ToolDefinition[] {
     },
   ];
   return tools;
-}
-
-function none(networkAccess: boolean) {
-  return {
-    externalVisible: false,
-    writesFileSystem: false,
-    networkAccess,
-    startsProcess: false,
-    changesConfig: false,
-    consumesBudget: false,
-    affectsUserState: false,
-  };
 }
 
 export function registerCoreTools(registry: ToolRegistry): void {

@@ -182,6 +182,7 @@ export class CursorRuntime {
     return this.tools.execute(toolFullName, input, {
       caller: "cursor",
       cursorId,
+      cwd: process.cwd(),
       authority: {
         caller: "cursor",
         allowedAuthorityClasses: ["cursor"],

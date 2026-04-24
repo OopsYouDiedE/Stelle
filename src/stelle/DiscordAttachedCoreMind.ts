@@ -11,6 +11,7 @@ import { loadStelleModelConfig } from "../config/StelleConfig.js";
 import type { DiscordMessageSummary } from "../discord/types.js";
 import { DiscordJsRuntime, formatDiscordMessage } from "../discord/DiscordRuntime.js";
 import { GeminiTextProvider } from "../gemini/GeminiTextProvider.js";
+import { MemoryManager } from "../memory/MemoryManager.js";
 import { createDefaultToolRegistry } from "../tools/index.js";
 import type { ToolResult } from "../types.js";
 import { DiscordLiveController } from "./DiscordLiveController.js";
@@ -37,6 +38,7 @@ export class DiscordAttachedCoreMind {
   readonly innerCursor: InnerCursor;
   readonly discordCursor: DiscordCursor;
   readonly liveCursor: LiveCursor;
+  readonly memory: MemoryManager;
   core!: CoreMind;
 
   private readonly client: Client;
@@ -59,6 +61,22 @@ export class DiscordAttachedCoreMind {
       defaultChannelId: options.defaultChannelId,
     });
     this.liveCursor = new LiveCursor();
+    this.memory = new MemoryManager({ innerCursor: this.innerCursor });
+    this.liveCursor.live.setEventSink((event) => {
+      this.memory.publish(
+        this.memory.createLiveActionEvent({
+          action: event.action,
+          ok: event.ok,
+          summary: event.summary,
+          timestamp: event.timestamp,
+          text: event.text,
+          stage: event.stage,
+          obs: event.obs,
+          source: event.source,
+          metadata: event.metadata,
+        })
+      );
+    });
 
     this.cursors.register(this.innerCursor);
     this.cursors.register(this.discordCursor);
@@ -91,6 +109,7 @@ export class DiscordAttachedCoreMind {
   }
 
   async start(): Promise<void> {
+    await this.memory.start();
     this.core = await CoreMind.create({
       cursors: this.cursors,
       tools: this.tools,
@@ -99,7 +118,8 @@ export class DiscordAttachedCoreMind {
     this.liveController = new DiscordLiveController(
       this.core,
       this.textProvider,
-      this.options.maxReplyChars ?? 900
+      this.options.maxReplyChars ?? 900,
+      (text) => this.memory.recallForLivePrompt(text)
     );
 
     this.client.on(Events.MessageCreate, (message) => {
@@ -122,6 +142,7 @@ export class DiscordAttachedCoreMind {
 
   async stop(): Promise<void> {
     if (this.liveTickTimer) clearInterval(this.liveTickTimer);
+    await this.memory.flush();
     if (this.ownsClient) await this.discordRuntime.destroy();
   }
 
@@ -147,6 +168,18 @@ export class DiscordAttachedCoreMind {
     await this.discordCursor.tick();
 
     const routeContext = await this.classifyMessage(summary);
+    this.memory.publish(
+      this.memory.createDiscordMessageEvent({
+        message: summary,
+        dm: routeContext.dm,
+        mentionedBot,
+        replyRequired: routeContext.shouldReply,
+        channelActivated: true,
+        route: routeContext.decision.route,
+        intent: routeContext.decision.intent,
+      })
+    );
+    const memoryContext = await this.memory.recallForDiscordMessage(summary);
     if (!routeContext.shouldReply) {
       return this.noReply(routeContext.reason);
     }
@@ -156,18 +189,24 @@ export class DiscordAttachedCoreMind {
     );
 
     if (routeContext.decision.route === "cursor") {
-      return this.handleCursorRoute(summary.content, summary.channelId, summary.id, routeContext.dm, routeContext.botUserId, routeContext.decision);
+      return this.handleCursorRoute(
+        summary,
+        routeContext.dm,
+        routeContext.botUserId,
+        routeContext.decision,
+        memoryContext
+      );
     }
 
     if (routeContext.decision.intent === "live_action") {
-      return this.handleLiveRoute(summary.channelId, summary.id, summary.content);
+      return this.handleLiveRoute(summary, memoryContext);
     }
 
     if (routeContext.decision.intent === "social_action") {
-      return this.handleSocialRoute(summary.channelId, summary.id, summary.content, routeContext.otherMentionIds);
+      return this.handleSocialRoute(summary, routeContext.otherMentionIds);
     }
 
-    return this.handleStelleReplyRoute(summary.channelId, summary.id, summary.content, routeContext.dm, routeContext.decision.intent);
+    return this.handleStelleReplyRoute(summary, routeContext.dm, routeContext.decision.intent, memoryContext);
   }
 
   async sendStelleDiscordMessage(input: {
@@ -248,6 +287,7 @@ export class DiscordAttachedCoreMind {
         status: await this.tryAsync(() => this.liveCursor.live.getStatus()),
         speechQueue: this.liveCursor.getSpeechQueue(),
       },
+      memory: await this.memory.snapshot(),
     };
   }
 
@@ -288,97 +328,124 @@ export class DiscordAttachedCoreMind {
   }
 
   private async handleCursorRoute(
-    content: string,
-    channelId: string,
-    messageId: string,
+    message: DiscordMessageSummary,
     dm: boolean,
     botUserId: string | null | undefined,
-    decision: ReturnType<DiscordRouteDecider["decide"]>
+    decision: ReturnType<DiscordRouteDecider["decide"]>,
+    memoryContext: string
   ): Promise<DiscordCoreMindMessageResult> {
-    const replyText = await this.replyComposer.generateCursorReply(content, channelId, decision);
+    const replyText = await this.replyComposer.generateCursorReply(
+      message.content,
+      message.channelId,
+      decision,
+      memoryContext
+    );
     const reply = dm
       ? await this.cursorRuntime.useCursorTool("discord", "discord.cursor_reply_direct", {
-          channel_id: channelId,
-          message_id: messageId,
+          channel_id: message.channelId,
+          message_id: message.id,
           content: replyText,
         })
       : await this.cursorRuntime.useCursorTool("discord", "discord.cursor_reply_mention", {
-          channel_id: channelId,
-          message_id: messageId,
+          channel_id: message.channelId,
+          message_id: message.id,
           content: replyText,
         });
 
     if (!reply.ok && !dm && botUserId) {
       const fallback = await this.sendStelleDiscordMessage({
-        channel_id: channelId,
+        channel_id: message.channelId,
         content: replyText,
-        reply_to_message_id: messageId,
+        reply_to_message_id: message.id,
       });
+      await this.captureReplyMemory(fallback, "cursor", message);
       return this.messageResult("cursor", fallback, fallback.summary);
     }
 
+    await this.captureReplyMemory(reply, "cursor", message);
     return this.messageResult("cursor", reply);
   }
 
-  private async handleLiveRoute(channelId: string, messageId: string, content: string): Promise<DiscordCoreMindMessageResult> {
+  private async handleLiveRoute(
+    message: DiscordMessageSummary,
+    _memoryContext: string
+  ): Promise<DiscordCoreMindMessageResult> {
     await this.switchCursor(this.liveCursor.identity.id, "Discord route requested live action");
-    const live = await this.liveController.handleLiveCommand(content);
+    const live = await this.liveController.handleLiveCommand(message.content);
     const ack = await this.sendStelleDiscordMessage({
-      channel_id: channelId,
+      channel_id: message.channelId,
       content: live.summary,
-      reply_to_message_id: messageId,
+      reply_to_message_id: message.id,
     });
+    await this.captureReplyMemory(ack, "stelle", message);
     return this.messageResult("stelle", ack, live.summary);
   }
 
   private async handleSocialRoute(
-    channelId: string,
-    messageId: string,
-    content: string,
+    message: DiscordMessageSummary,
     otherMentionIds: string[]
   ): Promise<DiscordCoreMindMessageResult> {
     await this.switchCursor(this.discordCursor.identity.id, "Discord route requested targeted social action");
-    const replyText = await this.replyComposer.generateSocialReply(content, otherMentionIds);
+    const replyText = await this.replyComposer.generateSocialReply(message.content, otherMentionIds);
     const reply = await this.sendStelleDiscordMessage({
-      channel_id: channelId,
+      channel_id: message.channelId,
       content: replyText,
       mention_user_ids: otherMentionIds,
-      reply_to_message_id: messageId,
+      reply_to_message_id: message.id,
     });
+    await this.captureReplyMemory(reply, "stelle", message);
     return this.messageResult("stelle", reply);
   }
 
   private async handleStelleReplyRoute(
-    channelId: string,
-    messageId: string,
-    content: string,
+    message: DiscordMessageSummary,
     dm: boolean,
-    intent: string
+    intent: string,
+    memoryContext: string
   ): Promise<DiscordCoreMindMessageResult> {
     await this.switchCursor(this.discordCursor.identity.id, `Discord route escalated: ${intent}`);
     const observation = await this.core.observeCurrentCursor();
-    const replyText = await this.replyComposer.generateCoreReply(observation.stream, content);
+    const replyText = await this.replyComposer.generateCoreReply(observation.stream, message.content, memoryContext);
 
     if (this.options.synthesizeReplies ?? process.env.DISCORD_TTS_ENABLED === "true") {
       await this.core.useTool("tts.kokoro_stream_speech", {
         text: replyText,
-        file_prefix: `discord-reply-${messageId}`,
+        file_prefix: `discord-reply-${message.id}`,
       });
     }
 
     const reply = dm
       ? await this.sendStelleDiscordMessage({
-          channel_id: channelId,
+          channel_id: message.channelId,
           content: replyText,
-          reply_to_message_id: messageId,
+          reply_to_message_id: message.id,
         })
       : await this.core.useTool("discord.cursor_reply_mention", {
-          channel_id: channelId,
-          message_id: messageId,
+          channel_id: message.channelId,
+          message_id: message.id,
           content: replyText,
         });
 
+    await this.captureReplyMemory(reply, "stelle", message);
     return this.messageResult("stelle", reply);
+  }
+
+  private async captureReplyMemory(
+    result: ToolResult,
+    route: "cursor" | "stelle" | "governance" | "debug",
+    sourceMessage?: DiscordMessageSummary
+  ): Promise<void> {
+    const message = extractDiscordMessage(result);
+    if (!message) return;
+    this.memory.publish(
+      this.memory.createDiscordReplyEvent({
+        message,
+        route,
+        targetUserId: sourceMessage?.author.id,
+        targetUsername: sourceMessage?.author.username,
+        targetMessageId: sourceMessage?.id,
+      })
+    );
   }
 
   private async syncPresence(): Promise<void> {
@@ -517,6 +584,7 @@ export class DiscordAttachedCoreMind {
     reason: string
   ): Promise<DiscordCoreMindMessageResult> {
     const reply = await this.sendGovernanceReply(summary.channelId, summary.id, content);
+    await this.captureReplyMemory(reply, "governance", summary);
     return this.messageResult("stelle", reply, reason);
   }
 
@@ -545,4 +613,13 @@ export async function startDiscordAttachedCoreMind(options: DiscordAttachedCoreM
   const app = new DiscordAttachedCoreMind(options);
   await app.start();
   return app;
+}
+
+function extractDiscordMessage(result: ToolResult): DiscordMessageSummary | null {
+  const message = result.data?.message;
+  if (!message || typeof message !== "object" || Array.isArray(message)) return null;
+  const candidate = message as Record<string, unknown>;
+  if (typeof candidate.id !== "string" || typeof candidate.channelId !== "string") return null;
+  if (!candidate.author || typeof candidate.author !== "object") return null;
+  return candidate as unknown as DiscordMessageSummary;
 }

@@ -3,13 +3,4 @@ channels:
     activated: true
   '1494546366808985710':
     activated: true
-guilds:
-  '1235845356194103377':
-    api_key: AIzaSyBPHcmDz8XoMfRjjBEX7yX-5p9ksEOkIN4
-    base_url: https://generativelanguage.googleapis.com/v1beta/openai/
-    model: gemini-3.1-flash-lite-preview
-  '1371274662213980201':
-    api_key: AIzaSyBPHcmDz8XoMfRjjBEX7yX-5p9ksEOkIN4
-    base_url: https://generativelanguage.googleapis.com/v1beta/openai/
-    model: gemini-3.1-flash-lite-preview
 

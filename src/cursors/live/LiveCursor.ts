@@ -275,7 +275,7 @@ function estimateSpeechDurationMs(text: string): number {
 }
 
 function liveTtsOutputMode(): "python-device" | "browser" | "artifact" {
-  const value = (process.env.LIVE_TTS_OUTPUT ?? process.env.LIVE_AUDIO_OUTPUT ?? "python-device").toLowerCase();
+  const value = (process.env.LIVE_TTS_OUTPUT ?? process.env.LIVE_AUDIO_OUTPUT ?? "browser").toLowerCase();
   if (value === "browser" || value === "artifact") return value;
   return "python-device";
 }

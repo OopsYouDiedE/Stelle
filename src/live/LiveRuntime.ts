@@ -3,6 +3,7 @@ import type {
   Live2DMotionPriority,
   Live2DStageState,
   LiveActionResult,
+  LiveRuntimeEventSink,
   LiveRuntimeStatus,
   LiveRendererBridge,
   ObsController,
@@ -61,6 +62,7 @@ export class LiveRuntime {
   private stage: Live2DStageState = {
     visible: true,
   };
+  private eventSink?: LiveRuntimeEventSink;
 
   constructor(
     readonly models: Live2DModelRegistry = new Live2DModelRegistry(),
@@ -68,6 +70,10 @@ export class LiveRuntime {
     private readonly renderer: LiveRendererBridge | undefined = defaultRenderer()
   ) {
     this.stage.model = models.getDefault();
+  }
+
+  setEventSink(sink?: LiveRuntimeEventSink): void {
+    this.eventSink = sink;
   }
 
   async getStatus(): Promise<LiveRuntimeStatus> {
@@ -82,12 +88,16 @@ export class LiveRuntime {
     this.active = true;
     if (!this.stage.model) this.stage.model = this.models.getDefault();
     await this.renderer?.publish({ type: "state:set", state: cloneStage(this.stage) });
-    return action(`Live runtime active with ${this.stage.model.displayName}.`, this.stage, await this.obs.getStatus());
+    const result = action(`Live runtime active with ${this.stage.model.displayName}.`, this.stage, await this.obs.getStatus());
+    this.emitEvent({ action: "start_live", ok: result.ok, summary: result.summary, timestamp: result.timestamp, stage: result.stage, obs: result.obs });
+    return result;
   }
 
   async stop(): Promise<LiveActionResult> {
     this.active = false;
-    return action("Live runtime stopped.", this.stage, await this.obs.getStatus());
+    const result = action("Live runtime stopped.", this.stage, await this.obs.getStatus());
+    this.emitEvent({ action: "stop_live", ok: result.ok, summary: result.summary, timestamp: result.timestamp, stage: result.stage, obs: result.obs });
+    return result;
   }
 
   async loadModel(modelId: string): Promise<LiveActionResult> {
@@ -107,7 +117,16 @@ export class LiveRuntime {
     }
     this.stage = { ...this.stage, model, lastMotion: undefined, expression: undefined };
     await this.renderer?.publish({ type: "model:load", modelId, model });
-    return action(`Loaded Live2D model ${model.displayName}.`, this.stage);
+    const result = action(`Loaded Live2D model ${model.displayName}.`, this.stage);
+    this.emitEvent({
+      action: "load_model",
+      ok: result.ok,
+      summary: result.summary,
+      timestamp: result.timestamp,
+      stage: result.stage,
+      metadata: { modelId, displayName: model.displayName },
+    });
+    return result;
   }
 
   async triggerMotion(group: string, priority: Live2DMotionPriority = "normal"): Promise<LiveActionResult> {
@@ -120,53 +139,121 @@ export class LiveRuntime {
       },
     };
     await this.renderer?.publish({ type: "motion:trigger", group, priority });
-    return action(`Triggered Live2D motion ${group} (${priority}).`, this.stage);
+    const result = action(`Triggered Live2D motion ${group} (${priority}).`, this.stage);
+    this.emitEvent({
+      action: "trigger_motion",
+      ok: result.ok,
+      summary: result.summary,
+      timestamp: result.timestamp,
+      stage: result.stage,
+      metadata: { group, priority },
+    });
+    return result;
   }
 
   async setExpression(expression: string): Promise<LiveActionResult> {
     this.stage = { ...this.stage, expression };
     await this.renderer?.publish({ type: "expression:set", expression });
-    return action(`Set Live2D expression ${expression}.`, this.stage);
+    const result = action(`Set Live2D expression ${expression}.`, this.stage);
+    this.emitEvent({
+      action: "set_expression",
+      ok: result.ok,
+      summary: result.summary,
+      timestamp: result.timestamp,
+      stage: result.stage,
+      metadata: { expression },
+    });
+    return result;
   }
 
   async setCaption(text: string): Promise<LiveActionResult> {
     const caption = sanitizeExternalText(text);
     this.stage = { ...this.stage, caption };
     await this.renderer?.publish({ type: "caption:set", text: caption });
-    return action(`Updated live caption (${caption.length} chars).`, this.stage);
+    const result = action(`Updated live caption (${caption.length} chars).`, this.stage);
+    this.emitEvent({
+      action: "set_caption",
+      ok: result.ok,
+      summary: result.summary,
+      timestamp: result.timestamp,
+      stage: result.stage,
+      text: caption,
+    });
+    return result;
   }
 
   async clearCaption(): Promise<LiveActionResult> {
     this.stage = { ...this.stage, caption: undefined };
     await this.renderer?.publish({ type: "caption:clear" });
-    return action("Cleared live caption.", this.stage);
+    const result = action("Cleared live caption.", this.stage);
+    this.emitEvent({ action: "clear_caption", ok: result.ok, summary: result.summary, timestamp: result.timestamp, stage: result.stage });
+    return result;
   }
 
   async setBackground(source: string): Promise<LiveActionResult> {
     this.stage = { ...this.stage, background: source };
     await this.renderer?.publish({ type: "background:set", source });
-    return action("Updated live background.", this.stage);
+    const result = action("Updated live background.", this.stage);
+    this.emitEvent({
+      action: "set_background",
+      ok: result.ok,
+      summary: result.summary,
+      timestamp: result.timestamp,
+      stage: result.stage,
+      metadata: { source },
+    });
+    return result;
   }
 
   async setMouth(value: number): Promise<LiveActionResult> {
     const mouth = Math.max(0, Math.min(1, value));
     await this.renderer?.publish({ type: "mouth:set", value: mouth });
-    return action(`Set Live2D mouth value ${mouth}.`, this.stage);
+    const result = action(`Set Live2D mouth value ${mouth}.`, this.stage);
+    this.emitEvent({
+      action: "set_mouth",
+      ok: result.ok,
+      summary: result.summary,
+      timestamp: result.timestamp,
+      stage: result.stage,
+      metadata: { value: mouth },
+    });
+    return result;
   }
 
   async startSpeech(durationMs = 2400): Promise<LiveActionResult> {
     await this.renderer?.publish({ type: "speech:start", durationMs });
-    return action(`Started Live2D speech lip sync for ${durationMs}ms.`, this.stage);
+    const result = action(`Started Live2D speech lip sync for ${durationMs}ms.`, this.stage);
+    this.emitEvent({
+      action: "start_speech",
+      ok: result.ok,
+      summary: result.summary,
+      timestamp: result.timestamp,
+      stage: result.stage,
+      metadata: { durationMs },
+    });
+    return result;
   }
 
   async stopSpeech(): Promise<LiveActionResult> {
     await this.renderer?.publish({ type: "speech:stop" });
-    return action("Stopped Live2D speech lip sync.", this.stage);
+    const result = action("Stopped Live2D speech lip sync.", this.stage);
+    this.emitEvent({ action: "stop_speech", ok: result.ok, summary: result.summary, timestamp: result.timestamp, stage: result.stage });
+    return result;
   }
 
   async playAudio(url: string, text?: string): Promise<LiveActionResult> {
     await this.renderer?.publish({ type: "audio:play", url, text: text === undefined ? undefined : sanitizeExternalText(text) });
-    return action(`Queued live audio playback: ${url}.`, this.stage);
+    const result = action(`Queued live audio playback: ${url}.`, this.stage);
+    this.emitEvent({
+      action: "play_audio",
+      ok: result.ok,
+      summary: result.summary,
+      timestamp: result.timestamp,
+      stage: result.stage,
+      text: text === undefined ? undefined : sanitizeExternalText(text),
+      metadata: { url },
+    });
+    return result;
   }
 
   async playTtsStream(
@@ -183,7 +270,18 @@ export class LiveRuntime {
       provider: "kokoro",
       request: kokoroStreamRequest(speechText, options),
     });
-    return action(`Queued live Kokoro stream playback: ${url}.`, this.stage);
+    const result = action(`Queued live Kokoro stream playback: ${url}.`, this.stage);
+    this.emitEvent({
+      action: "play_tts_stream",
+      ok: result.ok,
+      summary: result.summary,
+      timestamp: result.timestamp,
+      stage: result.stage,
+      text: speechText,
+      source: "kokoro",
+      metadata: { url },
+    });
+    return result;
   }
 
   async setDrag(x: number, y: number): Promise<LiveActionResult> {
@@ -192,7 +290,16 @@ export class LiveRuntime {
       drag: { x, y },
       lastInteraction: { kind: "drag", x, y, timestamp: now() },
     };
-    return action(`Updated Live2D drag target (${x}, ${y}).`, this.stage);
+    const result = action(`Updated Live2D drag target (${x}, ${y}).`, this.stage);
+    this.emitEvent({
+      action: "set_drag",
+      ok: result.ok,
+      summary: result.summary,
+      timestamp: result.timestamp,
+      stage: result.stage,
+      metadata: { x, y },
+    });
+    return result;
   }
 
   async tap(x: number, y: number): Promise<LiveActionResult> {
@@ -202,7 +309,16 @@ export class LiveRuntime {
       lastInteraction: { kind: "tap", x, y, timestamp: now() },
       lastMotion: { group, priority: "normal", triggeredAt: now() },
     };
-    return action(`Registered Live2D tap and triggered ${group}.`, this.stage);
+    const result = action(`Registered Live2D tap and triggered ${group}.`, this.stage);
+    this.emitEvent({
+      action: "tap",
+      ok: result.ok,
+      summary: result.summary,
+      timestamp: result.timestamp,
+      stage: result.stage,
+      metadata: { x, y, group },
+    });
+    return result;
   }
 
   async flick(dx: number, dy: number, x: number, y: number): Promise<LiveActionResult> {
@@ -218,6 +334,19 @@ export class LiveRuntime {
       lastInteraction: { kind: "flick", x, y, dx, dy, timestamp: now() },
       lastMotion: { group, priority: "normal", triggeredAt: now() },
     };
-    return action(`Registered Live2D flick and triggered ${group}.`, this.stage);
+    const result = action(`Registered Live2D flick and triggered ${group}.`, this.stage);
+    this.emitEvent({
+      action: "flick",
+      ok: result.ok,
+      summary: result.summary,
+      timestamp: result.timestamp,
+      stage: result.stage,
+      metadata: { dx, dy, x, y, group },
+    });
+    return result;
+  }
+
+  private emitEvent(event: Parameters<NonNullable<LiveRuntimeEventSink>>[0]): void {
+    void this.eventSink?.(event);
   }
 }

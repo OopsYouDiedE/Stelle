@@ -209,3 +209,6 @@ __marimo__/
 # Node / TypeScript
 node_modules/
 dist/
+.codex-chrome-live/
+.codex-logs/
+scripts/__pycache__/
