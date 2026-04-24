@@ -21,6 +21,13 @@ const threadTypes = new Set([
   ChannelType.AnnouncementThread,
 ]);
 
+function onceClientReady(client: Client): Promise<void> {
+  if (client.isReady()) return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    client.once(Events.ClientReady, () => resolve());
+  });
+}
+
 export class DiscordJsRuntime implements DiscordRuntime {
   private client: Client | null;
   private lastError: string | undefined;
@@ -45,13 +52,8 @@ export class DiscordJsRuntime implements DiscordRuntime {
   async login(token: string): Promise<void> {
     const client = this.client ?? DiscordJsRuntime.createClient();
     this.client = client;
-    const ready = client.isReady()
-      ? Promise.resolve()
-      : new Promise<void>((resolve) => {
-          client.once(Events.ClientReady, () => resolve());
-        });
     await client.login(token);
-    await ready;
+    await onceClientReady(client);
   }
 
   async destroy(): Promise<void> {

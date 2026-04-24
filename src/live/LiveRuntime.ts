@@ -35,6 +35,27 @@ function defaultRenderer(): LiveRendererBridge | undefined {
   return process.env.LIVE_RENDERER_URL ? new HttpLiveRendererBridge(process.env.LIVE_RENDERER_URL) : undefined;
 }
 
+function kokoroStreamRequest(
+  text: string,
+  options: { voiceName?: string; speed?: number; language?: string; responseFormat?: string }
+) {
+  const voice = options.voiceName ?? process.env.KOKORO_TTS_VOICE ?? "zf_xiaobei";
+  const language = options.language ?? (voice.startsWith("z") ? process.env.KOKORO_TTS_LANGUAGE : undefined);
+  return {
+    model: process.env.KOKORO_TTS_MODEL ?? "kokoro",
+    input: text,
+    voice,
+    response_format:
+      options.responseFormat ??
+      process.env.KOKORO_TTS_STREAM_RESPONSE_FORMAT ??
+      process.env.KOKORO_TTS_RESPONSE_FORMAT ??
+      "wav",
+    stream: true,
+    ...(typeof options.speed === "number" ? { speed: options.speed } : {}),
+    ...(language ? { language } : {}),
+  };
+}
+
 export class LiveRuntime {
   private active = false;
   private stage: Live2DStageState = {
@@ -153,27 +174,14 @@ export class LiveRuntime {
     options: { voiceName?: string; speed?: number; language?: string; responseFormat?: string } = {}
   ): Promise<LiveActionResult> {
     const speechText = sanitizeExternalText(text);
-    const voice = options.voiceName ?? process.env.KOKORO_TTS_VOICE ?? "zf_xiaobei";
-    const language = options.language ?? (voice.startsWith("z") ? process.env.KOKORO_TTS_LANGUAGE : undefined);
-    const responseFormat =
-      options.responseFormat ?? process.env.KOKORO_TTS_STREAM_RESPONSE_FORMAT ?? process.env.KOKORO_TTS_RESPONSE_FORMAT ?? "wav";
     const id = `kokoro-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const request = {
-      model: process.env.KOKORO_TTS_MODEL ?? "kokoro",
-      input: speechText,
-      voice,
-      response_format: responseFormat,
-      stream: true,
-      ...(typeof options.speed === "number" ? { speed: options.speed } : {}),
-      ...(language ? { language } : {}),
-    };
     const url = `/tts/kokoro/${id}`;
     await this.renderer?.publish({
       type: "audio:stream",
       url,
       text: speechText,
       provider: "kokoro",
-      request,
+      request: kokoroStreamRequest(speechText, options),
     });
     return action(`Queued live Kokoro stream playback: ${url}.`, this.stage);
   }

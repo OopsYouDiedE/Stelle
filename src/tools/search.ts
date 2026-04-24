@@ -1,4 +1,5 @@
-import type { ToolDefinition, ToolResult } from "../types.js";
+import type { ToolDefinition } from "../types.js";
+import { fail, ok, sideEffects } from "./shared.js";
 
 interface SearchResult {
   title: string;
@@ -7,12 +8,11 @@ interface SearchResult {
   source: string;
 }
 
-function ok(summary: string, data?: Record<string, unknown>): ToolResult {
-  return { ok: true, summary, data };
-}
+const BROWSER_USER_AGENT =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36";
 
-function fail(code: string, message: string): ToolResult {
-  return { ok: false, summary: message, error: { code, message, retryable: false } };
+function clampCount(count: number): number {
+  return Math.min(Math.max(count, 1), 20);
 }
 
 function containsCjk(text: string): boolean {
@@ -33,7 +33,7 @@ async function serpApiSearchWithEngine(
   url.searchParams.set("engine", engine);
   url.searchParams.set("q", query);
   url.searchParams.set("api_key", apiKey);
-  url.searchParams.set("num", String(Math.min(Math.max(count, 1), 20)));
+  url.searchParams.set("num", String(clampCount(count)));
   url.searchParams.set("hl", engineDefaults.hl);
   url.searchParams.set("gl", engineDefaults.gl);
 
@@ -78,7 +78,7 @@ async function braveSearch(query: string, count: number): Promise<SearchResult[]
   if (!apiKey) return [];
   const url = new URL("https://api.search.brave.com/res/v1/web/search");
   url.searchParams.set("q", query);
-  url.searchParams.set("count", String(Math.min(Math.max(count, 1), 20)));
+  url.searchParams.set("count", String(clampCount(count)));
   const response = await fetch(url, {
     headers: { Accept: "application/json", "X-Subscription-Token": apiKey },
   });
@@ -101,7 +101,7 @@ async function tavilySearch(query: string, count: number): Promise<SearchResult[
     body: JSON.stringify({
       api_key: apiKey,
       query,
-      max_results: Math.min(Math.max(count, 1), 20),
+      max_results: clampCount(count),
       search_depth: "basic",
     }),
   });
@@ -144,7 +144,7 @@ async function duckDuckGoHtmlSearch(query: string, count: number): Promise<Searc
   url.searchParams.set("q", query);
   const response = await fetch(url, {
     headers: {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36",
+      "User-Agent": BROWSER_USER_AGENT,
     },
   });
   if (!response.ok) throw new Error(`DuckDuckGo HTML fallback failed: ${response.status} ${response.statusText}`);
@@ -205,6 +205,29 @@ function htmlToReadableText(html: string): string {
   );
 }
 
+function cloneSearchTool<TInput extends Record<string, unknown>>(
+  base: ToolDefinition<TInput>,
+  overrides: {
+    name: string;
+    authorityClass: "cursor" | "stelle";
+    summary: string;
+    whenToUse: string;
+    whenNotToUse: string;
+    scopes: string[];
+  }
+): ToolDefinition<TInput> {
+  return {
+    ...base,
+    identity: { namespace: "search", name: overrides.name, authorityClass: overrides.authorityClass, version: "0.1.0" },
+    description: {
+      summary: overrides.summary,
+      whenToUse: overrides.whenToUse,
+      whenNotToUse: overrides.whenNotToUse,
+    },
+    authority: { level: "read", scopes: overrides.scopes, requiresUserConfirmation: false },
+  };
+}
+
 export function createSearchTools(): ToolDefinition[] {
   const webSearch: ToolDefinition<{ query: string; count?: number }> = {
     identity: { namespace: "search", name: "web_search", authorityClass: "stelle", version: "0.1.0" },
@@ -221,20 +244,12 @@ export function createSearchTools(): ToolDefinition[] {
       },
       required: ["query"],
     },
-    sideEffects: {
-      externalVisible: false,
-      writesFileSystem: false,
-      networkAccess: true,
-      startsProcess: false,
-      changesConfig: false,
-      consumesBudget: true,
-      affectsUserState: false,
-    },
+    sideEffects: sideEffects({ networkAccess: true, consumesBudget: true }),
     authority: { level: "read", scopes: ["web.search"], requiresUserConfirmation: false },
     async execute(input) {
       const query = String(input.query ?? "").trim();
       if (!query) return fail("invalid_query", "Search query must not be empty.");
-      const limit = Math.min(Math.max(Number(input.count ?? 5), 1), 20);
+      const limit = clampCount(Number(input.count ?? 5));
       const results = await firstSuccessfulSearch(query, limit);
       return ok(`Found ${results.length} web results.`, { query, results: results.slice(0, limit) });
     },
@@ -255,15 +270,7 @@ export function createSearchTools(): ToolDefinition[] {
       },
       required: ["url"],
     },
-    sideEffects: {
-      externalVisible: false,
-      writesFileSystem: false,
-      networkAccess: true,
-      startsProcess: false,
-      changesConfig: false,
-      consumesBudget: true,
-      affectsUserState: false,
-    },
+    sideEffects: sideEffects({ networkAccess: true, consumesBudget: true }),
     authority: { level: "read", scopes: ["web.read"], requiresUserConfirmation: false },
     async execute(input) {
       const url = new URL(String(input.url));
@@ -272,7 +279,7 @@ export function createSearchTools(): ToolDefinition[] {
       const response = await fetch(url, {
         headers: {
           Accept: "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8",
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36",
+          "User-Agent": BROWSER_USER_AGENT,
         },
         redirect: "follow",
       });
@@ -293,27 +300,23 @@ export function createSearchTools(): ToolDefinition[] {
     },
   };
 
-  const cursorWebSearch: ToolDefinition<{ query: string; count?: number }> = {
-    ...webSearch,
-    identity: { namespace: "search", name: "cursor_web_search", authorityClass: "cursor", version: "0.1.0" },
-    description: {
-      summary: "Searches the public web for low-risk Cursor verification.",
-      whenToUse: "Use for passive @reply fact checks when the current Cursor is allowed to verify public information.",
-      whenNotToUse: "Do not use for secrets, private data, proactive monitoring, or high-risk claims.",
-    },
-    authority: { level: "read", scopes: ["web.search.cursor"], requiresUserConfirmation: false },
-  };
+  const cursorWebSearch = cloneSearchTool(webSearch, {
+    name: "cursor_web_search",
+    authorityClass: "cursor",
+    summary: "Searches the public web for low-risk Cursor verification.",
+    whenToUse: "Use for passive @reply fact checks when the current Cursor is allowed to verify public information.",
+    whenNotToUse: "Do not use for secrets, private data, proactive monitoring, or high-risk claims.",
+    scopes: ["web.search.cursor"],
+  });
 
-  const cursorWebRead: ToolDefinition<{ url: string; max_chars?: number }> = {
-    ...webRead,
-    identity: { namespace: "search", name: "cursor_web_read", authorityClass: "cursor", version: "0.1.0" },
-    description: {
-      summary: "Reads a public URL for low-risk Cursor verification.",
-      whenToUse: "Use after cursor_web_search when a passive @reply needs source details.",
-      whenNotToUse: "Do not use for private, authenticated, or secret-bearing URLs.",
-    },
-    authority: { level: "read", scopes: ["web.read.cursor"], requiresUserConfirmation: false },
-  };
+  const cursorWebRead = cloneSearchTool(webRead, {
+    name: "cursor_web_read",
+    authorityClass: "cursor",
+    summary: "Reads a public URL for low-risk Cursor verification.",
+    whenToUse: "Use after cursor_web_search when a passive @reply needs source details.",
+    whenNotToUse: "Do not use for private, authenticated, or secret-bearing URLs.",
+    scopes: ["web.read.cursor"],
+  });
 
   return [webSearch, webRead, cursorWebSearch, cursorWebRead];
 }

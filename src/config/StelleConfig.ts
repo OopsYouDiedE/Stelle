@@ -13,27 +13,24 @@ export interface StelleModelConfig {
   ttsModel: string;
 }
 
-interface RawConfig {
-  guilds?: Record<string, { api_key?: string; base_url?: string; model?: string }>;
+export interface StelleRuntimeConfig {
+  channels?: Record<string, { activated?: boolean }>;
 }
 
-export function loadRawConfig(path = "config.yaml"): RawConfig {
+function firstDefined(...values: Array<string | undefined>): string {
+  return values.find((value) => typeof value === "string" && value.length > 0) ?? "";
+}
+
+export function loadRawConfig(path = "config.yaml"): StelleRuntimeConfig {
   if (!fs.existsSync(path)) return {};
-  return YAML.parse(fs.readFileSync(path, "utf8")) as RawConfig;
+  return YAML.parse(fs.readFileSync(path, "utf8")) as StelleRuntimeConfig;
 }
 
 export function loadStelleModelConfig(path = "config.yaml"): StelleModelConfig {
-  const raw = loadRawConfig(path);
-  const firstGuild = Object.values(raw.guilds ?? {})[0];
-  const apiKey =
-    process.env.GEMINI_API_KEY ||
-    process.env.GOOGLE_API_KEY ||
-    process.env.AISTUDIO_API_KEY ||
-    firstGuild?.api_key ||
-    "";
+  const apiKey = firstDefined(process.env.GEMINI_API_KEY, process.env.GOOGLE_API_KEY, process.env.AISTUDIO_API_KEY);
   return {
     apiKey,
-    baseUrl: normalizeGeminiBaseUrl(process.env.GEMINI_BASE_URL || process.env.AISTUDIO_BASE_URL || firstGuild?.base_url),
+    baseUrl: normalizeGeminiBaseUrl(firstDefined(process.env.GEMINI_BASE_URL, process.env.AISTUDIO_BASE_URL)),
     primaryModel: process.env.STELLE_PRIMARY_MODEL || PRIMARY_GEMINI_MODEL,
     secondaryModel: process.env.STELLE_SECONDARY_MODEL || SECONDARY_GEMINI_MODEL,
     ttsModel: process.env.STELLE_TTS_MODEL || GEMINI_TTS_MODEL,

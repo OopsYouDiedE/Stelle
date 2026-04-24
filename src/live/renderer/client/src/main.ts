@@ -1,39 +1,22 @@
 import * as PIXI from "pixi.js";
 import { Live2DModel, MotionPriority } from "pixi-live2d-display/cubism4";
 import "./style.css";
-
-type LiveRendererCommand =
-  | { type: "state:set"; state: Live2DStageState }
-  | { type: "caption:set"; text: string }
-  | { type: "caption:clear" }
-  | { type: "background:set"; source: string }
-  | { type: "model:load"; modelId: string; model?: Live2DModelConfig }
-  | { type: "motion:trigger"; group: string; priority?: "idle" | "normal" | "force" }
-  | { type: "expression:set"; expression: string }
-  | { type: "mouth:set"; value: number }
-  | { type: "speech:start"; durationMs?: number }
-  | { type: "speech:stop" }
-  | { type: "audio:play"; url: string; text?: string }
-  | {
-      type: "audio:stream";
-      url: string;
-      text?: string;
-      provider: "kokoro";
-      request: Record<string, string | number | boolean>;
-    };
-
-interface Live2DModelConfig {
-  id: string;
-  displayName: string;
-  dir: string;
-  jsonName: string;
-}
-
-interface Live2DStageState {
-  model?: Live2DModelConfig;
-  background?: string;
-  caption?: string;
-}
+import type { Live2DModelConfig, Live2DStageState, LiveRendererAudioStatus, LiveRendererCommand } from "../../../types.js";
+import {
+  AUDIO_OWNER_HEARTBEAT_MS,
+  AUDIO_OWNER_KEY,
+  AUDIO_OWNER_STALE_MS,
+  SILENT_WAV_DATA_URL,
+  STREAM_SAMPLE_RATE,
+  WAV_HEADER_BYTES,
+  clamp01,
+  concatUint8,
+  createAudioContext,
+  pcm16ToFloat32,
+  readAudioOwnership,
+  type StelleAudioState,
+  writeAudioOwnership,
+} from "./audioShared.js";
 
 const canvas = document.getElementById("live2d-canvas") as HTMLCanvasElement;
 const stage = document.getElementById("stage") as HTMLElement;
@@ -42,10 +25,6 @@ const caption = document.getElementById("caption-text") as HTMLElement;
 const status = document.getElementById("status") as HTMLElement;
 const audioHint = document.getElementById("audio-hint") as HTMLElement;
 const voiceElement = document.getElementById("voice") as HTMLAudioElement;
-const SILENT_WAV_DATA_URL =
-  "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=";
-const STREAM_SAMPLE_RATE = 24000;
-const WAV_HEADER_BYTES = 44;
 
 let app: PIXI.Application;
 let model: Live2DModel | undefined;
@@ -61,20 +40,10 @@ let audioAllowed = false;
 let audioContext: AudioContext | undefined;
 let streamPlayhead = 0;
 let activeStreamAbort: AbortController | undefined;
-
-interface StelleAudioState {
-  queued: number;
-  playing: boolean;
-  playedCount: number;
-  activated: boolean;
-  lastUrl?: string;
-  lastText?: string;
-  lastEvent?: string;
-  lastError?: string;
-  errorName?: string;
-  mediaErrorCode?: number;
-  mediaErrorMessage?: string;
-}
+let streamDiscardingBlocked = false;
+const audioInstanceId = `audio-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+let audioOwnershipTimer: number | undefined;
+let audioOwner = false;
 
 declare global {
   interface Window {
@@ -104,6 +73,11 @@ function updateAudioState(patch: Partial<StelleAudioState> = {}): void {
 
 function renderAudioHint(): void {
   if (!audioHint) return;
+  if (!audioOwner) {
+    audioHint.textContent = "Audio: passive";
+    audioHint.className = "audio-hint audio-hint-pending";
+    return;
+  }
   if (
     window.__stelleAudioState?.activated &&
     (window.__stelleAudioState?.playing ||
@@ -122,7 +96,13 @@ function renderAudioHint(): void {
     audioHint.className = "audio-hint audio-hint-ready";
     return;
   }
-  if (window.__stelleAudioState?.lastEvent === "priming_blocked" || window.__stelleAudioState?.lastEvent === "play_rejected" || window.__stelleAudioState?.lastEvent === "dropped_blocked") {
+  if (
+    window.__stelleAudioState?.lastEvent === "priming_blocked" ||
+    window.__stelleAudioState?.lastEvent === "play_rejected" ||
+    window.__stelleAudioState?.lastEvent === "dropped_blocked" ||
+    window.__stelleAudioState?.lastEvent === "stream_discarding_blocked" ||
+    window.__stelleAudioState?.lastEvent === "stream_discarded"
+  ) {
     audioHint.textContent = "Audio: blocked";
     audioHint.className = "audio-hint audio-hint-blocked";
     return;
@@ -149,10 +129,18 @@ async function boot(): Promise<void> {
   voice.preload = "auto";
   voice.autoplay = true;
   audioContext = createAudioContext();
+  startAudioOwnershipLoop();
   updateAudioState({ lastEvent: "priming_requested", activated: false });
-  void primeAudioElement();
+  if (audioOwner) void primeAudioElement();
   window.addEventListener("click", () => {
-    if (!audioAllowed) void primeAudioElement();
+    if (audioOwner && !audioAllowed) void primeAudioElement();
+  });
+  window.addEventListener("beforeunload", releaseAudioOwnership);
+  window.addEventListener("pagehide", releaseAudioOwnership);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) {
+      refreshAudioOwnership();
+    }
   });
   voice.addEventListener("play", () => {
     if (primingAudio) return;
@@ -182,10 +170,14 @@ async function boot(): Promise<void> {
     updateAudioState({ playing: false, queued: audioQueue.length, lastEvent: "error", lastError: "audio element error", ...mediaError });
     void playNextAudio();
   });
-  await loadModel(currentModelId);
+  connectEvents();
+  try {
+    await loadModel(currentModelId);
+  } catch (error) {
+    status.textContent = `Model load failed: ${error instanceof Error ? error.message : String(error)}`;
+  }
   app.ticker.add(updateMouth, undefined, PIXI.UPDATE_PRIORITY.LOW);
   window.addEventListener("resize", fitModel);
-  connectEvents();
 }
 
 async function loadModel(modelId: string, config?: Live2DModelConfig): Promise<void> {
@@ -251,6 +243,18 @@ async function applyCommand(command: LiveRendererCommand): Promise<void> {
     manualMouth = 0;
   }
   if (command.type === "audio:play" || command.type === "audio:stream") {
+    if (!audioOwner) {
+      updateAudioState({
+        queued: 0,
+        playing: false,
+        activated: false,
+        lastEvent: "audio_passive_instance",
+        lastUrl: command.url,
+        lastText: command.text,
+        lastError: "another live renderer tab owns audio playback",
+      });
+      return;
+    }
     if (!audioAllowed) {
       updateAudioState({
         queued: 0,
@@ -343,34 +347,19 @@ async function playStreamCommand(command: Extract<LiveRendererCommand, { type: "
     void playNextAudio();
     return;
   }
-  if (audioContext.state !== "running") {
-    audioAllowed = false;
-    audioPlaying = false;
-    audioQueue.shift();
-    updateAudioState({
-      queued: audioQueue.length,
-      playing: false,
-      activated: false,
-      lastEvent: "dropped_blocked",
-      lastUrl: command.url,
-      lastText: command.text,
-      lastError: "audio context not running; dropped incoming chunk",
-      errorName: "NotAllowedError",
-    });
-    return;
-  }
+  streamDiscardingBlocked = audioContext.state !== "running";
 
   const abort = new AbortController();
   activeStreamAbort = abort;
   updateAudioState({
     queued: audioQueue.length,
-    playing: true,
-    activated: true,
-    lastEvent: "stream_requested",
+    playing: !streamDiscardingBlocked,
+    activated: !streamDiscardingBlocked,
+    lastEvent: streamDiscardingBlocked ? "stream_discarding_blocked" : "stream_requested",
     lastUrl: command.url,
     lastText: command.text,
-    lastError: undefined,
-    errorName: undefined,
+    lastError: streamDiscardingBlocked ? "audio context not running; discarding streamed chunks after wav header" : undefined,
+    errorName: streamDiscardingBlocked ? "NotAllowedError" : undefined,
     mediaErrorCode: undefined,
     mediaErrorMessage: undefined,
   });
@@ -387,10 +376,10 @@ async function playStreamCommand(command: Extract<LiveRendererCommand, { type: "
       queued: audioQueue.length,
       playing: false,
       activated: audioAllowed,
-      lastEvent: "stream_finished",
+      lastEvent: streamDiscardingBlocked ? "stream_discarded" : "stream_finished",
       lastUrl: command.url,
       lastText: command.text,
-      lastError: undefined,
+      lastError: streamDiscardingBlocked ? "stream consumed without playback because autoplay was blocked" : undefined,
     });
     void playNextAudio();
   } catch (error) {
@@ -413,6 +402,7 @@ async function playStreamCommand(command: Extract<LiveRendererCommand, { type: "
     }
     void playNextAudio();
   } finally {
+    streamDiscardingBlocked = false;
     if (activeStreamAbort === abort) activeStreamAbort = undefined;
   }
 }
@@ -446,11 +436,24 @@ async function consumePcmWavStream(
         continue;
       }
       pcmCarry = ready.slice(evenLength);
-      const samples = pcm16ToFloat32(ready.slice(0, evenLength));
       receivedChunks += 1;
+      if (streamDiscardingBlocked) {
+        updateAudioState({
+          queued: audioQueue.length,
+          playing: false,
+          activated: false,
+          lastEvent: "stream_discarding_blocked",
+          lastUrl: command.url,
+          lastText: command.text,
+          lastError: "autoplay blocked; discarding streamed PCM chunks",
+          errorName: "NotAllowedError",
+        });
+        continue;
+      }
+      const samples = pcm16ToFloat32(ready.slice(0, evenLength));
       await schedulePcmChunk(samples, command, receivedChunks);
     }
-    if (pcmCarry.byteLength) {
+    if (pcmCarry.byteLength && !streamDiscardingBlocked) {
       await schedulePcmChunk(pcm16ToFloat32(pcmCarry), command, receivedChunks + 1);
     }
   } finally {
@@ -466,15 +469,15 @@ async function schedulePcmChunk(
   if (!samples.length || !audioContext) return;
   if (audioContext.state !== "running") {
     audioAllowed = false;
-    activeStreamAbort?.abort();
+    streamDiscardingBlocked = true;
     updateAudioState({
       queued: audioQueue.length,
       playing: false,
       activated: false,
-      lastEvent: "dropped_blocked",
+      lastEvent: "stream_discarding_blocked",
       lastUrl: command.url,
       lastText: command.text,
-      lastError: "audio context stopped while receiving chunk",
+      lastError: "audio context stopped while receiving chunk; discarding remaining PCM",
       errorName: "NotAllowedError",
     });
     return;
@@ -507,6 +510,7 @@ async function schedulePcmChunk(
 }
 
 async function primeAudioElement(): Promise<void> {
+  if (!audioOwner) return;
   if (audioContext) {
     try {
       await audioContext.resume();
@@ -581,6 +585,76 @@ function describeMediaError(): Pick<StelleAudioState, "mediaErrorCode" | "mediaE
   };
 }
 
+function startAudioOwnershipLoop(): void {
+  refreshAudioOwnership();
+  audioOwnershipTimer = window.setInterval(refreshAudioOwnership, AUDIO_OWNER_HEARTBEAT_MS);
+}
+
+function refreshAudioOwnership(): void {
+  const current = readAudioOwnership();
+  const now = Date.now();
+  const stale = !current || now - current.timestamp > AUDIO_OWNER_STALE_MS;
+  const shouldOwn =
+    stale ||
+    current.id === audioInstanceId ||
+    (!document.hidden && current.hidden);
+
+  if (shouldOwn) {
+    writeAudioOwnership({ id: audioInstanceId, timestamp: now, hidden: document.hidden });
+    setAudioOwner(true);
+    return;
+  }
+
+  setAudioOwner(false);
+}
+
+function setAudioOwner(next: boolean): void {
+  if (audioOwner === next) return;
+  audioOwner = next;
+  if (!audioOwner) {
+    audioAllowed = false;
+    audioPlaying = false;
+    audioQueue.length = 0;
+    activeStreamAbort?.abort();
+    activeStreamAbort = undefined;
+    try {
+      voice.pause();
+    } catch {
+      // Ignore media pause failures during ownership handoff.
+    }
+    voice.removeAttribute("src");
+    voice.load();
+    updateAudioState({
+      queued: 0,
+      playing: false,
+      activated: false,
+      lastEvent: "audio_passive_instance",
+      lastError: "another live renderer tab owns audio playback",
+    });
+    return;
+  }
+
+  updateAudioState({
+    queued: audioQueue.length,
+    playing: false,
+    activated: false,
+    lastEvent: "audio_owner_acquired",
+    lastError: undefined,
+  });
+  void primeAudioElement();
+}
+
+function releaseAudioOwnership(): void {
+  if (audioOwnershipTimer !== undefined) {
+    window.clearInterval(audioOwnershipTimer);
+    audioOwnershipTimer = undefined;
+  }
+  const current = readAudioOwnership();
+  if (current?.id === audioInstanceId) {
+    localStorage.removeItem(AUDIO_OWNER_KEY);
+  }
+}
+
 function scheduleAudioRetry(): void {
   if (retryTimer !== undefined || !audioQueue.length) return;
   retryTimer = window.setTimeout(() => {
@@ -622,32 +696,3 @@ function modelUrlFor(modelId: string, config?: Live2DModelConfig): string {
   return "/Resources/Hiyori_pro/hiyori_pro_t11.model3.json";
 }
 
-function clamp01(value: number): number {
-  return Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0));
-}
-
-function createAudioContext(): AudioContext | undefined {
-  const AudioContextCtor = window.AudioContext ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-  if (!AudioContextCtor) return undefined;
-  return new AudioContextCtor({ sampleRate: STREAM_SAMPLE_RATE });
-}
-
-function concatUint8(left: Uint8Array<ArrayBufferLike>, right: Uint8Array<ArrayBufferLike>): Uint8Array<ArrayBufferLike> {
-  const merged = new Uint8Array(left.byteLength + right.byteLength);
-  merged.set(left, 0);
-  merged.set(right, left.byteLength);
-  return merged;
-}
-
-function pcm16ToFloat32(bytes: Uint8Array<ArrayBufferLike>): Float32Array<ArrayBufferLike> {
-  const sampleCount = Math.floor(bytes.byteLength / 2);
-  const samples = new Float32Array(sampleCount);
-  for (let index = 0; index < sampleCount; index += 1) {
-    const low = bytes[index * 2]!;
-    const high = bytes[index * 2 + 1]!;
-    let value = (high << 8) | low;
-    if (value & 0x8000) value = value - 0x10000;
-    samples[index] = value / 32768;
-  }
-  return samples;
-}
