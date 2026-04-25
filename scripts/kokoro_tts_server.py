@@ -1,5 +1,20 @@
 """Small OpenAI-compatible Kokoro TTS server for Stelle.
 
+模块：Kokoro TTS 本地服务
+
+运行逻辑：
+1. FastAPI 启动一个 OpenAI-compatible `/v1/audio/speech` HTTP 接口。
+2. 请求进入后按 voice/language 选择 Kokoro pipeline，生成 wav 或流式 wav。
+3. `/v1/audio/speech/play` 可直接把生成音频播放到本机输出设备。
+4. Stelle 的 TypeScript 工具层通过 HTTP 调用该服务，不在 Node 进程里加载 Python 模型。
+
+主要方法：
+- `pipeline_for()`：按语言缓存 Kokoro pipeline。
+- `speech()`：生成 wav/streaming wav 响应。
+- `speech_play()`：生成并播放到本机音频设备。
+- `warmup_pipeline()`：启动或手动预热模型。
+- `main()`：启动 uvicorn。
+
 Windows usage:
   .venv\\Scripts\\python.exe scripts\\kokoro_tts_server.py
 
@@ -59,6 +74,7 @@ preloaded_language: str | None = None
 playback_lock = threading.Lock()
 
 
+# 模块：模型 pipeline 缓存。
 @lru_cache(maxsize=8)
 def pipeline_for(lang_code: str):
     from kokoro import KPipeline
@@ -66,6 +82,7 @@ def pipeline_for(lang_code: str):
     return KPipeline(lang_code=lang_code, repo_id="hexgrad/Kokoro-82M")
 
 
+# 模块：服务状态与预热路由。
 @app.get("/health")
 async def health():
     return {
@@ -116,6 +133,7 @@ async def warmup(request: SpeechRequest | None = None):
     }
 
 
+# 模块：OpenAI-compatible speech 生成路由。
 @app.post("/v1/audio/speech")
 async def speech(request: SpeechRequest):
     text = request.input.strip()
@@ -143,6 +161,7 @@ async def speech(request: SpeechRequest):
         raise HTTPException(status_code=500, detail=str(error)) from error
 
 
+# 模块：直接播放路由。
 @app.post("/v1/audio/speech/play")
 def speech_play(request: SpeechRequest):
     text = request.input.strip()
@@ -168,6 +187,7 @@ def speech_play(request: SpeechRequest):
         raise HTTPException(status_code=500, detail=str(error)) from error
 
 
+# 模块：语言、音频格式与流式 wav helper。
 def normalize_lang_code(language: str | None, voice: str) -> str:
     if language and len(language.strip()) == 1:
         return language.strip().lower()
@@ -236,6 +256,7 @@ def pcm16_bytes(audio: np.ndarray) -> bytes:
     return (clipped * 32767.0).astype("<i2").tobytes()
 
 
+# 模块：本机音频设备枚举与播放。
 def list_audio_devices() -> list[dict[str, Any]]:
     import sounddevice as sd
 
@@ -319,6 +340,7 @@ def play_audio_items(items: Iterator[Any], output_device: str | int | None) -> d
     }
 
 
+# 模块：模型预热与 CLI 入口。
 async def warmup_pipeline(lang_code: str, voice: str, text: str) -> None:
     global preload_error, preloaded_language, preloaded_voice
     try:

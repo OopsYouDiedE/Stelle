@@ -1,0 +1,25 @@
+<!doctype html>
+<!--
+  模块：Live renderer HTML 壳
+
+  运行逻辑：
+  - Vite 从这里加载浏览器入口 `/src/main.ts`。
+  - `#caption` 是 LiveRuntime 通过 SSE 更新的字幕节点。
+  - 页面不直接处理人格逻辑，只负责展示舞台状态。
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Stelle Renderer</title>
+  </head>
+  <body>
+    <main id="app">
+      <section class="stage">
+        <p class="eyebrow">Stelle Live Renderer</p>
+        <h1 id="caption">Renderer ready.</h1>
+      </section>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

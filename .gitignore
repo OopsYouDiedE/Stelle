@@ -215,4 +215,7 @@ artifacts/
 scripts/__pycache__/
 memory/debug/
 memory/debug/*.json
+memory/discord/
+memory/live/
+memory/long_term/
 docs/personality_prompt/*-summary.md

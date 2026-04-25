@@ -1,0 +1,49 @@
+/*
+ * 模块：Live renderer 视觉样式
+ *
+ * 运行逻辑：
+ * - `:root` 定义基础字体、文字色和底色。
+ * - `body` 创建直播舞台背景氛围。
+ * - `.stage` / `.eyebrow` / `h1` 控制字幕卡片和主字幕层级。
+ */
+:root {
+  color: #f8f3e8;
+  background: #1b3632;
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle at 20% 20%, rgba(255, 213, 128, 0.28), transparent 26rem),
+    linear-gradient(135deg, #16221f, #23554b 55%, #713f2a);
+}
+
+.stage {
+  width: min(72rem, calc(100vw - 4rem));
+  padding: 4rem;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 2rem;
+  background: rgba(10, 23, 21, 0.42);
+  box-shadow: 0 2rem 6rem rgba(0, 0, 0, 0.32);
+}
+
+.eyebrow {
+  margin: 0 0 1rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #f2c46d;
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(2.2rem, 6vw, 7rem);
+  line-height: 0.98;
+}

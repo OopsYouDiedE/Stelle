@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && vite build --config src/live/renderer/client/vite.config.ts && tsc",
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && vite build --config assets/renderer/client/vite.config.ts && tsc",
     "start": "node dist/start.js runtime",
     "start:discord": "node dist/start.js discord",
     "start:live": "node dist/start.js live",
@@ -22,8 +22,6 @@
     "discord.js": "^14.16.3",
     "dotenv": "^16.4.7",
     "mime": "^4.1.0",
-    "pixi-live2d-display": "^0.4.0",
-    "pixi.js": "^6.5.10",
     "vite": "^8.0.9",
     "yaml": "^2.7.0"
   },

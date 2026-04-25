@@ -1,343 +1,199 @@
+/**
+ * 模块：Runtime 启动入口
+ *
+ * 运行逻辑：
+ * 1. 从 `config.yaml` 和环境变量加载只读配置。
+ * 2. 创建 Memory、LLM、ToolRegistry、DiscordRuntime、LiveRuntime、Renderer 和 Cursor。
+ * 3. 根据启动模式连接 Discord、启动 Live renderer，并在 runtime 模式启动 StelleCore。
+ * 4. Discord 消息进入后交给 DiscordCursor；跨 Cursor 请求通过本文件的 dispatch 路由。
+ *
+ * 主要方法：
+ * - `start()`：CLI/API 统一入口，按模式分发。
+ * - `startRuntime()`：完整运行时装配。
+ * - `startLiveRendererOnly()`：只启动本地直播 renderer，便于前端 smoke test。
+ */
 import "dotenv/config";
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import fs from "node:fs";
-import { LiveRendererServer, startDiscordAttachedCoreMind } from "./index.js";
-import { loadStelleModelConfig } from "./StelleConfig.js";
-import type { LiveRendererDebugController } from "./live/renderer/LiveRendererServer.js";
-import type { DiscordAttachedCoreMind } from "./stelle/DiscordAttachedCoreMind.js";
+import { loadRuntimeConfig } from "./utils/config_loader.js";
+import { LlmClient } from "./utils/llm.js";
+import { LiveRendererServer } from "./utils/renderer.js";
+import { LiveRuntime, LocalLiveRendererBridge, ObsWebSocketController } from "./utils/live.js";
+import { DiscordRuntime } from "./utils/discord.js";
+import { MemoryStore } from "./utils/memory.js";
+import { StelleCore } from "./utils/stelle_core.js";
+import { createDefaultToolRegistry } from "./tool.js";
+import { RuntimeState } from "./runtime_state.js";
+import { InnerCursor } from "./cursor/inner_cursor.js";
+import { DiscordCursor } from "./cursor/discord_cursor.js";
+import { LiveCursor } from "./cursor/live_cursor.js";
+import type { RuntimeDispatchEvent, RuntimeDispatchResult, CursorContext, StelleCursor } from "./cursor/types.js";
 
-interface KokoroStartupOptions {
-  enabled: boolean;
-  autoStart: boolean;
-  baseUrl: string;
-  startTimeoutMs: number;
-  warmupTimeoutMs: number;
-}
+export type StartMode = "runtime" | "discord" | "live";
 
-interface KokoroStartupResult {
-  process?: ChildProcessWithoutNullStreams;
-  reachable: boolean;
-  warmed: boolean;
-}
-
-class RuntimeDebugController implements LiveRendererDebugController {
-  constructor(private readonly app: DiscordAttachedCoreMind) {}
-
-  getSnapshot(): Promise<Record<string, unknown>> {
-    return this.app.createDebugSnapshot();
-  }
-
-  switchCursor(cursorId: string, reason: string): Promise<void> {
-    return this.app.switchCursorForDebug(cursorId, reason);
-  }
-
-  observeCursor(cursorId?: string): Promise<unknown> {
-    return this.app.observeCursorForDebug(cursorId);
-  }
-
-  useTool(
-    name: string,
-    input: Record<string, unknown>,
-    options?: { cursorId?: string; returnToInner?: boolean }
-  ): Promise<unknown> {
-    return this.app.useToolAsStelle(name, input, options);
-  }
-
-  sendDiscordMessage(input: {
-    channel_id: string;
-    content: string;
-    mention_user_ids?: string[];
-    reply_to_message_id?: string;
-  }): Promise<unknown> {
-    return this.app.sendStelleDiscordMessage(input);
-  }
-
-  getDiscordHistory(channelId?: string): unknown {
-    return this.app.getDiscordLocalHistory(channelId);
-  }
+export interface StelleRuntime {
+  cursors: StelleCursor[];
+  state: RuntimeState;
+  discord?: DiscordRuntime;
+  renderer?: LiveRendererServer;
+  live?: LiveRuntime;
+  core?: StelleCore;
+  stop(): Promise<void>;
 }
 
 const mode = parseStartMode(process.argv[2] ?? process.env.STELLE_START_MODE);
 
-switch (mode) {
-  case "discord":
-    await startDiscordCore();
-    break;
-  case "live":
-    await startLiveRenderer();
-    break;
-  case "runtime":
-    await startRuntime();
-    break;
+if (isDirectStart()) {
+  await start(mode);
 }
 
-function parseStartMode(input?: string): "discord" | "live" | "runtime" {
-  const normalized = String(input ?? "runtime").trim().toLowerCase();
-  if (normalized === "discord" || normalized === "live" || normalized === "runtime") {
-    return normalized;
+// 模块：对外启动入口。
+export async function start(mode: StartMode = "runtime"): Promise<StelleRuntime | LiveRendererServer> {
+  if (mode === "live") return startLiveRendererOnly();
+  return startRuntime(mode);
+}
+
+// 模块：完整 runtime 装配和事件路由。
+export async function startRuntime(mode: "runtime" | "discord" = "runtime"): Promise<StelleRuntime> {
+  const config = loadRuntimeConfig();
+  if (mode === "discord" && !config.discord.token) {
+    throw new Error("Missing DISCORD_TOKEN for discord start mode.");
   }
 
+  const state = new RuntimeState();
+  const memory = new MemoryStore({
+    rootDir: String(config.rawYaml.memory && typeof config.rawYaml.memory === "object" && "rootDir" in config.rawYaml.memory ? (config.rawYaml.memory as Record<string, unknown>).rootDir ?? "memory" : "memory"),
+    recentLimit: 50,
+  });
+  await memory.start();
+
+  const llm = new LlmClient(config.models);
+  const renderer =
+    mode === "runtime"
+      ? new LiveRendererServer({ host: config.live.rendererHost, port: config.live.rendererPort })
+      : undefined;
+  if (renderer) {
+    const url = await renderer.start();
+    process.env.LIVE_RENDERER_URL = url;
+    state.record("renderer_started", `Live renderer ready: ${url}/live`);
+    console.log(`[Stelle] Live renderer ready: ${url}/live`);
+  }
+
+  const live = new LiveRuntime(new ObsWebSocketController({ enabled: config.live.obsControlEnabled }), renderer ? new LocalLiveRendererBridge(renderer) : undefined);
+  const discord = new DiscordRuntime();
+  const tools = createDefaultToolRegistry({ discord, live, memory, cwd: process.cwd() });
+  const core =
+    mode === "runtime"
+      ? new StelleCore({
+          llm,
+          memory,
+          intervalHours: config.core.reflectionIntervalHours,
+        })
+      : undefined;
+
+  let liveCursor!: LiveCursor;
+  const dispatch = async (event: RuntimeDispatchEvent): Promise<RuntimeDispatchResult> => {
+    state.record("dispatch", event.type, { event });
+    if (event.type === "live_request") return liveCursor.receiveDispatch(event);
+    if (event.type === "core_tick" && core) {
+      const result = await core.trigger(event.reason);
+      state.updateStelleCore(core.snapshot());
+      return { accepted: result.ok, reason: result.reason, eventId: result.researchLogId ?? `core-${Date.now()}` };
+    }
+    return { accepted: false, reason: `No handler for ${event.type}.`, eventId: `dispatch-${Date.now()}` };
+  };
+
+  const context: CursorContext = { llm, tools, config, memory, dispatch, now: () => Date.now() };
+  const innerCursor = new InnerCursor();
+  const discordCursor = new DiscordCursor(context);
+  liveCursor = new LiveCursor(context);
+  const cursors: StelleCursor[] = [innerCursor, discordCursor, liveCursor];
+
+  renderer?.setDebugController({
+    async getSnapshot() {
+      state.updateCursors(cursors.map((cursor) => cursor.snapshot()));
+      if (core) state.updateStelleCore(core.snapshot());
+      return {
+        runtime: state.snapshot(),
+        tools: tools.list().map((tool) => ({ name: tool.name, authority: tool.authority, title: tool.title })),
+        audit: tools.audit.slice(-50),
+        memory: await memory.snapshot(),
+      };
+    },
+    useTool(name, input) {
+      return tools.execute(name, input, {
+        caller: "debug",
+        cwd: process.cwd(),
+        allowedAuthority: ["readonly", "safe_write", "network_read", "external_write", "system"],
+      });
+    },
+    sendLiveRequest(input) {
+      return dispatch({ type: "live_request", source: "debug", payload: input });
+    },
+  });
+
+  discord.onMessage((message) => {
+    void discordCursor.receiveMessage(message).then(
+      (result) => {
+        state.record("discord_message", result.reason, { result });
+        state.updateCursors(cursors.map((cursor) => cursor.snapshot()));
+      },
+      (error) => {
+        state.recordError(error);
+        state.updateCursors(cursors.map((cursor) => cursor.snapshot()));
+      }
+    );
+  });
+
+  if (!config.discord.token) {
+    console.warn("[Stelle] DISCORD_TOKEN is not set; Discord runtime will not connect.");
+  } else {
+    await discord.login(config.discord.token);
+    await discord.setBotPresence({ window: discordCursor.id, detail: "runtime" }).catch(() => undefined);
+    const status = await discord.getStatus();
+    state.record("discord_connected", `Discord connected=${status.connected} botUserId=${status.botUserId ?? "unknown"}`);
+    console.log(`[Stelle] Discord connected=${status.connected} botUserId=${status.botUserId ?? "unknown"}`);
+  }
+
+  core?.start();
+  if (core) state.updateStelleCore(core.snapshot());
+  state.updateCursors(cursors.map((cursor) => cursor.snapshot()));
+  state.record("runtime_started", `Runtime started in ${mode} mode.`);
+  console.log(`[Stelle] Runtime started in ${mode} mode.`);
+
+  const runtime: StelleRuntime = {
+    cursors,
+    state,
+    discord,
+    renderer,
+    live,
+    core,
+    async stop() {
+      await Promise.allSettled([discord.destroy(), renderer?.stop(), core?.stop()]);
+      state.record("runtime_stopped", "Runtime stopped.");
+    },
+  };
+
+  process.on("SIGINT", () => void runtime.stop().finally(() => process.exit(0)));
+  process.on("SIGTERM", () => void runtime.stop().finally(() => process.exit(0)));
+  return runtime;
+}
+
+// 模块：独立 renderer 启动，避免连接 Discord。
+async function startLiveRendererOnly(): Promise<LiveRendererServer> {
+  const config = loadRuntimeConfig();
+  const server = new LiveRendererServer({ host: config.live.rendererHost, port: config.live.rendererPort });
+  const url = await server.start();
+  console.log(`[Stelle] Live renderer ready: ${url}/live`);
+  return server;
+}
+
+// 模块：CLI 参数解析。
+function parseStartMode(input?: string): StartMode {
+  const value = String(input ?? "runtime").trim().toLowerCase();
+  if (value === "runtime" || value === "discord" || value === "live") return value;
   throw new Error(`Unsupported start mode: ${input ?? ""}`);
 }
 
-async function startDiscordCore(): Promise<void> {
-  const defaultChannelId = process.env.DISCORD_TEST_CHANNEL_ID;
-  const app = await startDiscordAttachedCoreMind({ defaultChannelId });
-
-  const status = await app.discordRuntime.getStatus();
-  console.log(
-    `[Stelle] Core Mind defaulted to Inner Cursor; Discord Cursor online. connected=${status.connected} botUserId=${status.botUserId ?? "unknown"} defaultChannel=${defaultChannelId ?? "unset"}`
-  );
-
-  process.on("SIGINT", () => {
-    void app.stop().finally(() => process.exit(0));
-  });
-
-  process.on("SIGTERM", () => {
-    void app.stop().finally(() => process.exit(0));
-  });
-}
-
-async function startLiveRenderer(): Promise<void> {
-  const port = process.env.LIVE_RENDERER_PORT ? Number(process.env.LIVE_RENDERER_PORT) : 8787;
-  const host = process.env.LIVE_RENDERER_HOST ?? "127.0.0.1";
-  const server = new LiveRendererServer({ host, port });
-  const url = await server.start();
-
-  console.log(`[Stelle] Live renderer ready: ${url}/live`);
-  console.log("[Stelle] POST renderer commands to /command.");
-
-  process.on("SIGINT", () => {
-    void server.stop().finally(() => process.exit(0));
-  });
-}
-
-async function startRuntime(): Promise<void> {
-  const defaultChannelId = process.env.DISCORD_TEST_CHANNEL_ID;
-  const livePort = process.env.LIVE_RENDERER_PORT ? Number(process.env.LIVE_RENDERER_PORT) : 8787;
-  const liveHost = process.env.LIVE_RENDERER_HOST ?? "127.0.0.1";
-  const liveTtsEnabled = process.env.LIVE_TTS_ENABLED !== "false";
-  const kokoroAutoStart = process.env.KOKORO_AUTO_START !== "false";
-  const liveTtsOutput = process.env.LIVE_TTS_OUTPUT ?? process.env.LIVE_AUDIO_OUTPUT ?? "browser";
-  const kokoroBaseUrl = process.env.KOKORO_TTS_BASE_URL ?? "http://127.0.0.1:8880";
-  const kokoroStartTimeoutMs = Number(process.env.KOKORO_START_TIMEOUT_MS ?? 45000);
-  const kokoroWarmupTimeoutMs = Number(
-    process.env.KOKORO_WARMUP_TIMEOUT_MS ?? process.env.KOKORO_START_TIMEOUT_MS ?? 45000
-  );
-
-  let stopping = false;
-  let kokoroProcess: ChildProcessWithoutNullStreams | undefined;
-
-  const liveServer = new LiveRendererServer({ host: liveHost, port: livePort });
-  const liveUrl = await liveServer.start();
-  process.env.LIVE_RENDERER_URL = liveUrl;
-
-  const modelConfig = loadStelleModelConfig();
-  logBootBanner({
-    baseUrl: modelConfig.baseUrl,
-    liveRuntimeUrl: liveUrl,
-    liveTtsEnabled,
-    liveTtsOutput,
-    kokoroAutoStart,
-    primaryModel: modelConfig.primaryModel,
-    secondaryModel: modelConfig.secondaryModel,
-  });
-
-  kokoroProcess = await bootKokoroIfNeeded({
-    baseUrl: kokoroBaseUrl,
-    enabled: liveTtsEnabled,
-    autoStart: kokoroAutoStart,
-    startTimeoutMs: kokoroStartTimeoutMs,
-    warmupTimeoutMs: kokoroWarmupTimeoutMs,
-  });
-
-  const app = await startDiscordAttachedCoreMind({ defaultChannelId });
-  liveServer.setDebugController(new RuntimeDebugController(app));
-
-  const status = await app.discordRuntime.getStatus();
-  console.log(
-    `[Stelle] Runtime online. Core Mind defaulted to Inner Cursor; Discord connected=${status.connected} botUserId=${status.botUserId ?? "unknown"} defaultChannel=${defaultChannelId ?? "unset"}`
-  );
-  console.log(`[Stelle] Debug console ready: ${liveServer.debugUrl}`);
-  openExternalUrl(liveServer.debugUrl);
-
-  process.on("SIGINT", () => void stop("SIGINT"));
-  process.on("SIGTERM", () => void stop("SIGTERM"));
-
-  async function stop(signal: string): Promise<void> {
-    if (stopping) return;
-    stopping = true;
-    console.log(`[Stelle] Stopping runtime after ${signal}...`);
-
-    if (kokoroProcess && !kokoroProcess.killed) {
-      kokoroProcess.kill();
-    }
-
-    await Promise.allSettled([app.stop(), liveServer.stop()]);
-    process.exit(0);
-  }
-}
-
-function logBootBanner(options: {
-  liveRuntimeUrl: string;
-  primaryModel: string;
-  secondaryModel: string;
-  baseUrl?: string;
-  liveTtsEnabled: boolean;
-  liveTtsOutput: string;
-  kokoroAutoStart: boolean;
-}): void {
-  console.log(`[Stelle] Live renderer ready: ${options.liveRuntimeUrl}/live`);
-  console.log("[Stelle] OBS browser source should point at the live URL above.");
-  console.log(
-    `[Stelle] Text models: primary=${options.primaryModel} secondary=${options.secondaryModel} base=${options.baseUrl ?? "default"}`
-  );
-  console.log(
-    `[Stelle] Live TTS enabled=${options.liveTtsEnabled}; output=${options.liveTtsOutput}; Kokoro auto-start=${options.kokoroAutoStart}; audio device=${process.env.KOKORO_AUDIO_DEVICE ?? "system default"}.`
-  );
-}
-
-async function bootKokoroIfNeeded(options: KokoroStartupOptions): Promise<ChildProcessWithoutNullStreams | undefined> {
-  if (!options.enabled) {
-    console.log("[Stelle] Kokoro TTS startup skipped because LIVE_TTS_ENABLED=false.");
-    return undefined;
-  }
-
-  if (!options.autoStart) {
-    console.log("[Stelle] Kokoro TTS startup skipped because KOKORO_AUTO_START=false.");
-    return undefined;
-  }
-
-  const startup = await ensureKokoroReady(options);
-
-  if (startup.warmed) {
-    console.log(`[Stelle] Kokoro TTS ready and warmed: ${options.baseUrl}`);
-  } else {
-    console.log(`[Stelle] Kokoro TTS did not become ready in time: ${options.baseUrl}`);
-  }
-
-  return startup.process;
-}
-
-async function ensureKokoroReady(options: KokoroStartupOptions): Promise<KokoroStartupResult> {
-  if (!options.enabled || !options.autoStart) {
-    return { reachable: false, warmed: false };
-  }
-
-  const healthUrl = `${options.baseUrl.replace(/\/+$/, "")}/health`;
-  let process: ChildProcessWithoutNullStreams | undefined;
-  let reachable = await canReach(healthUrl);
-
-  if (!reachable) {
-    console.log(`[Stelle] Kokoro TTS not reachable at ${healthUrl}; starting local Kokoro server...`);
-    try {
-      process = startKokoroProcess((code, signal) => {
-        console.warn(`[Stelle] Kokoro process exited unexpectedly. code=${code ?? "null"} signal=${signal ?? "null"}`);
-      });
-    } catch (error) {
-      throw new Error(`Failed to start Kokoro automatically: ${error instanceof Error ? error.message : String(error)}`);
-    }
-    reachable = await waitUntilReachable(healthUrl, options.startTimeoutMs);
-  }
-
-  const warmed = reachable && (await warmupKokoro(options.baseUrl, options.warmupTimeoutMs));
-  return { process, reachable, warmed };
-}
-
-function startKokoroProcess(
-  onUnexpectedExit: (code: number | null, signal: NodeJS.Signals | null) => void
-): ChildProcessWithoutNullStreams {
-  const python = process.env.KOKORO_PYTHON ?? ".venv\\Scripts\\python.exe";
-  const script = process.env.KOKORO_SERVER_SCRIPT ?? "scripts\\kokoro_tts_server.py";
-  if (!fs.existsSync(python)) {
-    throw new Error(`Kokoro Python runtime not found: ${python}`);
-  }
-  if (!fs.existsSync(script)) {
-    throw new Error(`Kokoro server script not found: ${script}`);
-  }
-
-  const child = spawn(python, [script], {
-    cwd: process.cwd(),
-    env: process.env,
-    windowsHide: true,
-  });
-
-  child.stdout.on("data", (chunk) => process.stdout.write(`[Kokoro] ${chunk}`));
-  child.stderr.on("data", (chunk) => process.stderr.write(`[Kokoro] ${chunk}`));
-  child.on("exit", (code, signal) => onUnexpectedExit(code, signal));
-  return child;
-}
-
-function openExternalUrl(url: string): void {
-  if (process.env.STELLE_OPEN_DEBUG_WINDOW === "false") return;
-
-  if (process.platform === "win32") {
-    spawn("cmd", ["/c", "start", "", url], {
-      detached: true,
-      stdio: "ignore",
-      windowsHide: true,
-    }).unref();
-    return;
-  }
-
-  if (process.platform === "darwin") {
-    spawn("open", [url], { detached: true, stdio: "ignore" }).unref();
-    return;
-  }
-
-  spawn("xdg-open", [url], { detached: true, stdio: "ignore" }).unref();
-}
-
-async function canReach(url: string): Promise<boolean> {
-  try {
-    const response = await fetch(url, { method: "GET" });
-    return response.ok;
-  } catch {
-    return false;
-  }
-}
-
-async function waitUntilReachable(url: string, timeoutMs: number): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (await canReach(url)) return true;
-    await new Promise((resolve) => setTimeout(resolve, 500));
-  }
-  return false;
-}
-
-async function warmupKokoro(baseUrl: string, timeoutMs: number): Promise<boolean> {
-  if (process.env.KOKORO_WARMUP_ENABLED === "false") return true;
-
-  const deadline = Date.now() + timeoutMs;
-  const url = `${baseUrl.replace(/\/+$/, "")}${process.env.KOKORO_TTS_ENDPOINT_PATH ?? "/v1/audio/speech"}`;
-  const body = {
-    model: process.env.KOKORO_TTS_MODEL ?? "kokoro",
-    input: process.env.KOKORO_WARMUP_TEXT ?? "你好，中文语音预热完成。",
-    voice: process.env.KOKORO_TTS_VOICE ?? "zf_xiaobei",
-    response_format: process.env.KOKORO_TTS_RESPONSE_FORMAT ?? "wav",
-    language: process.env.KOKORO_TTS_LANGUAGE ?? "z",
-  };
-
-  while (Date.now() < deadline) {
-    try {
-      const response = await fetch(url, {
-        method: "POST",
-        headers: { "content-type": "application/json", accept: "audio/wav" },
-        body: JSON.stringify(body),
-      });
-      if (response.ok) {
-        const bytes = (await response.arrayBuffer()).byteLength;
-        console.log(`[Stelle] Kokoro TTS warmup complete: ${bytes} bytes.`);
-        return true;
-      }
-      const detail = await response.text().catch(() => "");
-      console.warn(`[Stelle] Kokoro TTS warmup failed with ${response.status}: ${detail || response.statusText}`);
-    } catch (error) {
-      console.warn(`[Stelle] Kokoro TTS warmup waiting: ${error instanceof Error ? error.message : String(error)}`);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-  }
-
-  return false;
+function isDirectStart(): boolean {
+  const entry = process.argv[1]?.replace(/\\/g, "/");
+  return Boolean(entry === "src/start.ts" || entry === "dist/start.js" || entry?.endsWith("/start.ts") || entry?.endsWith("/start.js"));
 }
