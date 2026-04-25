@@ -467,3 +467,115 @@ metadata: object?
 让 `Cursor` 提供真实现场；
 让 `Memory` 沉淀真实经历；
 让 `Content` 从真实经历里长出可讲内容。
+
+## 13. Discord 下一步意图：会话分段、抗污染与分层提炼
+
+在 Discord 真实群聊现场里，下一步重点不是让 bot 更努力复读，而是先让它具备更稳定的注意力管理能力。
+
+核心目标：
+
+- 让 Discord session 不再是同一频道里无限滚动的一坨历史，而是由 `segment` 构成的阶段会话
+- 让短期上下文在“话题切换”或“长时间无人”时自然收口，默认新开一个干净的 active segment
+- 让垃圾内容、超长内容、重复内容、注入式内容不再直接进入 AI 的核心思维上下文
+- 让提炼是分层发生的：每条消息只做增量更新，到合适时机再做 `review / distill`
+
+### 13.1 Session 必须改成“分段会话”
+
+一个 Discord channel 在运行时应该有一个 `active segment`，而不是只有一个永远累加的 history。
+
+建议新增的状态概念：
+
+- `segmentId`
+- `segmentStartedAt`
+- `lastMeaningfulAt`
+- `topicSummary`
+- `topicKeywords`
+- `topicDriftCount`
+- `quarantinedCount`
+
+应该触发新开 segment 的情况：
+
+- 同一频道长时间没有人说话
+- 新消息与当前主题连续偏离，表明话题已经切换
+- bot 已完成一轮相对完整的问答，后续聊天进入新话题
+- 管理者或明确指令要求重开上下文
+
+这里“清空上下文”不等于删除记忆，只是结束当前 active segment，将旧段落成简短摘要，后续默认只读新段。
+
+### 13.2 让消息先过滤，再进上下文
+
+下一步 Discord ingest 不应直接把所有消息都喂给 session history，而是要先给每条消息做准入分类：
+
+- `accepted`：正常且有信息量的消息，允许进入 `recentHistory` 与主题 review
+- `demoted`：低信息量或辅助性内容，可以留痕，但默认不进核心 prompt
+- `quarantined`：刷屏、重复、超长、注入式或明显污染内容，允许保留底层日志，但不得进入 AI 上下文
+
+优先要防的污染类型：
+
+- 超长复制粘贴墙
+- 重复字符、重复句子、重复链接的刷屏
+- 纯表情、纯符号、纯噪音洪泛
+- 明显的 prompt injection 风格内容
+- 高频低信息量灌水，试图拖偏上下文
+
+允许留痕，不允许污染思维。
+
+### 13.3 提炼不应逐条发生，而应分成 review / distill 两级
+
+下一步提炼意图不是“每条消息都总结一次”，而是：
+
+- `parseMessage`：只做增量更新，不做重总结
+- `review`：在累计若干条消息或达到时间间隔后，做一次轻量复盘
+- `distill`：在若干次 review 之后，或上下文接近预算上限时，做一次阶段压缩
+
+review 要优先产出：
+
+- 当前话题
+- 当前是否存在待回答问题
+- 当前 bot 是否有介入必要
+- 当前话题是否正在漂移
+
+distill 要优先产出：
+
+- 当前 segment 的阶段摘要
+- 未完成的问题或待跟进点
+- 当前 segment 的关键参与者与关系动作
+- 是否需要把本段内容上提到长期记忆
+
+### 13.4 回复时只读当前 segment，默认不带整条频道滚动历史
+
+下一步 Discord 回复与提炼标准应是：
+
+- reply prompt 默认只看当前 active segment
+- 底部附上“最近参与者昵称 => user id”对照表
+- 可选附上“上一段的一行摘要”，但不默认展开全量旧历史
+- 长期 recall 排在 session summary 之后，作为身份、关系、经历补充
+
+回复时的上下文顺序应固定为：
+
+`active segment -> segment summary -> participant directory -> long-term recall`
+
+而不是：
+
+`整条频道历史 -> 最近几句 -> 大量噪音 -> 再想办法救 prompt`
+
+### 13.5 长期记忆同样要防污染
+
+`MemoryTriage` 下一步需要与 session ingest filter 对齐：
+
+- `accepted`：按重要性决定是否写入 `experience / summary`
+- `demoted`：只更新最基础的人、关系、频道统计，默认不写高价值记忆
+- `quarantined`：默认不写 `experience`，不进入当日摘要；必要时仅留一条系统事件，说明频道遭遇刷屏或噪音污染
+
+这样才能避免垃圾内容既污染短期上下文，又反向灌进长期记忆。
+
+### 13.6 这个阶段的实装意图
+
+Discord v2 的评估标准不应是“bot 说得更多”，而应是：
+
+- 更能分清哪些消息值得看
+- 更能分清什么时候话题已经换了
+- 更能在短期上下文中做净化，不被垃圾内容拖着走
+- 更能在回复时带上“当前段的理解”，而不是“无限滚动的噪音历史”
+
+关键不是多加几个 tool，也不是多堆几个 prompt，而是让 `Discord Cursor` 先拥有上下文边界、注意力分配与抗污染能力，再让 `Stelle` 在这个基础上做更稳的回应和提炼。

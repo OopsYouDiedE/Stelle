@@ -3,19 +3,9 @@ import { EventEmitter } from "node:events";
 import type { AddressInfo } from "node:net";
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { Live2DStageState, LiveRendererAudioStatus, LiveRendererBridge, LiveRendererCommand } from "../types.js";
+import type { Live2DStageState, LiveRendererAudioStatus, LiveRendererBridge, LiveRendererCommand } from "../LiveRuntime.js";
 import { renderDebugHtml } from "./renderDebugHtml.js";
 import { renderLiveHtml } from "./renderLiveHtml.js";
-import {
-  asRecord,
-  clampMockInterval,
-  cloneState,
-  contentType,
-  parseJson,
-  readBody,
-  normalizeMockSpeechChunks,
-  type MockSpeechRequest,
-} from "./serverUtils.js";
 
 export interface LiveRendererServerOptions {
   host?: string;
@@ -44,6 +34,15 @@ export interface LiveRendererDebugController {
 
 const DEFAULT_BACKGROUND =
   "radial-gradient(circle at 50% 35%, rgba(255,255,255,.26), transparent 0 18%, transparent 18%), linear-gradient(135deg, #243b53 0%, #1f6f78 48%, #284b63 100%)";
+
+export interface MockSpeechRequest {
+  chunks?: string[];
+  text?: string;
+  intervalMs?: number;
+  voice_name?: string;
+  speed?: number;
+  language?: string;
+}
 
 export class LiveRendererServer implements LiveRendererBridge {
   private readonly events = new EventEmitter();
@@ -463,4 +462,96 @@ export class LiveRendererServer implements LiveRendererBridge {
       chunks,
     };
   }
+}
+
+export class HttpLiveRendererBridge implements LiveRendererBridge {
+  readonly url: string;
+  lastError?: string;
+
+  constructor(url = process.env.LIVE_RENDERER_URL ?? "") {
+    this.url = url.replace(/\/+$/, "");
+  }
+
+  get enabled(): boolean {
+    return Boolean(this.url);
+  }
+
+  async publish(command: LiveRendererCommand): Promise<void> {
+    if (!this.enabled) return;
+    try {
+      const response = await fetch(`${this.url}/command`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(command),
+      });
+      if (!response.ok) throw new Error(`Renderer command failed: ${response.status} ${response.statusText}`);
+      this.lastError = undefined;
+    } catch (error) {
+      this.lastError = error instanceof Error ? error.message : String(error);
+    }
+  }
+}
+
+const DEFAULT_MOCK_SPEECH_CHUNKS = [
+  "晚上好，直播调试链路现在开始预热。",
+  "这里是一段虚拟内容流，我们会把文本逐块送进 Kokoro。",
+  "如果你现在能听到连续语音 chunk，说明浏览器自动播放和流式播放都已经打通。",
+];
+
+function contentType(filePath: string): string {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === ".js") return "text/javascript; charset=utf-8";
+  if (ext === ".css") return "text/css; charset=utf-8";
+  if (ext === ".json") return "application/json; charset=utf-8";
+  if (ext === ".png") return "image/png";
+  if (ext === ".wav") return "audio/wav";
+  if (ext === ".mp3") return "audio/mpeg";
+  if (ext === ".ogg") return "audio/ogg";
+  if (ext === ".moc3") return "application/octet-stream";
+  if (ext === ".wasm") return "application/wasm";
+  return "application/octet-stream";
+}
+
+function readBody(request: IncomingMessage): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    request.on("data", (chunk: Buffer) => chunks.push(chunk));
+    request.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    request.on("error", reject);
+  });
+}
+
+function cloneState(state: Live2DStageState): Live2DStageState {
+  return JSON.parse(JSON.stringify(state)) as Live2DStageState;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function parseJson(text: string): unknown {
+  if (!text.trim()) return {};
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw new Error(`Invalid JSON body: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+function normalizeMockSpeechChunks(input: MockSpeechRequest): string[] {
+  if (Array.isArray(input.chunks)) {
+    return input.chunks.map((chunk) => String(chunk ?? "").trim()).filter(Boolean);
+  }
+  if (typeof input.text === "string" && input.text.trim()) {
+    return input.text
+      .split(/\r?\n+/)
+      .map((chunk) => chunk.trim())
+      .filter(Boolean);
+  }
+  return [...DEFAULT_MOCK_SPEECH_CHUNKS];
+}
+
+function clampMockInterval(value: number | undefined): number {
+  if (!Number.isFinite(value)) return 1400;
+  return Math.max(150, Math.min(10000, Math.round(value ?? 1400)));
 }

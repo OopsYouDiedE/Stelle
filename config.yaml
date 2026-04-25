@@ -1,6 +1,22 @@
 channels:
-  '1235845356697288747':
+  "1235845356697288747":
     activated: true
-  '1494546366808985710':
+  "1494546366808985710":
     activated: true
-
+guilds:
+  "1235845356194103377":
+    nicknames:
+      "481750064495198208":
+        alias: 星際道士
+        sourceName: 星際道士
+        updatedAt: 2026-04-25T08:47:05.549Z
+      "1240584393458712607":
+        alias: 左爱猫
+        sourceName: 左爱猫
+        updatedAt: 2026-04-25T08:47:14.880Z
+  "1371274662213980201":
+    nicknames:
+      "1240584393458712607":
+        alias: 7 March
+        sourceName: 7 March
+        updatedAt: 2026-04-25T09:06:51.656Z

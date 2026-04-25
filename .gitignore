@@ -209,6 +209,10 @@ __marimo__/
 # Node / TypeScript
 node_modules/
 dist/
+artifacts/
 .codex-chrome-live/
 .codex-logs/
 scripts/__pycache__/
+memory/debug/
+memory/debug/*.json
+docs/personality_prompt/*-summary.md

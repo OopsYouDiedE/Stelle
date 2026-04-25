@@ -1,4 +1,4 @@
-import type { Live2DStageState } from "../types.js";
+import type { Live2DStageState } from "../LiveRuntime.js";
 
 export function renderLiveHtml(initialState: Live2DStageState, defaultBackground: string): string {
   const stateJson = JSON.stringify(initialState).replace(/</g, "\\u003c");

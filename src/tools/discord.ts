@@ -1,8 +1,8 @@
 import type { ToolDefinition, ToolInputSchema, ToolResult } from "../types.js";
-import { CursorRegistry } from "../core/CursorRegistry.js";
-import { DiscordCursor } from "../cursors/discord/DiscordCursor.js";
-import { sanitizeExternalText } from "../text/sanitize.js";
-import { fail, sideEffects } from "./shared.js";
+import { CursorRegistry } from "../CoreMind.js";
+import { DiscordCursor } from "../cursors/DiscordCursor.js";
+import { sanitizeExternalText } from "../TextStream.js";
+import { fail, sideEffects } from "./index.js";
 
 type ReadInput = Record<string, unknown>;
 type SendInput = { channel_id: string; content: string; mention_user_ids?: string[]; reply_to_message_id?: string };

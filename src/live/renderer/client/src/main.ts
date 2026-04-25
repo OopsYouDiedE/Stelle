@@ -1,7 +1,7 @@
 import "./style.css";
 import type { Application } from "pixi.js";
 import type { Live2DModel } from "pixi-live2d-display/cubism4";
-import type { Live2DModelConfig, Live2DStageState, LiveRendererAudioStatus, LiveRendererCommand } from "../../../types.js";
+import type { Live2DModelConfig, LiveRendererCommand } from "../../../LiveRuntime.js";
 import {
   AUDIO_OWNER_HEARTBEAT_MS,
   AUDIO_OWNER_KEY,
@@ -303,17 +303,17 @@ async function playNextAudio(): Promise<void> {
   voice.muted = false;
   voice.src = next.url;
   status.textContent = `Audio queued: ${next.url}`;
-    updateAudioState({
-      queued: audioQueue.length,
-      playing: true,
-      lastEvent: "play_requested",
-      lastUrl: next.url,
-      lastText: next.text,
-      lastError: undefined,
-      errorName: undefined,
-      mediaErrorCode: undefined,
-      mediaErrorMessage: undefined,
-    });
+  updateAudioState({
+    queued: audioQueue.length,
+    playing: true,
+    lastEvent: "play_requested",
+    lastUrl: next.url,
+    lastText: next.text,
+    lastError: undefined,
+    errorName: undefined,
+    mediaErrorCode: undefined,
+    mediaErrorMessage: undefined,
+  });
   await voice.play().then(() => {
     audioQueue.shift();
     updateAudioState({
