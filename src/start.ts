@@ -128,6 +128,9 @@ export async function startRuntime(mode: "runtime" | "discord" = "runtime"): Pro
     sendLiveRequest(input) {
       return dispatch({ type: "live_request", source: "debug", payload: input });
     },
+    sendLiveEvent(input) {
+      return liveCursor.receiveLiveEvent(input);
+    },
   });
 
   discord.onMessage((message) => {

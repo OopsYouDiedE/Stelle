@@ -2,7 +2,7 @@
  * 模块：Live renderer HTTP/SSE 服务
  *
  * 运行逻辑：
- * - 提供 `/live` 页面和 `/assets/*` 静态资源。
+ * - 提供 `/live` 页面、`/assets/*` 静态资源和 `/samples/*` 测试样本。
  * - 提供 `/events` SSE，把 LiveRuntime 发布的舞台命令推到浏览器。
  * - 提供 debug API，读取 runtime snapshot 或手动调用工具/live request。
  *
@@ -27,6 +27,7 @@ export interface LiveRendererDebugController {
   getSnapshot(): Promise<Record<string, unknown>> | Record<string, unknown>;
   useTool?(name: string, input: Record<string, unknown>): Promise<unknown> | unknown;
   sendLiveRequest?(input: Record<string, unknown>): Promise<unknown> | unknown;
+  sendLiveEvent?(input: Record<string, unknown>): Promise<unknown> | unknown;
 }
 
 export interface LiveRendererCommand {
@@ -84,7 +85,9 @@ export class LiveRendererServer {
     if (command.type === "state:set" && command.state && typeof command.state === "object") {
       this.state = { ...(command.state as Record<string, unknown>) };
     }
-    if (command.type === "caption:set") this.state = { ...this.state, caption: command.text };
+    if (command.type === "caption:set" || command.type === "caption:stream") {
+      this.state = { ...this.state, caption: command.text, speaker: command.speaker };
+    }
     this.events.emit("command", command);
   }
 
@@ -107,6 +110,10 @@ export class LiveRendererServer {
       await this.serveStatic(path.resolve("dist/live-renderer"), url.pathname, response);
       return;
     }
+    if (request.method === "GET" && url.pathname.startsWith("/samples/")) {
+      await this.serveStatic(path.resolve("assets/renderer"), url.pathname, response);
+      return;
+    }
     if (request.method === "GET" && url.pathname === "/state") {
       this.writeJson(response, 200, { ok: true, state: this.state });
       return;
@@ -119,6 +126,10 @@ export class LiveRendererServer {
       const command = JSON.parse(await readBody(request)) as LiveRendererCommand;
       this.publish(command);
       this.writeJson(response, 200, { ok: true, state: this.state });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/live/event") {
+      await this.handleLiveEventApi(request, response);
       return;
     }
     response.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
@@ -158,7 +169,26 @@ export class LiveRendererServer {
         this.writeJson(response, 200, { ok: true, result: await controller.sendLiveRequest(asRecord(body)) });
         return;
       }
+      if (request.method === "POST" && url.pathname === "/_debug/api/live/event") {
+        if (!controller.sendLiveEvent) throw new Error("live event debug API is unavailable");
+        this.writeJson(response, 200, { ok: true, result: await controller.sendLiveEvent(asRecord(body)) });
+        return;
+      }
       this.writeJson(response, 404, { ok: false, error: "debug api not found" });
+    } catch (error) {
+      this.writeJson(response, 500, { ok: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  private async handleLiveEventApi(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const controller = this.options.debugController;
+    if (!controller?.sendLiveEvent) {
+      this.writeJson(response, 503, { ok: false, error: "live event API unavailable" });
+      return;
+    }
+    try {
+      const body = asRecord(JSON.parse(await readBody(request)));
+      this.writeJson(response, 200, { ok: true, result: await controller.sendLiveEvent(body) });
     } catch (error) {
       this.writeJson(response, 500, { ok: false, error: error instanceof Error ? error.message : String(error) });
     }

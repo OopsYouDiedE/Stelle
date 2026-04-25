@@ -55,6 +55,7 @@ export interface DiscordMessageSummary {
     name?: string | null;
     url: string;
     contentType?: string | null;
+    size?: number;
   }[];
   embeds?: {
     title?: string | null;
@@ -297,6 +298,7 @@ export function formatDiscordMessage(message: Message): DiscordMessageSummary {
       name: attachment.name,
       url: attachment.url,
       contentType: attachment.contentType,
+      size: attachment.size,
     })),
     embeds: message.embeds.map((embed) => ({
       title: embed.title ?? null,

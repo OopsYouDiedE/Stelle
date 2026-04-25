@@ -1,0 +1,46 @@
+{
+  "source": "https://smdsbz.github.io/2022/11/13/bilibili-live-danmaku-ws.html",
+  "capturedShape": "Real Bilibili live DANMU_MSG shape, trimmed to the fields needed for renderer replay.",
+  "events": [
+    {
+      "id": "sample-danmu-1",
+      "cmd": "DANMU_MSG",
+      "priority": "low",
+      "receivedAt": "2022-11-13T10:10:23.584Z",
+      "raw": {
+        "cmd": "DANMU_MSG",
+        "info": [
+          [0, 1, 25, 16772431, 1668345023584, 1668342446, 0, "6a2851f3"],
+          "果然淡淡哥想要13140",
+          [513413059, "bili_誓约", 1, 0, 0, 10000, 1, "#00D1F1"]
+        ]
+      },
+      "normalized": {
+        "eventType": "danmaku",
+        "userId": 513413059,
+        "userName": "bili_誓约",
+        "text": "果然淡淡哥想要13140"
+      }
+    },
+    {
+      "id": "sample-danmu-2",
+      "cmd": "DANMU_MSG",
+      "priority": "low",
+      "receivedAt": "2022-11-13T10:10:37.096Z",
+      "raw": {
+        "cmd": "DANMU_MSG",
+        "info": [
+          [0, 1, 25, 16777215, 1668345037096, 912018007, 0, "1dd989cf"],
+          "离谱",
+          [1741226472, "归途的疾风来了", 0, 0, 0, 10000, 1, ""]
+        ]
+      },
+      "normalized": {
+        "eventType": "danmaku",
+        "userId": 1741226472,
+        "userName": "归途的疾风来了",
+        "text": "离谱"
+      }
+    }
+  ]
+}

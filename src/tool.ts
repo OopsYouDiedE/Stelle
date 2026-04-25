@@ -671,6 +671,33 @@ function createLiveTools(deps: ToolRegistryDeps): ToolDefinition[] {
       },
     },
     liveActionTool("live.set_caption", "Set Live Caption", { text: { type: "string" } }, ["text"], async (live, input) => live.setCaption(String(input.text))),
+    liveActionTool(
+      "live.stream_caption",
+      "Stream Live Caption",
+      { text: { type: "string" }, speaker: { type: "string" }, rate_ms: { type: "integer" } },
+      ["text"],
+      async (live, input) => live.streamCaption(String(input.text), typeof input.speaker === "string" ? input.speaker : undefined, Number(input.rate_ms ?? 34))
+    ),
+    liveActionTool(
+      "live.show_route_decision",
+      "Show Live Route Decision",
+      {
+        event_id: { type: "string" },
+        action: { type: "string" },
+        reason: { type: "string" },
+        text: { type: "string" },
+        user_name: { type: "string" },
+      },
+      ["event_id", "action", "reason"],
+      async (live, input) =>
+        live.showRouteDecision({
+          eventId: String(input.event_id),
+          action: String(input.action),
+          reason: String(input.reason),
+          text: typeof input.text === "string" ? input.text : undefined,
+          userName: typeof input.user_name === "string" ? input.user_name : undefined,
+        })
+    ),
     liveActionTool("live.clear_caption", "Clear Live Caption", {}, [], async (live) => live.clearCaption()),
     liveActionTool(
       "live.trigger_motion",

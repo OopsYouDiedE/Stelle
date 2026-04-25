@@ -1,15 +1,17 @@
 /*
- * 模块：Live renderer 视觉样式
+ * Module: Browser live stage style
  *
- * 运行逻辑：
- * - `:root` 定义基础字体、文字色和底色。
- * - `body` 创建直播舞台背景氛围。
- * - `.stage` / `.eyebrow` / `h1` 控制字幕卡片和主字幕层级。
+ * Runtime flow:
+ * - The stage is a browser-native OBS scene for early live testing.
+ * - The visual hierarchy separates the main streamed caption from the incoming
+ *   danmaku event log.
+ * - Live2D is intentionally absent in this phase; the glowing orb is only a
+ *   placeholder anchor for later avatar rendering.
  */
 :root {
-  color: #f8f3e8;
-  background: #1b3632;
-  font-family: Georgia, "Times New Roman", serif;
+  color: #fff7df;
+  background: #08110f;
+  font-family: "Iowan Old Style", "Palatino Linotype", "Songti SC", serif;
 }
 
 * {
@@ -19,31 +21,153 @@
 body {
   margin: 0;
   min-height: 100vh;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 12% 18%, rgba(246, 184, 90, 0.34), transparent 22rem),
+    radial-gradient(circle at 74% 28%, rgba(71, 187, 165, 0.28), transparent 28rem),
+    linear-gradient(135deg, #07110f, #16322d 55%, #6d3e25);
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(circle at center, black, transparent 76%);
+}
+
+#app {
+  min-height: 100vh;
   display: grid;
   place-items: center;
-  background:
-    radial-gradient(circle at 20% 20%, rgba(255, 213, 128, 0.28), transparent 26rem),
-    linear-gradient(135deg, #16221f, #23554b 55%, #713f2a);
+  padding: 4vw;
 }
 
 .stage {
-  width: min(72rem, calc(100vw - 4rem));
-  padding: 4rem;
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  border-radius: 2rem;
-  background: rgba(10, 23, 21, 0.42);
-  box-shadow: 0 2rem 6rem rgba(0, 0, 0, 0.32);
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24rem;
+  gap: 2rem;
+  width: min(92rem, 100%);
+  min-height: min(44rem, 82vh);
+  padding: clamp(2rem, 5vw, 4.5rem);
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 2.5rem;
+  background: rgba(7, 18, 16, 0.54);
+  box-shadow: 0 2rem 7rem rgba(0, 0, 0, 0.38);
+  backdrop-filter: blur(18px);
 }
 
-.eyebrow {
-  margin: 0 0 1rem;
-  letter-spacing: 0.18em;
+.stage-copy {
+  position: relative;
+  z-index: 1;
+  align-self: end;
+}
+
+.orb {
+  position: absolute;
+  width: 24rem;
+  height: 24rem;
+  right: 22rem;
+  top: 3rem;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 42% 38%, rgba(255, 247, 215, 0.95), rgba(246, 184, 90, 0.56) 22%, rgba(28, 136, 121, 0.36) 54%, transparent 72%);
+  filter: blur(0.2px);
+  opacity: 0.9;
+  animation: breathe 3.8s ease-in-out infinite;
+}
+
+.eyebrow,
+.panel-title,
+.speaker {
+  margin: 0;
+  font-family: "Gill Sans", "Trebuchet MS", "Microsoft YaHei", sans-serif;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: #f2c46d;
+}
+
+.eyebrow,
+.panel-title {
+  color: #f4c46d;
+  font-size: 0.82rem;
 }
 
 h1 {
-  margin: 0;
-  font-size: clamp(2.2rem, 6vw, 7rem);
-  line-height: 0.98;
+  max-width: 18ch;
+  min-height: 2.4em;
+  margin: 1.1rem 0 1rem;
+  font-size: clamp(2.6rem, 7vw, 7.8rem);
+  line-height: 0.96;
+  text-wrap: balance;
+  text-shadow: 0 0.24rem 1.8rem rgba(0, 0, 0, 0.28);
+}
+
+.speaker {
+  color: rgba(255, 247, 223, 0.62);
+  font-size: 0.92rem;
+}
+
+.event-panel {
+  position: relative;
+  z-index: 1;
+  align-self: stretch;
+  padding: 1.4rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 1.5rem;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+ol {
+  display: grid;
+  gap: 0.7rem;
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+li {
+  padding: 0.75rem 0.9rem;
+  border-radius: 1rem;
+  color: rgba(255, 247, 223, 0.78);
+  background: rgba(255, 255, 255, 0.08);
+  font: 0.95rem/1.45 "Gill Sans", "Microsoft YaHei", sans-serif;
+  animation: slide-in 240ms ease-out both;
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-0.8rem) scale(1.035);
+  }
+}
+
+@keyframes slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(-0.5rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 900px) {
+  .stage {
+    grid-template-columns: 1fr;
+  }
+
+  .event-panel {
+    max-height: 16rem;
+    overflow: hidden;
+  }
 }

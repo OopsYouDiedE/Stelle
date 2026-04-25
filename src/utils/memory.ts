@@ -1,16 +1,17 @@
 /**
- * 模块：文件型记忆存储
+ * Module: file-backed memory store
  *
- * 运行逻辑：
- * - 近期记忆写入 JSONL，超过阈值后压缩为 history markdown。
- * - 长期记忆以 key-value markdown 文件保存。
- * - StelleCore 研究日志追加到 long_term/research_logs。
+ * Runtime flow:
+ * - Recent memory is written as JSONL per scope.
+ * - When recent memory reaches the configured limit, it is compacted into a readable history markdown block.
+ * - Long-term memory is stored as key-value markdown files.
+ * - StelleCore appends research logs under long_term/research_logs.
  *
- * 主要方法：
- * - `writeRecent()` / `readRecent()`：频道或 live 的近期记忆。
- * - `searchHistory()`：按关键词检索历史摘要。
- * - `readLongTerm()` / `writeLongTerm()`：全局长期记忆。
- * - `appendResearchLog()` / `readResearchLogs()`：Core 反思日志。
+ * Main methods:
+ * - writeRecent/readRecent: scoped recent memory.
+ * - searchHistory: keyword search over compacted history markdown.
+ * - readLongTerm/writeLongTerm: shared long-term state.
+ * - appendResearchLog/readResearchLogs: StelleCore reflection logs.
  */
 import { appendFile, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -58,6 +59,7 @@ export interface MemoryStoreOptions {
   compactionEnabled?: boolean;
 }
 
+// Module: memory store public API.
 export class MemoryStore {
   private readonly rootDir: string;
   private readonly recentLimit: number;
@@ -134,10 +136,10 @@ export class MemoryStore {
     const text = [
       `## ${new Date(timestamp).toISOString()} | ${id}`,
       "",
-      `关注方向: ${sanitizeExternalText(log.focus)}`,
-      "研究过程:",
+      `Focus: ${sanitizeExternalText(log.focus)}`,
+      "Research process:",
       ...log.process.map((item) => `- ${sanitizeExternalText(item)}`),
-      `结论: ${sanitizeExternalText(log.conclusion)}`,
+      `Conclusion: ${sanitizeExternalText(log.conclusion)}`,
       "",
     ].join("\n");
     const dir = path.join(this.rootDir, "long_term", "research_logs");
@@ -165,6 +167,7 @@ export class MemoryStore {
     };
   }
 
+  // Module: compaction and checkpoint recovery.
   private async ensureStructure(): Promise<void> {
     await Promise.all([
       mkdir(path.join(this.rootDir, "discord", "channels"), { recursive: true }),
@@ -200,9 +203,9 @@ export class MemoryStore {
     const summary = [
       `## ${new Date(last.timestamp).toISOString()} | ${scopeLabel(scope)}`,
       "",
-      `时间窗口: ${new Date(first.timestamp).toISOString()} - ${new Date(last.timestamp).toISOString()}`,
-      `关键词: [${keywords.join(", ")}]`,
-      "摘要:",
+      `Time window: ${new Date(first.timestamp).toISOString()} - ${new Date(last.timestamp).toISOString()}`,
+      `Keywords: [${keywords.join(", ")}]`,
+      "Summary:",
       truncateText(entries.map((entry) => `${entry.source}/${entry.type}: ${entry.text}`).join(" | "), 1600),
       "",
     ].join("\n");
@@ -240,6 +243,7 @@ export class MemoryStore {
     return null;
   }
 
+  // Module: path helpers and per-scope serialization queue.
   private scopeDir(scope: MemoryScope): string {
     if (scope.kind === "live") return path.join(this.rootDir, "live");
     if (scope.kind === "long_term") return path.join(this.rootDir, "long_term");
@@ -263,6 +267,7 @@ export class MemoryStore {
   }
 }
 
+// Module: standalone helpers.
 function safeSegment(value: string): string {
   return value.trim().replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-").replace(/\s+/g, "-") || "untitled";
 }

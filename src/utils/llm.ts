@@ -1,17 +1,12 @@
 /**
- * 模块：LLM 客户端封装
+ * Module: LLM client wrapper
  *
- * 运行逻辑：
- * - 统一封装 Gemini 文本、JSON 和流式文本调用。
- * - Cursor 只关心 generateText/generateJson/streamText，不直接依赖 SDK 细节。
- * - JSON 调用失败会抛 `LlmJsonParseError`，由 Cursor 决定降级为 drop/wait/reply。
- *
- * 主要方法：
- * - `generateText()`：普通文本生成。
- * - `generateJson()`：文本生成后提取 JSON 并交给 normalize。
- * - `streamText()`：流式输出，用于未来 TTS/字幕。
+ * Runtime flow:
+ * - Wraps Gemini text, JSON, streaming, and URI-based multimodal inputs.
+ * - Cursors call generateText/generateJson/streamText without depending on SDK request details.
+ * - JSON parse failures become LlmJsonParseError so callers can choose a safe fallback.
  */
-import { GoogleGenAI, ThinkingLevel, type Content } from "@google/genai";
+import { createPartFromUri, GoogleGenAI, ThinkingLevel, type Content, type Part } from "@google/genai";
 import type { ModelConfig } from "./config_loader.js";
 import { loadModelConfig } from "./config_loader.js";
 import { parseJsonObject, safeErrorMessage } from "./json.js";
@@ -19,11 +14,17 @@ import { sanitizeExternalText, sanitizeExternalTextChunk } from "./text.js";
 
 export type LlmRole = "primary" | "secondary";
 
+export interface LlmUriPart {
+  uri: string;
+  mimeType: string;
+}
+
 export interface LlmOptions {
   role?: LlmRole;
   temperature?: number;
   maxOutputTokens?: number;
   contents?: Content[];
+  uriParts?: LlmUriPart[];
 }
 
 export class LlmJsonParseError extends Error {
@@ -80,7 +81,7 @@ export class LlmClient {
         ...(typeof options.maxOutputTokens === "number" ? { maxOutputTokens: options.maxOutputTokens } : {}),
         thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
       },
-      contents: options.contents ?? [{ role: "user", parts: [{ text: prompt }] }],
+      contents: options.contents ?? this.createContents(prompt, options.uriParts),
     });
 
     for await (const chunk of response) {
@@ -97,5 +98,13 @@ export class LlmClient {
         ...(this.config.baseUrl ? { baseUrl: this.config.baseUrl } : {}),
       },
     });
+  }
+
+  private createContents(prompt: string, uriParts: LlmUriPart[] = []): Content[] {
+    const parts: Part[] = [{ text: prompt }];
+    for (const part of uriParts) {
+      parts.push(createPartFromUri(part.uri, part.mimeType));
+    }
+    return [{ role: "user", parts }];
   }
 }

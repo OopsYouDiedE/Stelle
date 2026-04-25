@@ -131,6 +131,18 @@ export class LiveRuntime {
     return liveOk(`Updated live caption (${caption.length} chars).`, this.stage);
   }
 
+  async streamCaption(text: string, speaker?: string, rateMs?: number): Promise<LiveActionResult> {
+    const caption = sanitizeExternalText(text);
+    this.stage = { ...this.stage, caption };
+    await this.renderer?.publish({ type: "caption:stream", text: caption, speaker, rateMs });
+    return liveOk(`Streaming live caption (${caption.length} chars).`, this.stage);
+  }
+
+  async showRouteDecision(input: { eventId: string; action: string; reason: string; text?: string; userName?: string }): Promise<LiveActionResult> {
+    await this.renderer?.publish({ type: "route:decision", ...input });
+    return liveOk(`Live route decision ${input.action} for ${input.eventId}.`, this.stage);
+  }
+
   async clearCaption(): Promise<LiveActionResult> {
     this.stage = { ...this.stage, caption: undefined };
     await this.renderer?.publish({ type: "caption:clear" });

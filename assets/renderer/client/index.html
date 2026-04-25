@@ -1,23 +1,33 @@
 <!doctype html>
 <!--
-  模块：Live renderer HTML 壳
+  Module: Live renderer shell
 
-  运行逻辑：
-  - Vite 从这里加载浏览器入口 `/src/main.ts`。
-  - `#caption` 是 LiveRuntime 通过 SSE 更新的字幕节点。
-  - 页面不直接处理人格逻辑，只负责展示舞台状态。
+  Runtime flow:
+  - Vite loads `/src/main.ts` into the browser stage.
+  - The page connects to `/events` for runtime commands and can autoplay a local
+    danmaku fixture with `?autoplay=1`.
+  - This first live slice renders text, queue state, and sample events only. It
+    intentionally does not mount Live2D yet.
 -->
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Stelle Renderer</title>
+    <title>Stelle Live Stage</title>
   </head>
   <body>
     <main id="app">
-      <section class="stage">
-        <p class="eyebrow">Stelle Live Renderer</p>
-        <h1 id="caption">Renderer ready.</h1>
+      <section class="stage" aria-label="Stelle browser stage">
+        <div class="orb" aria-hidden="true"></div>
+        <div class="stage-copy">
+          <p class="eyebrow">Stelle Live Stage</p>
+          <h1 id="caption">Renderer ready.</h1>
+          <p id="speaker" class="speaker">waiting for stream</p>
+        </div>
+        <aside class="event-panel" aria-label="Danmaku sample events">
+          <p class="panel-title">incoming</p>
+          <ol id="event-log"></ol>
+        </aside>
       </section>
     </main>
     <script type="module" src="/src/main.ts"></script>
