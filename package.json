@@ -5,14 +5,15 @@
   "type": "module",
   "scripts": {
     "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && vite build --config assets/renderer/client/vite.config.ts && tsc",
-    "start": "node dist/start.js runtime",
+    "start": "node scripts/start_all.js runtime --built",
     "start:discord": "node dist/start.js discord",
-    "start:live": "node dist/start.js live",
+    "start:live": "node scripts/start_all.js live --built",
+    "start:runtime": "node scripts/start_all.js runtime --built",
     "start:kokoro": ".venv\\Scripts\\python.exe scripts\\kokoro_tts_server.py",
-    "dev:live": "tsx src/start.ts live",
-    "dev:discord": "tsx src/start.ts discord",
-    "dev": "tsx watch src/start.ts runtime",
-    "dev:runtime": "tsx watch src/start.ts runtime"
+    "dev:live": "node scripts/start_all.js live --watch",
+    "dev:discord": "tsx watch src/start.ts discord",
+    "dev": "node scripts/start_all.js runtime --watch",
+    "dev:runtime": "node scripts/start_all.js runtime --watch"
   },
   "engines": {
     "node": ">=20"

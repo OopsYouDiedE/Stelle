@@ -47,12 +47,11 @@ if (isDirectStart()) {
 
 // 模块：对外启动入口。
 export async function start(mode: StartMode = "runtime"): Promise<StelleRuntime | LiveRendererServer> {
-  if (mode === "live") return startLiveRendererOnly();
   return startRuntime(mode);
 }
 
 // 模块：完整 runtime 装配和事件路由。
-export async function startRuntime(mode: "runtime" | "discord" = "runtime"): Promise<StelleRuntime> {
+export async function startRuntime(mode: "runtime" | "discord" | "live" = "runtime"): Promise<StelleRuntime> {
   const config = loadRuntimeConfig();
   if (mode === "discord" && !config.discord.token) {
     throw new Error("Missing DISCORD_TOKEN for discord start mode.");
@@ -67,7 +66,7 @@ export async function startRuntime(mode: "runtime" | "discord" = "runtime"): Pro
 
   const llm = new LlmClient(config.models);
   const renderer =
-    mode === "runtime"
+    mode === "runtime" || mode === "live"
       ? new LiveRendererServer({ host: config.live.rendererHost, port: config.live.rendererPort })
       : undefined;
   if (renderer) {
@@ -106,6 +105,9 @@ export async function startRuntime(mode: "runtime" | "discord" = "runtime"): Pro
   const discordCursor = new DiscordCursor(context);
   liveCursor = new LiveCursor(context);
   const cursors: StelleCursor[] = [innerCursor, discordCursor, liveCursor];
+  const liveTickTimer = setInterval(() => {
+    void liveCursor.tick().catch((error) => state.recordError(error));
+  }, 1800);
 
   renderer?.setDebugController({
     async getSnapshot() {
@@ -146,9 +148,9 @@ export async function startRuntime(mode: "runtime" | "discord" = "runtime"): Pro
     );
   });
 
-  if (!config.discord.token) {
+  if (mode !== "live" && !config.discord.token) {
     console.warn("[Stelle] DISCORD_TOKEN is not set; Discord runtime will not connect.");
-  } else {
+  } else if (mode !== "live" && config.discord.token) {
     await discord.login(config.discord.token);
     await discord.setBotPresence({ window: discordCursor.id, detail: "runtime" }).catch(() => undefined);
     const status = await discord.getStatus();
@@ -170,6 +172,7 @@ export async function startRuntime(mode: "runtime" | "discord" = "runtime"): Pro
     live,
     core,
     async stop() {
+      clearInterval(liveTickTimer);
       await Promise.allSettled([discord.destroy(), renderer?.stop(), core?.stop()]);
       state.record("runtime_stopped", "Runtime stopped.");
     },
@@ -178,15 +181,6 @@ export async function startRuntime(mode: "runtime" | "discord" = "runtime"): Pro
   process.on("SIGINT", () => void runtime.stop().finally(() => process.exit(0)));
   process.on("SIGTERM", () => void runtime.stop().finally(() => process.exit(0)));
   return runtime;
-}
-
-// 模块：独立 renderer 启动，避免连接 Discord。
-async function startLiveRendererOnly(): Promise<LiveRendererServer> {
-  const config = loadRuntimeConfig();
-  const server = new LiveRendererServer({ host: config.live.rendererHost, port: config.live.rendererPort });
-  const url = await server.start();
-  console.log(`[Stelle] Live renderer ready: ${url}/live`);
-  return server;
 }
 
 // 模块：CLI 参数解析。

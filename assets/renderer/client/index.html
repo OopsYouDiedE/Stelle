@@ -1,14 +1,4 @@
 <!doctype html>
-<!--
-  Module: Live renderer shell
-
-  Runtime flow:
-  - Vite loads `/src/main.ts` into the browser stage.
-  - The page connects to `/events` for runtime commands and can autoplay a local
-    danmaku fixture with `?autoplay=1`.
-  - This first live slice renders text, queue state, and sample events only. It
-    intentionally does not mount Live2D yet.
--->
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
@@ -17,17 +7,61 @@
   </head>
   <body>
     <main id="app">
-      <section class="stage" aria-label="Stelle browser stage">
-        <div class="orb" aria-hidden="true"></div>
-        <div class="stage-copy">
-          <p class="eyebrow">Stelle Live Stage</p>
-          <h1 id="caption">Renderer ready.</h1>
-          <p id="speaker" class="speaker">waiting for stream</p>
-        </div>
-        <aside class="event-panel" aria-label="Danmaku sample events">
-          <p class="panel-title">incoming</p>
-          <ol id="event-log"></ol>
+      <section class="layout" aria-label="Stelle live layout">
+        <aside class="panel" aria-label="Danmaku panel">
+          <header class="panel-header">
+            <div>
+              <p class="panel-title">Live Feed</p>
+              <p class="panel-subtitle">左侧弹幕与回复流</p>
+            </div>
+          </header>
+          <ol id="event-log" class="feed"></ol>
+          <form id="simulate-form" class="simulator">
+            <p class="panel-title">Simulate Danmaku</p>
+            <div class="simulator-row">
+              <div class="simulator-field">
+                <label for="simulate-name">Viewer</label>
+                <input id="simulate-name" name="name" type="text" value="Test Viewer" />
+              </div>
+              <div class="simulator-field">
+                <label for="simulate-priority">Priority</label>
+                <select id="simulate-priority" name="priority">
+                  <option value="low">low</option>
+                  <option value="medium">medium</option>
+                  <option value="high">high</option>
+                </select>
+              </div>
+            </div>
+            <div class="simulator-field">
+              <label for="simulate-text">Message</label>
+              <input id="simulate-text" name="text" type="text" placeholder="输入模拟弹幕，例如：今天想聊什么？" />
+            </div>
+            <button type="submit">Send Test Danmaku</button>
+          </form>
         </aside>
+
+        <section class="stage-shell" aria-label="Live2D stage">
+          <div class="stage-scene">
+            <header class="stage-topbar">
+              <div>
+                <p class="stage-eyebrow">Stelle Live Stage</p>
+              </div>
+              <p id="avatar-status" class="status-chip">Live2D booting</p>
+            </header>
+
+            <div class="stage-center">
+              <div class="halo" aria-hidden="true"></div>
+              <div class="live2d-wrap">
+                <canvas id="live2d-canvas" aria-label="Live2D canvas"></canvas>
+              </div>
+            </div>
+
+            <footer class="caption-box">
+              <h1 id="caption">Renderer ready.</h1>
+              <p id="speaker">waiting for stream</p>
+            </footer>
+          </div>
+        </section>
       </section>
     </main>
     <script type="module" src="/src/main.ts"></script>

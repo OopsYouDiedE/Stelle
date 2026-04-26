@@ -1,26 +1,20 @@
-/**
- * Module: Browser live stage
- *
- * Runtime flow:
- * 1. Connect to `/events` and consume renderer commands from LiveRuntime.
- * 2. Render `caption:set` immediately and `caption:stream` character by
- *    character for OBS/browser verification.
- * 3. When launched with `?autoplay=1`, load a real Bilibili danmaku fixture,
- *    POST each event to `/api/live/event`, and show the route result.
- *
- * Main methods:
- * - `applyCommand()`: command router for SSE and local autoplay.
- * - `streamCaption()`: cancellable text streaming renderer.
- * - `runAutoplaySample()`: local fixture player for first-stage live tests.
- */
 import "./style.css";
+import { Live2DAvatar } from "./live2d";
 
 interface RendererCommand {
   type?: string;
   text?: string;
   speaker?: string;
   rateMs?: number;
-  state?: { caption?: string; speaker?: string };
+  state?: { caption?: string; speaker?: string; background?: string };
+  lane?: "incoming" | "response" | "topic" | "system";
+  userName?: string;
+  priority?: "low" | "medium" | "high";
+  note?: string;
+  url?: string;
+  expression?: string;
+  group?: string;
+  source?: string;
 }
 
 interface BilibiliFixtureEvent {
@@ -45,15 +39,29 @@ interface BilibiliFixture {
 
 const caption = document.querySelector<HTMLHeadingElement>("#caption");
 const speaker = document.querySelector<HTMLParagraphElement>("#speaker");
-const eventLog = document.querySelector<HTMLOListElement>("#event-log");
+const avatarStatus = document.querySelector<HTMLParagraphElement>("#avatar-status");
+const liveCanvas = document.querySelector<HTMLCanvasElement>("#live2d-canvas");
+const feed = document.querySelector<HTMLOListElement>("#event-log");
+const simulateForm = document.querySelector<HTMLFormElement>("#simulate-form");
+const simulateName = document.querySelector<HTMLInputElement>("#simulate-name");
+const simulateText = document.querySelector<HTMLInputElement>("#simulate-text");
+const simulatePriority = document.querySelector<HTMLSelectElement>("#simulate-priority");
 const params = new URLSearchParams(window.location.search);
+
 const defaultSample = "/samples/bilibili-danmu.sample.json";
+const avatar = liveCanvas ? new Live2DAvatar({ canvas: liveCanvas, status: avatarStatus }) : null;
 
 let streamToken = 0;
+let activeAudio: HTMLAudioElement | null = null;
+let autoplayStarted = false;
+const pendingAudioQueue: Array<{ url: string }> = [];
+let audioPumpRunning = false;
 
+void avatar?.mount().catch(() => undefined);
 connectEvents();
+bindSimulationForm();
 
-if (params.get("autoplay") === "1" || params.get("autoplay") === "true") {
+if (shouldAutoplay()) {
   void runAutoplaySample(params.get("sample") || defaultSample);
 }
 
@@ -62,8 +70,32 @@ function connectEvents(): void {
   events.addEventListener("command", (event) => {
     applyCommand(JSON.parse(event.data) as RendererCommand);
   });
-  events.addEventListener("error", () => {
-    setSpeaker("event stream reconnecting");
+  events.addEventListener("error", () => setSpeaker("event stream reconnecting"));
+}
+
+function bindSimulationForm(): void {
+  simulateForm?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const userName = simulateName?.value.trim() || "Test Viewer";
+    const text = simulateText?.value.trim() || "";
+    const priority = (simulatePriority?.value || "low") as "low" | "medium" | "high";
+    if (!text) return;
+    pushFeed({
+      lane: "incoming",
+      text,
+      userName,
+      priority,
+      note: "manual simulate",
+    });
+    void postLiveEvent({
+      id: `manual-${Date.now()}`,
+      cmd: "DANMU_MSG",
+      priority,
+      receivedAt: new Date().toISOString(),
+      raw: { info: [[], text, [Date.now(), userName]] },
+      normalized: { text, userName, eventType: "danmaku" },
+    });
+    if (simulateText) simulateText.value = "";
   });
 }
 
@@ -73,18 +105,54 @@ function applyCommand(command: RendererCommand): void {
     setSpeaker(command.speaker ?? "runtime");
     return;
   }
+  if (command.type === "caption:clear") {
+    setCaption("");
+    return;
+  }
   if (command.type === "caption:stream") {
     void streamCaption(command.text ?? "", command.speaker ?? "runtime", command.rateMs);
     return;
   }
+  if (command.type === "background:set") {
+    applyBackground(String(command.source ?? ""));
+    return;
+  }
   if (command.type === "route:decision") {
-    const route = command as RendererCommand & { eventId?: string; action?: string; reason?: string; userName?: string };
-    pushEventLog(`route ${route.action ?? "unknown"} · ${route.userName ?? "viewer"} · ${route.reason ?? route.eventId ?? ""}`);
+    pushFeed({
+      lane: "system",
+      text: command.text ?? command.reason ?? "route decision",
+      userName: command.userName ?? "router",
+      priority: command.priority,
+      note: command.reason ?? "route decision",
+    });
+    return;
+  }
+  if (command.type === "event:push") {
+    pushFeed({
+      lane: command.lane ?? "system",
+      text: command.text ?? "",
+      userName: command.userName ?? "system",
+      priority: command.priority,
+      note: command.note,
+    });
+    return;
+  }
+  if (command.type === "motion:trigger") {
+    void avatar?.triggerMotion(command.group ?? "Idle", "force").catch(() => undefined);
+    return;
+  }
+  if (command.type === "expression:set") {
+    void avatar?.setExpression(command.expression ?? "").catch(() => undefined);
+    return;
+  }
+  if (command.type === "audio:play" || command.type === "audio:stream") {
+    queueAudio(command.url ?? "");
     return;
   }
   if (command.type === "state:set") {
     setCaption(command.state?.caption ?? "Renderer ready.");
     setSpeaker(command.state?.speaker ?? "runtime state");
+    if (command.state?.background) applyBackground(command.state.background);
   }
 }
 
@@ -92,7 +160,6 @@ async function streamCaption(text: string, source: string, rateMs = 34): Promise
   const token = ++streamToken;
   setSpeaker(source);
   setCaption("");
-
   const chars = [...text];
   for (let index = 0; index < chars.length; index += 1) {
     if (token !== streamToken) return;
@@ -103,27 +170,30 @@ async function streamCaption(text: string, source: string, rateMs = 34): Promise
 
 async function runAutoplaySample(sampleUrl: string): Promise<void> {
   try {
+    if (autoplayStarted) return;
+    autoplayStarted = true;
     const fixture = (await fetch(sampleUrl, { cache: "no-store" }).then((response) => {
       if (!response.ok) throw new Error(`sample fetch failed: ${response.status}`);
       return response.json();
     })) as BilibiliFixture;
 
-    setSpeaker("autoplay fixture");
-    pushEventLog(`loaded ${fixture.events.length} real-shape danmaku sample(s)`);
+    pushFeed({ lane: "system", text: `loaded ${fixture.events.length} sample events`, userName: "fixture", note: "autoplay" });
+    const intervalMs = Math.max(2500, Number(params.get("intervalMs") ?? 6500));
+    const loop = !["0", "false", "off"].includes(String(params.get("loop") ?? "0").toLowerCase());
 
-    const intervalMs = Math.max(300, Number(params.get("intervalMs") ?? 1300));
-    const rateMs = Math.max(10, Number(params.get("rateMs") ?? 32));
-
-    for (const event of fixture.events) {
-      const text = event.normalized?.text ?? extractDanmakuText(event.raw) ?? `[${event.cmd}]`;
-      const name = event.normalized?.userName ?? extractUserName(event.raw) ?? "Bilibili viewer";
-      pushEventLog(`${event.cmd} · ${name}: ${text}`);
-      const routed = await postLiveEvent(event);
-      if (!routed) await streamCaption(text, name, rateMs);
-      await delay(intervalMs);
-    }
-
-    setSpeaker("autoplay finished");
+    do {
+      for (const event of fixture.events) {
+        const text = event.normalized?.text ?? extractDanmakuText(event.raw) ?? `[${event.cmd}]`;
+        const name = event.normalized?.userName ?? extractUserName(event.raw) ?? "Bilibili viewer";
+        pushFeed({ lane: "incoming", text, userName: name, priority: event.priority, note: event.cmd });
+        await postLiveEvent(event);
+        await delay(intervalMs);
+      }
+      if (loop) {
+        pushFeed({ lane: "system", text: "fixture loop restart", userName: "fixture", note: "autoplay" });
+        await delay(Math.max(1000, intervalMs));
+      }
+    } while (loop);
   } catch (error) {
     setSpeaker("autoplay failed");
     setCaption(error instanceof Error ? error.message : String(error));
@@ -135,19 +205,111 @@ async function postLiveEvent(event: BilibiliFixtureEvent): Promise<boolean> {
     const response = await fetch("/api/live/event", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ...event, source: "fixture", captionOnly: true, debugVisible: true }),
+      body: JSON.stringify({ ...event, source: "fixture", captionOnly: false, debugVisible: true }),
     });
     if (!response.ok) {
-      pushEventLog(`backend unavailable · ${response.status}`);
+      pushFeed({ lane: "system", text: `backend unavailable ${response.status}`, userName: "runtime" });
       return false;
     }
-    const json = (await response.json()) as { result?: { reason?: string; summary?: string } };
-    pushEventLog(`backend accepted · ${json.result?.reason ?? json.result?.summary ?? "ok"}`);
     return true;
   } catch {
-    pushEventLog("backend unavailable · local replay");
+    pushFeed({ lane: "system", text: "backend unavailable, local only", userName: "runtime" });
     return false;
   }
+}
+
+function queueAudio(url: string): void {
+  if (!url) return;
+  pendingAudioQueue.push({ url });
+  while (pendingAudioQueue.length > 8) pendingAudioQueue.shift();
+  void pumpAudioQueue();
+}
+
+async function pumpAudioQueue(): Promise<void> {
+  if (audioPumpRunning) return;
+  audioPumpRunning = true;
+  try {
+    while (pendingAudioQueue.length > 0) {
+      const next = pendingAudioQueue.shift();
+      if (!next) continue;
+      await playAudio(next.url);
+    }
+  } finally {
+    audioPumpRunning = false;
+  }
+}
+
+async function playAudio(url: string): Promise<void> {
+  if (!url) return;
+  const audio = new Audio(url);
+  audio.autoplay = true;
+  audio.preload = "auto";
+  audio.playsInline = true;
+  activeAudio = audio;
+  try {
+    await avatar?.startLipSync(audio);
+    await new Promise<void>((resolve, reject) => {
+      audio.addEventListener("ended", () => {
+        avatar?.stopLipSync();
+        resolve();
+      }, { once: true });
+      audio.addEventListener("pause", () => {
+        avatar?.stopLipSync();
+        resolve();
+      }, { once: true });
+      audio.addEventListener("error", () => {
+        console.warn("live audio element error", url);
+        avatar?.stopLipSync();
+        reject(new Error(`audio element error: ${url}`));
+      }, { once: true });
+      audio.play().then(() => {
+        console.log("live audio playing", url);
+      }).catch(reject);
+    });
+  } catch (error) {
+    console.warn("live audio play failed", error);
+    avatar?.stopLipSync();
+  } finally {
+    if (activeAudio === audio) activeAudio = null;
+  }
+}
+
+function pushFeed(item: {
+  lane: "incoming" | "response" | "topic" | "system";
+  text: string;
+  userName?: string;
+  priority?: "low" | "medium" | "high";
+  note?: string;
+}): void {
+  if (!feed || !item.text.trim()) return;
+  const li = document.createElement("li");
+  li.className = `feed-item lane-${item.lane} priority-${item.priority ?? "low"}`;
+
+  const meta = document.createElement("div");
+  meta.className = "feed-meta";
+  meta.textContent = [item.userName ?? "system", item.note].filter(Boolean).join(" · ");
+
+  const body = document.createElement("div");
+  body.className = "feed-text";
+  body.textContent = item.text;
+
+  li.append(meta, body);
+  feed.append(li);
+  while (feed.children.length > 24) feed.firstElementChild?.remove();
+  feed.scrollTop = feed.scrollHeight;
+}
+
+function applyBackground(source: string): void {
+  if (!source) return;
+  document.documentElement.style.setProperty("--stage-background-image", `url("${source}")`);
+}
+
+function setCaption(text: string): void {
+  if (caption) caption.textContent = text || " ";
+}
+
+function setSpeaker(text: string): void {
+  if (speaker) speaker.textContent = text;
 }
 
 function extractDanmakuText(raw: unknown): string | undefined {
@@ -162,26 +324,15 @@ function extractUserName(raw: unknown): string | undefined {
   return Array.isArray(user) && typeof user[1] === "string" ? user[1] : undefined;
 }
 
-function pushEventLog(text: string): void {
-  if (!eventLog) return;
-  const item = document.createElement("li");
-  item.textContent = text;
-  eventLog.prepend(item);
-  while (eventLog.children.length > 8) eventLog.lastElementChild?.remove();
-}
-
-function setCaption(text: string): void {
-  if (caption) caption.textContent = text || " ";
-}
-
-function setSpeaker(text: string): void {
-  if (speaker) speaker.textContent = text;
-}
-
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function shouldAutoplay(): boolean {
+  const value = String(params.get("autoplay") ?? "1").toLowerCase();
+  return !["0", "false", "off"].includes(value);
 }

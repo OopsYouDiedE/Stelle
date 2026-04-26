@@ -698,6 +698,28 @@ function createLiveTools(deps: ToolRegistryDeps): ToolDefinition[] {
           userName: typeof input.user_name === "string" ? input.user_name : undefined,
         })
     ),
+    liveActionTool(
+      "live.push_event",
+      "Push Live Panel Event",
+      {
+        event_id: { type: "string" },
+        lane: { type: "string" },
+        text: { type: "string" },
+        user_name: { type: "string" },
+        priority: { type: "string" },
+        note: { type: "string" },
+      },
+      ["lane", "text"],
+      async (live, input) =>
+        live.pushEvent({
+          eventId: typeof input.event_id === "string" ? input.event_id : undefined,
+          lane: String(input.lane) as "incoming" | "response" | "topic" | "system",
+          text: String(input.text),
+          userName: typeof input.user_name === "string" ? input.user_name : undefined,
+          priority: typeof input.priority === "string" ? (input.priority as "low" | "medium" | "high") : undefined,
+          note: typeof input.note === "string" ? input.note : undefined,
+        })
+    ),
     liveActionTool("live.clear_caption", "Clear Live Caption", {}, [], async (live) => live.clearCaption()),
     liveActionTool(
       "live.trigger_motion",

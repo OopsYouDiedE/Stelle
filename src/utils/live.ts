@@ -20,6 +20,7 @@ export interface LiveStageState {
   visible: boolean;
   background?: string;
   caption?: string;
+  speaker?: string;
   expression?: string;
   lastMotion?: {
     group: string;
@@ -133,7 +134,7 @@ export class LiveRuntime {
 
   async streamCaption(text: string, speaker?: string, rateMs?: number): Promise<LiveActionResult> {
     const caption = sanitizeExternalText(text);
-    this.stage = { ...this.stage, caption };
+    this.stage = { ...this.stage, caption, speaker };
     await this.renderer?.publish({ type: "caption:stream", text: caption, speaker, rateMs });
     return liveOk(`Streaming live caption (${caption.length} chars).`, this.stage);
   }
@@ -141,6 +142,26 @@ export class LiveRuntime {
   async showRouteDecision(input: { eventId: string; action: string; reason: string; text?: string; userName?: string }): Promise<LiveActionResult> {
     await this.renderer?.publish({ type: "route:decision", ...input });
     return liveOk(`Live route decision ${input.action} for ${input.eventId}.`, this.stage);
+  }
+
+  async pushEvent(input: {
+    eventId?: string;
+    lane: "incoming" | "response" | "topic" | "system";
+    text: string;
+    userName?: string;
+    priority?: "low" | "medium" | "high";
+    note?: string;
+  }): Promise<LiveActionResult> {
+    await this.renderer?.publish({
+      type: "event:push",
+      eventId: input.eventId,
+      lane: input.lane,
+      text: sanitizeExternalText(input.text),
+      userName: input.userName ? sanitizeExternalText(input.userName) : undefined,
+      priority: input.priority,
+      note: input.note ? sanitizeExternalText(input.note) : undefined,
+    });
+    return liveOk(`Pushed live panel event for ${input.lane}.`, this.stage);
   }
 
   async clearCaption(): Promise<LiveActionResult> {
@@ -178,7 +199,7 @@ export interface ObsController {
 export class ObsWebSocketController implements ObsController {
   private status: ObsStatus;
 
-  constructor(private readonly options: { enabled?: boolean; url?: string; password?: string; timeoutMs?: number } = {}) {
+  constructor(options: { enabled?: boolean; url?: string; password?: string; timeoutMs?: number } = {}) {
     this.status = {
       enabled: options.enabled ?? process.env.OBS_CONTROL_ENABLED === "true",
       connected: false,
@@ -208,10 +229,6 @@ export class ObsWebSocketController implements ObsController {
 
 function liveOk(summary: string, stage: LiveStageState, obs?: ObsStatus): LiveActionResult {
   return { ok: true, summary, timestamp: Date.now(), stage: clone(stage), obs };
-}
-
-function liveFail(summary: string, code: string, stage: LiveStageState): LiveActionResult {
-  return { ok: false, summary, timestamp: Date.now(), stage: clone(stage), error: { code, message: summary, retryable: false } };
 }
 
 function obsUnavailable(message: string, status: ObsStatus): LiveActionResult {

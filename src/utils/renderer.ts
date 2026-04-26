@@ -14,6 +14,7 @@
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import { EventEmitter } from "node:events";
 import type { AddressInfo } from "node:net";
+import { Readable } from "node:stream";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -38,6 +39,7 @@ export interface LiveRendererCommand {
 export class LiveRendererServer {
   private readonly events = new EventEmitter();
   private readonly server: http.Server;
+  private readonly pendingAudioRequests = new Map<string, Record<string, unknown>>();
   private state: Record<string, unknown> = {
     visible: true,
     caption: "Stelle renderer ready.",
@@ -88,6 +90,9 @@ export class LiveRendererServer {
     if (command.type === "caption:set" || command.type === "caption:stream") {
       this.state = { ...this.state, caption: command.text, speaker: command.speaker };
     }
+    if (command.type === "audio:stream" && typeof command.url === "string" && command.request && typeof command.request === "object") {
+      this.pendingAudioRequests.set(command.url, command.request as Record<string, unknown>);
+    }
     this.events.emit("command", command);
   }
 
@@ -95,6 +100,10 @@ export class LiveRendererServer {
     const url = new URL(request.url ?? "/", this.url);
     if (request.method === "GET" && (url.pathname === "/" || url.pathname === "/live")) {
       await this.serveRendererIndex(response);
+      return;
+    }
+    if (request.method === "GET" && url.pathname.startsWith("/tts/kokoro/")) {
+      await this.handleKokoroStream(response, url.pathname);
       return;
     }
     if (request.method === "GET" && url.pathname === "/_debug") {
@@ -111,6 +120,10 @@ export class LiveRendererServer {
       return;
     }
     if (request.method === "GET" && url.pathname.startsWith("/samples/")) {
+      await this.serveStatic(path.resolve("assets/renderer"), url.pathname, response);
+      return;
+    }
+    if (request.method === "GET" && (url.pathname.startsWith("/models/") || url.pathname.startsWith("/vendor/"))) {
       await this.serveStatic(path.resolve("assets/renderer"), url.pathname, response);
       return;
     }
@@ -142,6 +155,40 @@ export class LiveRendererServer {
     const html = await fs.readFile(indexPath, "utf8").catch(() => fallback);
     response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     response.end(html);
+  }
+
+  private async handleKokoroStream(response: ServerResponse, requestPath: string): Promise<void> {
+    const requestBody = this.pendingAudioRequests.get(requestPath);
+    if (!requestBody) {
+      this.writeJson(response, 404, { ok: false, error: "pending audio request not found" });
+      return;
+    }
+
+    const baseUrl = (process.env.KOKORO_TTS_BASE_URL ?? "http://127.0.0.1:8880").replace(/\/+$/, "");
+    const endpointPath = process.env.KOKORO_TTS_ENDPOINT_PATH ?? "/v1/audio/speech";
+    const upstream = await fetch(`${baseUrl}${endpointPath.startsWith("/") ? "" : "/"}${endpointPath}`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "audio/wav",
+        ...(process.env.KOKORO_TTS_API_KEY ? { authorization: `Bearer ${process.env.KOKORO_TTS_API_KEY}` } : {}),
+      },
+      body: JSON.stringify({ ...requestBody, stream: true, response_format: "wav" }),
+    });
+
+    if (!upstream.ok || !upstream.body) {
+      const detail = await upstream.text().catch(() => "");
+      this.writeJson(response, upstream.status || 502, { ok: false, error: detail || "kokoro upstream failed" });
+      return;
+    }
+
+    this.pendingAudioRequests.delete(requestPath);
+    response.writeHead(200, {
+      "content-type": upstream.headers.get("content-type") ?? "audio/wav",
+      "cache-control": "no-store",
+      "transfer-encoding": "chunked",
+    });
+    Readable.fromWeb(upstream.body as never).pipe(response);
   }
 
   private async handleDebugApi(request: IncomingMessage, response: ServerResponse, url: URL): Promise<void> {
