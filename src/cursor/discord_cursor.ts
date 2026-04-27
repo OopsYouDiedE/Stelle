@@ -246,8 +246,8 @@ export class DiscordCursor implements StelleCursor {
     // 发送回复并持久化
     const result = await this.sendReply(latestMessage, replyText);
     
-    // Trust Gate: Only allow memory writing for trusted users or specific intents
-    if (latestMessage.author.trustLevel === "owner" || this.context.config.discord.ambientEnabled) {
+    // 重点修复 (P3): 只有 Owner 身份才允许触发长期记忆写入，严防外部诱导污染
+    if (latestMessage.author.trustLevel === "owner") {
       await this.captureAfterReply(latestMessage, policy, replyText);
     }
     

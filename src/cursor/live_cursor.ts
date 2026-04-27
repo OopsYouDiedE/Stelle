@@ -349,7 +349,7 @@ export class LiveCursor implements StelleCursor {
     const chunks = splitSentences(text).filter(s => s.trim().length > 0);
     
     // 限制队列长度防止无限堆叠
-    const limit = this.context.config.cursors.live.speechQueueLimit || 5;
+    const limit = this.context.config.live.speechQueueLimit || 5;
     if (queue.length > limit) queue.length = limit;
     for (const chunk of chunks) {
       queue.push({

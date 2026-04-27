@@ -70,6 +70,7 @@ export class StelleApplication {
       const url = await this.renderer.start();
       process.env.LIVE_RENDERER_URL = url;
       this.live = new LiveRuntime(new ObsWebSocketController({ enabled: this.config.live.obsControlEnabled }), new LocalLiveRendererBridge(this.renderer));
+      await this.live.start();
       this.tools = createDefaultToolRegistry({ discord: this.discord, live: this.live, memory: this.memory, cwd: process.cwd() });
       this.state.updateRenderer({ connected: true });
       this.state.record("renderer_started", `Live renderer ready: ${url}/live`);

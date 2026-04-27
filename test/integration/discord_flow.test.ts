@@ -98,22 +98,16 @@ describe("Discord Integration Flow", () => {
     await (cursor as any).executeBatch(session, batch);
 
     // Verify safe_tool_view was called but it used restricted authority
-    // The tools.execute for memory.write_long_term should have been called with restricted authority
     const writeCalls = context.tools.execute.mock.calls.filter((c: any) => c[0] === "memory.write_long_term");
     
-    // In executeToolPlan, safeToolView is called with getTrustAuthority("external") which is ["readonly", "network_read"]
-    // So if the tool registry works correctly, it would fail there. 
-    // Here we just check that we passed the correct (restricted) authority.
+    // 重点断言修复 (P6): 验证 executeToolPlan 是否使用了受限权限
     const toolPlanWriteCall = writeCalls.find((c: any) => c[1].key === "hacked");
     if (toolPlanWriteCall) {
       expect(toolPlanWriteCall[2].allowedAuthority).not.toContain("safe_write");
     }
     
-    // Also check captureAfterReply: for external users, it should be skipped unless ambientEnabled is true
-    // Wait, in my implementation:
-    // if (latestMessage.author.trustLevel === "owner" || this.context.config.discord.ambientEnabled)
-    
-    // If ambientEnabled is true, it STILL tries to write. 
-    // But it should probably use the same trust gate.
+    // 重点断言修复 (P6): 验证 captureAfterReply 是否彻底跳过了外部用户的长期记忆写入
+    const captureWriteCall = writeCalls.find((c: any) => c[1].key === "discord_channel_memory_c1");
+    expect(captureWriteCall).toBeUndefined(); // 外部用户严禁通过 captureAfterReply 写入
   });
 });

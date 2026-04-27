@@ -6,6 +6,7 @@ vi.mock("../../src/utils/renderer.js", () => ({
   LiveRendererServer: class {
     start = vi.fn().mockResolvedValue("http://127.0.0.1:8787");
     stop = vi.fn().mockResolvedValue(undefined);
+    publish = vi.fn();
     setLiveController = vi.fn();
     setDebugController = vi.fn();
     getStatus = vi.fn().mockReturnValue({ connected: true });
