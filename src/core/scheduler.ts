@@ -1,5 +1,3 @@
-import { eventBus } from "../utils/event_bus.js";
-
 export interface SchedulerOptions {
   liveEnabled?: boolean;
   innerEnabled?: boolean;
@@ -10,8 +8,13 @@ export interface SchedulerOptions {
 export class StelleScheduler {
   private liveTimer: NodeJS.Timeout | null = null;
   private innerTimer: NodeJS.Timeout | null = null;
+  private tickListener?: (type: string, reason: string) => void;
 
   constructor(private readonly options: SchedulerOptions = {}) {}
+
+  onTick(listener: (type: string, reason: string) => void): void {
+    this.tickListener = listener;
+  }
 
   start(): void {
     const liveMs = this.options.liveTickMs ?? 1800;
@@ -19,13 +22,13 @@ export class StelleScheduler {
 
     if (this.options.liveEnabled) {
       this.liveTimer = setInterval(() => {
-        eventBus.publish({ type: "live.tick", reason: "scheduler_interval" });
+        this.tickListener?.("live.tick", "scheduler_interval");
       }, liveMs);
     }
 
     if (this.options.innerEnabled !== false) {
       this.innerTimer = setInterval(() => {
-        eventBus.publish({ type: "inner.tick", reason: "scheduler_interval" });
+        this.tickListener?.("inner.tick", "scheduler_interval");
       }, innerMs);
     }
   }

@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import type { StelleEvent } from "../cursor/types.js";
 
-class StelleEventBus extends EventEmitter {
+export class StelleEventBus extends EventEmitter {
   constructor() {
     super();
     this.setMaxListeners(50);
@@ -21,5 +21,3 @@ class StelleEventBus extends EventEmitter {
     return () => this.off(type, listener as (...args: any[]) => void);
   }
 }
-
-export const eventBus = new StelleEventBus();

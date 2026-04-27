@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { InnerCursor } from "../../src/cursor/inner_cursor.js";
-import type { RuntimeDispatchEvent } from "../../src/cursor/types.js";
+import { StelleEventBus } from "../../src/utils/event_bus.js";
 
 describe("InnerCursor Full Logic Coverage", () => {
   let context: any;
@@ -11,7 +11,10 @@ describe("InnerCursor Full Logic Coverage", () => {
     now = 1000000;
     context = {
       now: () => now,
-      config: { models: { apiKey: "test-key" } },
+      config: { 
+        models: { apiKey: "test-key" },
+        core: { reflectionAccumulationThreshold: 10, reflectionIntervalHours: 6 }
+      },
       llm: {
         generateJson: vi.fn().mockResolvedValue({
           insight: "Insight",
@@ -24,8 +27,10 @@ describe("InnerCursor Full Logic Coverage", () => {
       memory: {
         readLongTerm: vi.fn().mockResolvedValue(null),
         writeLongTerm: vi.fn().mockResolvedValue(undefined),
-        readResearchLogs: vi.fn().mockResolvedValue([])
-      }
+        readResearchLogs: vi.fn().mockResolvedValue([]),
+        appendResearchLog: vi.fn().mockResolvedValue("log-123")
+      },
+      eventBus: new StelleEventBus()
     };
     innerCursor = new InnerCursor(context as any);
   });

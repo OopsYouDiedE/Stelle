@@ -86,18 +86,27 @@ export class LiveCursor implements StelleCursor {
   private currentEmotion = "neutral";
   private isGenerating = false; // 防止并发生成洪水
   private tickInFlight = false;
+  private unsubscribes: (() => void)[] = [];
 
   constructor(private readonly context: CursorContext) {}
 
   async initialize(): Promise<void> {
-    import("../utils/event_bus.js").then(({ eventBus }) => {
-       eventBus.subscribe("live.tick", () => {
-         void this.tick().catch(e => console.error("[LiveCursor] Tick error:", e));
-       });
-       eventBus.subscribe("live.request", (event: any) => {
-         void this.receiveDispatch(event).catch(e => console.error("[LiveCursor] Dispatch error:", e));
-       });
-    });
+    this.unsubscribes.push(
+      this.context.eventBus.subscribe("live.tick", () => {
+        void this.tick().catch(e => console.error("[LiveCursor] Tick error:", e));
+      })
+    );
+    this.unsubscribes.push(
+      this.context.eventBus.subscribe("live.request", (event: Extract<StelleEvent, { type: "live.request" }>) => {
+        void this.receiveDispatch(event).catch(e => console.error("[LiveCursor] Dispatch error:", e));
+      })
+    );
+  }
+
+  async stop(): Promise<void> {
+    for (const unsub of this.unsubscribes) unsub();
+    this.unsubscribes = [];
+    if (this.bufferTimer) clearTimeout(this.bufferTimer);
   }
 
   async receiveDispatch(event: StelleEvent): Promise<{ accepted: boolean; reason: string; eventId: string }> {
@@ -340,8 +349,8 @@ export class LiveCursor implements StelleCursor {
     const chunks = splitSentences(text).filter(s => s.trim().length > 0);
     
     // 限制队列长度防止无限堆叠
-    if (queue.length > 5) queue.length = 5; 
-
+    const limit = this.context.config.cursors.live.speechQueueLimit || 5;
+    if (queue.length > limit) queue.length = limit;
     for (const chunk of chunks) {
       queue.push({
         id: `seq-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -367,7 +376,7 @@ export class LiveCursor implements StelleCursor {
   }
 
   private async reportReflection(intent: string, summary: string, impactScore = 1, salience: "low" | "medium" | "high" = "low"): Promise<void> {
-    this.context.publishEvent({
+    this.context.eventBus.publish({
       type: "cursor.reflection",
       source: "live",
       payload: { intent, summary, impactScore, salience },

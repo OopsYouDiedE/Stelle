@@ -5,14 +5,13 @@ import { LiveRendererServer } from "../utils/renderer.js";
 import { LiveRuntime, LocalLiveRendererBridge, ObsWebSocketController } from "../utils/live.js";
 import { DiscordRuntime } from "../utils/discord.js";
 import { MemoryStore } from "../utils/memory.js";
-import { StelleCore } from "../utils/stelle_core.js";
 import { createDefaultToolRegistry, type ToolRegistry } from "../tool.js";
 import { RuntimeState } from "../runtime_state.js";
 import { InnerCursor } from "../cursor/inner_cursor.js";
 import { DiscordCursor } from "../cursor/discord_cursor.js";
 import { LiveCursor } from "../cursor/live_cursor.js";
 import type { StelleCursor, StelleEvent } from "../cursor/types.js";
-import { eventBus } from "../utils/event_bus.js";
+import { StelleEventBus } from "../utils/event_bus.js";
 import { StelleScheduler } from "./scheduler.js";
 
 export type StartMode = "runtime" | "discord" | "live";
@@ -23,12 +22,12 @@ export class StelleApplication {
   public readonly llm: LlmClient;
   public readonly memory: MemoryStore;
   public readonly discord: DiscordRuntime;
+  public readonly eventBus: StelleEventBus;
   public tools: ToolRegistry;
   public readonly scheduler: StelleScheduler;
   
   public renderer?: LiveRendererServer;
   public live?: LiveRuntime;
-  public core?: StelleCore;
   public cursors: StelleCursor[] = [];
 
   constructor(private readonly mode: StartMode) {
@@ -41,6 +40,7 @@ export class StelleApplication {
       llm: this.llm,
     });
     this.discord = new DiscordRuntime();
+    this.eventBus = new StelleEventBus();
     this.live = new LiveRuntime(new ObsWebSocketController({ enabled: this.config.live.obsControlEnabled }));
     this.tools = createDefaultToolRegistry({ discord: this.discord, live: this.live, memory: this.memory, cwd: process.cwd() });
     this.scheduler = new StelleScheduler({
@@ -76,10 +76,6 @@ export class StelleApplication {
       console.log(`[Stelle] Live renderer ready: ${url}/live`);
     }
 
-    if (this.mode === "runtime") {
-      this.core = new StelleCore({ llm: this.llm, memory: this.memory, intervalHours: this.config.core.reflectionIntervalHours });
-    }
-
     await this.setupCursors();
     this.setupEventRouting();
     this.setupDebugController();
@@ -96,11 +92,6 @@ export class StelleApplication {
       console.warn("[Stelle] DISCORD_TOKEN is not set; Discord runtime will not connect.");
     }
 
-    if (this.core) {
-      this.core.start();
-      this.state.updateStelleCore(this.core.snapshot());
-    }
-
     this.scheduler.start();
     this.state.updateCursors(this.cursors.map(c => c.snapshot()));
     this.state.record("runtime_started", `Runtime started in ${this.mode} mode.`);
@@ -110,9 +101,9 @@ export class StelleApplication {
   public async stop(): Promise<void> {
     this.scheduler.stop();
     await Promise.allSettled([
+      ...this.cursors.map(c => c.stop?.()),
       this.discord.destroy(),
       this.renderer?.stop(),
-      this.core?.stop()
     ]);
     this.state.updateDiscord({ connected: false });
     this.state.updateRenderer({ connected: false });
@@ -125,23 +116,23 @@ export class StelleApplication {
       tools: this.tools,
       config: this.config,
       memory: this.memory,
-      publishEvent: (e: StelleEvent) => eventBus.publish(e),
+      eventBus: this.eventBus,
       now: () => Date.now(),
     };
 
     const innerCursor = new InnerCursor(context);
-    await innerCursor.initialize();
-    
     const discordCursor = new DiscordCursor(context);
     const cursors: StelleCursor[] = [innerCursor, discordCursor];
 
     if (this.mode === "runtime" || this.mode === "live") {
       const liveCursor = new LiveCursor(context);
-      await liveCursor.initialize();
       cursors.push(liveCursor);
     }
 
     this.cursors = cursors;
+
+    // 并行初始化所有 Cursor
+    await Promise.all(this.cursors.map(c => c.initialize?.()));
 
     this.discord.onMessage((message) => {
       void discordCursor.receiveMessage(message).then(
@@ -158,14 +149,10 @@ export class StelleApplication {
   }
 
   private setupEventRouting() {
-    if (this.core) {
-      eventBus.subscribe("core.tick", (event: Extract<StelleEvent, { type: "core.tick" }>) => {
-        this.state.record("dispatch", event.type, { event });
-        void this.core!.trigger(event.reason).then(() => {
-          this.state.updateStelleCore(this.core!.snapshot());
-        }).catch((e: unknown) => this.state.recordError(e));
-      });
-    }
+    // 路由内部调度事件到 EventBus
+    this.scheduler.onTick((type, reason) => {
+      this.eventBus.publish({ type: type as any, reason });
+    });
   }
 
   private setupDebugController() {
@@ -174,7 +161,7 @@ export class StelleApplication {
     const liveController = {
       sendLiveRequest: (input: Record<string, unknown>) => {
         const eventId = `live-request-${Date.now()}`;
-        eventBus.publish({ type: "live.request", source: "system", payload: { ...input, text: String(input.text ?? "") }, id: eventId });
+        this.eventBus.publish({ type: "live.request", source: "system", payload: { ...input, text: String(input.text ?? "") }, id: eventId });
         return { accepted: true, reason: "Published to event bus", eventId };
       },
       sendLiveEvent: (input: Record<string, unknown>) => {
@@ -193,7 +180,15 @@ export class StelleApplication {
     this.renderer.setDebugController({
       getSnapshot: async () => {
         this.state.updateCursors(this.cursors.map(c => c.snapshot()));
-        if (this.core) this.state.updateStelleCore(this.core.snapshot());
+        const innerCursor = this.cursors.find(c => c.id === "inner");
+        if (innerCursor) {
+          const s = innerCursor.snapshot();
+          this.state.updateStelleCore({
+            lastReflectionAt: Number(s.state.lastCoreReflectionAt),
+            currentFocusSummary: String(s.state.currentFocusSummary),
+          });
+        }
+
         const [discordStatus, liveStatus, memorySnapshot] = await Promise.all([
           this.discord.getStatus(),
           this.live?.getStatus(),
@@ -226,7 +221,7 @@ export class StelleApplication {
       },
       sendLiveRequest: (input) => {
         const eventId = `debug-live-${Date.now()}`;
-        eventBus.publish({ type: "live.request", source: "debug", payload: { ...input, text: String(input.text ?? "") }, id: eventId });
+        this.eventBus.publish({ type: "live.request", source: "debug", payload: { ...input, text: String(input.text ?? "") }, id: eventId });
         return { accepted: true, reason: "Published to event bus", eventId };
       },
       sendLiveEvent: liveController.sendLiveEvent,

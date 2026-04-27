@@ -3,6 +3,7 @@
  */
 
 import { asRecord } from "../utils/json.js";
+import { truncateText } from "../utils/text.js";
 import type { CursorContext, CursorSnapshot, StelleEvent, StelleCursor } from "./types.js";
 
 export interface RuntimeDecision {
@@ -44,10 +45,14 @@ export class InnerCursor implements StelleCursor {
   private unreflectedCount = 0;
   private pendingImpactScore = 0;
   private lastReflectionAt = 0;
+  private lastCoreReflectionAt = 0;
   private isReflecting = false;
+  private unsubscribes: (() => void)[] = [];
+  private currentFocus = "保持轻量观察：先关注最近对话里反复出现的关系、情绪和未完成问题。";
 
   constructor(private readonly context: CursorContext) {
     this.lastReflectionAt = context.now();
+    this.lastCoreReflectionAt = context.now();
   }
 
   receiveDispatch(event: StelleEvent): { accepted: boolean; reason: string; eventId: string } {
@@ -67,14 +72,16 @@ export class InnerCursor implements StelleCursor {
   }
 
   async initialize(): Promise<void> {
-    import("../utils/event_bus.js").then(({ eventBus }) => {
-      eventBus.subscribe("inner.tick", () => {
+    this.unsubscribes.push(
+      this.context.eventBus.subscribe("inner.tick", () => {
         void this.tick().catch(e => console.error("[InnerCursor] Tick error:", e));
-      });
-      eventBus.subscribe("cursor.reflection", (event: any) => {
+      })
+    );
+    this.unsubscribes.push(
+      this.context.eventBus.subscribe("cursor.reflection", (event: Extract<StelleEvent, { type: "cursor.reflection" }>) => {
         this.receiveDispatch(event);
-      });
-    });
+      })
+    );
     
     if (!this.context.memory) return;
     try {
@@ -87,16 +94,22 @@ export class InnerCursor implements StelleCursor {
     }
   }
 
+  async stop(): Promise<void> {
+    for (const unsub of this.unsubscribes) unsub();
+    this.unsubscribes = [];
+  }
+
   recordDecision(decision: RuntimeDecision): void {
     this.recentDecisions.push(decision);
     this.unreflectedCount++;
     this.pendingImpactScore += decision.impactScore;
     while (this.recentDecisions.length > 200) this.recentDecisions.shift();
     
+    const threshold = this.context.config.core.reflectionAccumulationThreshold;
     const shouldReflect = 
       decision.salience === "high" || 
-      this.pendingImpactScore >= 10 || 
-      this.unreflectedCount >= 20;
+      this.pendingImpactScore >= threshold || 
+      this.unreflectedCount >= (threshold * 1.5); // Count threshold slightly higher than impact
 
     if (shouldReflect) {
       void this.triggerCognitiveSynthesis().catch(e => console.error("[Inner] Synthesis failed:", e));
@@ -110,6 +123,45 @@ export class InnerCursor implements StelleCursor {
     const idleTime = now - this.lastReflectionAt;
     if (this.unreflectedCount > 0 && !this.isReflecting && idleTime > 30 * 60 * 1000) {
       await this.triggerCognitiveSynthesis();
+    }
+
+    const coreInterval = Math.max(1, this.context.config.core.reflectionIntervalHours) * 60 * 60 * 1000;
+    if (now - this.lastCoreReflectionAt > coreInterval && !this.isReflecting) {
+      await this.triggerCoreReflection();
+    }
+  }
+
+  async triggerCoreReflection(): Promise<void> {
+    if (this.isReflecting || !this.context.config.models.apiKey || !this.context.memory) return;
+    this.isReflecting = true;
+    this.status = "active";
+
+    try {
+      const previousFocus = await this.context.memory.readLongTerm("current_focus");
+      const recentLogs = await this.context.memory.readResearchLogs(6);
+
+      const prompt = [
+        "You are StelleCore, the private reflective loop for Stelle.",
+        "Write one concise current focus for future cursor prompts. Plain text only.",
+        `Previous focus:\n${previousFocus ?? "(none)"}`,
+        `Recent research logs:\n${recentLogs.join("\n\n") || "(none)"}`,
+      ].join("\n\n");
+
+      const focus = await this.context.llm.generateText(prompt, { role: "secondary", temperature: 0.5, maxOutputTokens: 240 });
+      if (focus) {
+        this.currentFocus = truncateText(focus, 1200);
+        await this.context.memory.writeLongTerm("current_focus", this.currentFocus);
+        await this.context.memory.appendResearchLog({
+          focus: this.currentFocus,
+          process: [`Scheduled reflection`, `Previous focus: ${truncateText(previousFocus ?? "(none)", 240)}`],
+          conclusion: this.currentFocus,
+        });
+        this.lastCoreReflectionAt = this.context.now();
+        this.addReflection(`Core focus updated: ${truncateText(this.currentFocus, 60)}`);
+      }
+    } finally {
+      this.isReflecting = false;
+      this.status = "idle";
     }
   }
 
@@ -240,6 +292,8 @@ export class InnerCursor implements StelleCursor {
         activeDirectivesCount: this.activeDirectives.length,
         convictionsCount: this.coreConvictions.length,
         unreflectedCount: this.unreflectedCount,
+        lastCoreReflectionAt: this.lastCoreReflectionAt,
+        currentFocusSummary: truncateText(this.currentFocus, 100),
       },
     };
   }

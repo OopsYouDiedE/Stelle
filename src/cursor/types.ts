@@ -14,6 +14,7 @@ import type { LlmClient } from "../utils/llm.js";
 import type { RuntimeConfig } from "../utils/config_loader.js";
 import type { ToolRegistry } from "../tool.js";
 import type { MemoryStore } from "../utils/memory.js";
+import type { StelleEventBus } from "../utils/event_bus.js";
 
 export type CursorStatus = "idle" | "active" | "waiting" | "cooldown" | "error";
 
@@ -22,7 +23,7 @@ export interface CursorContext {
   tools: ToolRegistry;
   config: RuntimeConfig;
   memory?: MemoryStore;
-  publishEvent: (event: StelleEvent) => void;
+  eventBus: StelleEventBus;
   now: () => number;
 }
 
@@ -65,5 +66,8 @@ export interface StelleCursor {
   id: string;
   kind: string;
   displayName: string;
+  initialize?(): Promise<void>;
+  stop?(): Promise<void>;
+  handleEvent?(event: StelleEvent): Promise<void>;
   snapshot(): CursorSnapshot;
 }
