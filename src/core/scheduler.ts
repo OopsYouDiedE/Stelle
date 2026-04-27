@@ -1,4 +1,4 @@
-import { type StelleEventType } from "./utils/event_schema.js";
+import { type StelleEventType } from "../utils/event_schema.js";
 
 export interface SchedulerOptions {
   liveEnabled?: boolean;

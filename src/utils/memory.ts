@@ -133,47 +133,14 @@ export class MemoryStore {
   /**
    * Layer 3: Credibility Zones (Structured Long-Term Markdown)
    */
-  async readLongTerm(key: string, layer: MemoryLayer = "self_state"): Promise<string | null> {
+  async readLongTerm(key: string, layer: MemoryLayer = "observations"): Promise<string | null> {
     const file = path.join(this.rootDir, "long_term", layer, `${safeSegment(key)}.md`);
     return readFile(file, "utf8").catch(() => null);
   }
 
-  async writeLongTerm(key: string, value: string, layer: MemoryLayer = "self_state"): Promise<void> {
+  async writeLongTerm(key: string, value: string, layer: MemoryLayer = "observations"): Promise<void> {
     await this.inScopeQueue({ kind: "long_term" }, async () => {
       const dir = path.join(this.rootDir, "long_term", layer);
-      await mkdir(dir, { recursive: true });
-      await atomicWrite(path.join(dir, `${safeSegment(key)}.md`), sanitizeExternalText(value));
-    });
-  }
-
-  async searchHistory(scope: MemoryScope, query: MemorySearchQuery): Promise<HistorySummary[]> {
-    const historyPath = this.historyPath(scope);
-    const raw = await readFile(historyPath, "utf8").catch(() => "");
-    if (!raw.trim()) return [];
-    const needles = [...(query.keywords ?? []), ...(query.text ? query.text.split(/\s+/) : [])]
-      .map((item) => item.trim().toLowerCase())
-      .filter(Boolean);
-    const blocks = raw.split(/^## /m).filter((block) => block.trim());
-    const results = blocks
-      .map((block) => {
-        const haystack = block.toLowerCase();
-        const score = needles.length ? needles.reduce((sum, needle) => sum + (haystack.includes(needle) ? 1 : 0), 0) : 1;
-        return { scope, path: historyPath, excerpt: truncateText(block.replace(/\s+/g, " "), 900), score };
-      })
-      .filter((item) => item.score > 0)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, Math.max(1, Math.min(20, query.limit ?? 3)));
-    return results;
-  }
-
-  async readLongTerm(key: string): Promise<string | null> {
-    const file = path.join(this.rootDir, "long_term", `${safeSegment(key)}.md`);
-    return readFile(file, "utf8").catch(() => null);
-  }
-
-  async writeLongTerm(key: string, value: string): Promise<void> {
-    await this.inScopeQueue({ kind: "long_term" }, async () => {
-      const dir = path.join(this.rootDir, "long_term");
       await mkdir(dir, { recursive: true });
       await atomicWrite(path.join(dir, `${safeSegment(key)}.md`), sanitizeExternalText(value));
     });
@@ -205,6 +172,26 @@ export class MemoryStore {
       .filter((block) => block.trim())
       .map((block) => `## ${block.trim()}`)
       .slice(-limit);
+  }
+
+  async searchHistory(scope: MemoryScope, query: MemorySearchQuery): Promise<HistorySummary[]> {
+    const historyPath = this.historyPath(scope);
+    const raw = await readFile(historyPath, "utf8").catch(() => "");
+    if (!raw.trim()) return [];
+    const needles = [...(query.keywords ?? []), ...(query.text ? query.text.split(/\s+/) : [])]
+      .map((item) => item.trim().toLowerCase())
+      .filter(Boolean);
+    const blocks = raw.split(/^## /m).filter((block) => block.trim());
+    const results = blocks
+      .map((block) => {
+        const haystack = block.toLowerCase();
+        const score = needles.length ? needles.reduce((sum, needle) => sum + (haystack.includes(needle) ? 1 : 0), 0) : 1;
+        return { scope, path: historyPath, excerpt: truncateText(block.replace(/\s+/g, " "), 900), score };
+      })
+      .filter((item) => item.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, Math.max(1, Math.min(20, query.limit ?? 3)));
+    return results;
   }
 
   async snapshot(): Promise<Record<string, unknown>> {
@@ -269,7 +256,7 @@ export class MemoryStore {
     let participants: string[];
     let narrativeSummary: string;
 
-    if (this.llm?.config.dashscopeApiKey || this.llm?.config.geminiApiKey) {
+    if (this.llm?.config.primary.apiKey || this.llm?.config.secondary.apiKey) {
       const batchText = entries.map((e) => `[${new Date(e.timestamp).toLocaleTimeString()}] ${e.source}: ${e.text}`).join("\n");
       const prompt = [
         "You are Stelle's Memory Compactor. Summarize the following chat/event batch into a concise narrative (max 2 sentences).",

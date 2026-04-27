@@ -132,7 +132,15 @@ export class DiscordCursor implements StelleCursor {
     this.context.eventBus.publish({
       type: "live.request",
       source: "discord",
-      payload: { originMessageId: message.id, channelId: message.channelId, text: message.content, authorId: message.author.id, forceTopic: true }
+      id: `live-req-${message.id}`,
+      timestamp: this.context.now(),
+      payload: { 
+        originMessageId: message.id, 
+        channelId: message.channelId, 
+        text: message.content, 
+        authorId: message.author.id, 
+        forceTopic: true 
+      }
     });
     const text = policy.needsThinking ? "请求已安全发送至舞台侧。" : "收到，已经抛给舞台了！";
     await this.responder.sendAndArchive(message, text, policy);
@@ -143,6 +151,8 @@ export class DiscordCursor implements StelleCursor {
     this.context.eventBus.publish({
       type: "cursor.reflection",
       source: "discord",
+      id: `refl-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      timestamp: this.context.now(),
       payload: { intent, summary, impactScore, salience }
     });
   }

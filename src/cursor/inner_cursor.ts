@@ -17,7 +17,7 @@ export interface RuntimeDecision {
 }
 
 export interface CursorDirective {
-  target: "discord" | "live" | "all";
+  target: "discord" | "live" | "global";
   instruction: string;
   expiresAt: number;
 }
@@ -209,7 +209,7 @@ export class InnerCursor implements StelleCursor {
 
       const prompt = [
         "You are the 'Inner Mind'. Review recent actions.",
-        'Schema: {"insight":"...","globalMood":"...","newConviction":{"topic":"...","stance":"..."},"directives":[{"target":"discord|live|all","instruction":"...","lifespanMinutes":30}]}',
+        'Schema: {"insight":"...","globalMood":"...","newConviction":{"topic":"...","stance":"..."},"directives":[{"target":"discord|live|global","instruction":"...","lifespanMinutes":30}]}',
         `Recent Actions:\n${decisionLog}`
       ].join("\n\n");
 
@@ -222,11 +222,16 @@ export class InnerCursor implements StelleCursor {
             insight: String(v.insight || "Processing."),
             globalMood: String(v.globalMood || this.currentGlobalMood),
             newConviction: v.newConviction ? { topic: String(asRecord(v.newConviction).topic), stance: String(asRecord(v.newConviction).stance) } : undefined,
-            directives: Array.isArray(v.directives) ? v.directives.map((d: any) => ({
-              target: String(asRecord(d).target || "all"),
-              instruction: String(asRecord(d).instruction),
-              lifespanMinutes: Number(asRecord(d).lifespanMinutes || 30)
-            })) : []
+            directives: Array.isArray(v.directives) ? v.directives.map((d: any) => {
+              const rec = asRecord(d);
+              let target = String(rec.target || "global");
+              if (target === "all") target = "global"; // 后向兼容处理
+              return {
+                target: target as "discord" | "live" | "global",
+                instruction: String(rec.instruction),
+                lifespanMinutes: Number(rec.lifespanMinutes || 30)
+              };
+            }) : []
           };
         },
         { role: "primary", temperature: 0.35, maxOutputTokens: 500 }
@@ -248,11 +253,11 @@ export class InnerCursor implements StelleCursor {
       for (const d of result.directives) {
         if (!d.instruction) continue;
         const expiresAt = now + (d.lifespanMinutes * 60 * 1000);
-        this.activeDirectives.push({ target: d.target as any, instruction: d.instruction, expiresAt });
+        this.activeDirectives.push({ target: d.target, instruction: d.instruction, expiresAt });
         this.context.eventBus.publish({
           type: "cursor.directive",
           source: "inner",
-          payload: { target: d.target as any, action: "apply_policy", parameters: { instruction: d.instruction }, expiresAt, priority: 2 }
+          payload: { target: d.target, action: "apply_policy", parameters: { instruction: d.instruction }, expiresAt, priority: 2 }
         });
       }
 
@@ -273,7 +278,7 @@ export class InnerCursor implements StelleCursor {
 
   buildContextBlock(callerSource?: "discord" | "live"): string {
     const relevantDirectives = this.activeDirectives
-      .filter(d => d.target === "all" || (callerSource && d.target === callerSource))
+      .filter(d => d.target === "global" || (callerSource && d.target === callerSource))
       .map(d => `[URGENT DIRECTIVE]: ${d.instruction}`);
     const allDirectivesForStorage = this.activeDirectives
       .map(d => `[DIRECTIVE TO ${d.target.toUpperCase()}]: ${d.instruction}`);

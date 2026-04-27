@@ -162,7 +162,19 @@ export class StelleApplication {
     const liveController = {
       sendLiveRequest: (input: Record<string, unknown>) => {
         const eventId = `live-request-${Date.now()}`;
-        this.eventBus.publish({ type: "live.request", source: "system", payload: { ...input, text: String(input.text ?? "") }, id: eventId });
+        this.eventBus.publish({
+          type: "live.request",
+          source: "system",
+          id: eventId,
+          timestamp: Date.now(),
+          payload: {
+            text: String(input.text ?? ""),
+            originMessageId: input.originMessageId ? String(input.originMessageId) : undefined,
+            channelId: input.channelId ? String(input.channelId) : undefined,
+            authorId: input.authorId ? String(input.authorId) : undefined,
+            forceTopic: Boolean(input.forceTopic),
+          }
+        });
         return { accepted: true, reason: "Published to event bus", eventId };
       },
       sendLiveEvent: (input: Record<string, unknown>) => {
@@ -222,7 +234,19 @@ export class StelleApplication {
       },
       sendLiveRequest: (input) => {
         const eventId = `debug-live-${Date.now()}`;
-        this.eventBus.publish({ type: "live.request", source: "debug", payload: { ...input, text: String(input.text ?? "") }, id: eventId });
+        this.eventBus.publish({
+          type: "live.request",
+          source: "debug",
+          id: eventId,
+          timestamp: Date.now(),
+          payload: {
+            text: String(input.text ?? ""),
+            originMessageId: input.originMessageId ? String(input.originMessageId) : undefined,
+            channelId: input.channelId ? String(input.channelId) : undefined,
+            authorId: input.authorId ? String(input.authorId) : undefined,
+            forceTopic: Boolean(input.forceTopic),
+          }
+        });
         return { accepted: true, reason: "Published to event bus", eventId };
       },
       sendLiveEvent: liveController.sendLiveEvent,

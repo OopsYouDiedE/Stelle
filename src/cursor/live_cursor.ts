@@ -412,6 +412,8 @@ export class LiveCursor implements StelleCursor {
     this.context.eventBus.publish({
       type: "cursor.reflection",
       source: "live",
+      id: `refl-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      timestamp: this.context.now(),
       payload: { intent, summary, impactScore, salience },
     });
   }

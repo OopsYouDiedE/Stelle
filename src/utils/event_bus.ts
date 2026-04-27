@@ -23,7 +23,7 @@ export class StelleEventBus {
    * 发布一个事件 (带元数据注入和校验)
    */
   public publish(
-    input: Omit<StelleEvent, "id" | "timestamp"> & { id?: string; timestamp?: number }
+    input: { type: StelleEventType; source: string; [key: string]: any }
   ): void {
     const eventData = {
       ...input,

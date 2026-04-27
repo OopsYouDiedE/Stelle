@@ -556,6 +556,7 @@ function createLiveTools(deps: ToolRegistryDeps): ToolDefinition[] {
     {
       name: "live.stream_tts_caption",
       title: "Stream TTS",
+      description: "Synthesize speech and display caption simultaneously.",
       authority: "external_write",
       inputSchema: z.object({ text: z.string().min(1), voice_name: z.string().optional() }),
       sideEffects: sideEffects({ externalVisible: true, networkAccess: true, consumesBudget: true, affectsUserState: true }),
@@ -569,6 +570,7 @@ function createLiveTools(deps: ToolRegistryDeps): ToolDefinition[] {
     {
       name: "obs.status",
       title: "OBS Status",
+      description: "Check if OBS websocket is connected.",
       authority: "readonly",
       inputSchema: z.object({}),
       sideEffects: sideEffects({ networkAccess: true }),
@@ -589,6 +591,7 @@ function createTtsTools(provider: StreamingTtsProvider): ToolDefinition[] {
     {
       name: "tts.kokoro_speech",
       title: "Kokoro Speech",
+      description: "Synthesize high-quality speech using Kokoro-82M model and save to files.",
       authority: "safe_write",
       inputSchema: z.object({ text: z.string().min(1), output_dir: z.string().optional(), file_prefix: z.string().optional(), voice_name: z.string().optional() }),
       sideEffects: sideEffects({ writesFileSystem: true, networkAccess: true, consumesBudget: true }),
@@ -610,15 +613,90 @@ function workspacePath(context: ToolContext, filePath?: string): string {
 async function duckDuckGoHtmlSearch(query: string, count: number): Promise<any[]> {
   const url = new URL("https://html.duckduckgo.com/html/");
   url.searchParams.set("q", query);
-  const response = await fetch(url, { headers: { "user-agent": "Mozilla/5.0" } });
-  if (!response.ok) throw new Error("DDG search failed");
-  return [{ title: "Mock Result", url: "https://example.com", snippet: "Snippet" }];
+  
+  // 模拟浏览器访问，DDG HTML 版对 User-Agent 有要求
+  const response = await fetch(url, { 
+    headers: { 
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+      "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8"
+    } 
+  });
+
+  if (!response.ok) throw new Error(`DDG search failed: ${response.status}`);
+  const html = await response.text();
+  
+  const results: any[] = [];
+  // 正则匹配 DDG HTML 版的结果区块
+  const resultRegex = /<a class="result__a" rel="noopener" href="([^"]+)">([^<]+)<\/a>.*?<a class="result__snippet"[^>]*>([^<]+)<\/a>/gs;
+  
+  let match;
+  while ((match = resultRegex.exec(html)) !== null && results.length < count) {
+    const rawUrl = match[1];
+    const title = match[2].trim();
+    const snippet = match[3].trim();
+    
+    // DDG 结果 URL 有时是重定向格式 /l/?kh=-1&uddg=https://...
+    const finalUrl = normalizeDuckDuckGoUrl(rawUrl);
+    if (finalUrl) {
+      results.push({ title, url: finalUrl, snippet });
+    }
+  }
+
+  return results;
 }
 
-async function fetchPublicUrl(url: URL): Promise<Response> { return fetch(url); }
+async function fetchPublicUrl(url: URL): Promise<Response> {
+  return fetch(url, {
+    headers: { "User-Agent": "Stelle/1.0 (Bot; Research-Agent)" },
+    redirect: "follow",
+  });
+}
 
-async function validatePublicHttpUrl(url: URL): Promise<ToolResult | undefined> { return undefined; }
+async function validatePublicHttpUrl(url: URL): Promise<ToolResult | undefined> {
+  const host = url.hostname;
+  if (!host || host === "localhost") return fail("ssrf_blocked", "Localhost access is blocked.");
 
-function htmlToText(html: string): string { return html.replace(/<[^>]+>/g, " ").trim(); }
+  try {
+    const addresses = await lookup(host, { all: true });
+    for (const addr of addresses) {
+      const ip = addr.address;
+      // 检查私有和特殊保留地址 (SSRF 防御)
+      if (
+        isIP(ip) === 4 && 
+        (ip.startsWith("127.") || ip.startsWith("10.") || ip.startsWith("192.168.") || 
+         ip.startsWith("172.16.") || ip.startsWith("172.17.") || ip.startsWith("172.18.") || 
+         ip.startsWith("172.19.") || ip.startsWith("172.2") || ip.startsWith("172.3") ||
+         ip.startsWith("169.254."))
+      ) {
+        return fail("ssrf_blocked", `Private IP access blocked: ${ip}`);
+      }
+      if (isIP(ip) === 6 && (ip === "::1" || ip.startsWith("fe80:"))) {
+        return fail("ssrf_blocked", `Private IPv6 access blocked: ${ip}`);
+      }
+    }
+  } catch (e) {
+    return fail("dns_failed", `Could not resolve host ${host}: ${safeErrorMessage(e)}`);
+  }
+  return undefined;
+}
 
-function normalizeDuckDuckGoUrl(rawUrl: string): string | null { return rawUrl; }
+function htmlToText(html: string): string {
+  // 简单的 HTML 剥离和清洁
+  return html
+    .replace(/<script[^>]*>([\s\S]*?)<\/script>/gi, "")
+    .replace(/<style[^>]*>([\s\S]*?)<\/style>/gi, "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeDuckDuckGoUrl(rawUrl: string): string | null {
+  if (rawUrl.startsWith("http")) return rawUrl;
+  try {
+    const u = new URL(rawUrl, "https://duckduckgo.com");
+    return u.searchParams.get("uddg");
+  } catch {
+    return null;
+  }
+}
