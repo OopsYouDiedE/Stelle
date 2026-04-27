@@ -78,6 +78,30 @@ export const LiveEventReceivedSchema = EventMetadataSchema.extend({
 /**
  * 4. 指令下发类事件 (Directive Events)
  */
+export const LiveTopicRequestEventSchema = EventMetadataSchema.extend({
+  type: z.literal("live.topic_request"),
+  source: z.enum(["discord", "debug", "system"]),
+  payload: z.object({
+    text: z.string(),
+    originMessageId: z.string().optional(),
+    channelId: z.string().optional(),
+    authorId: z.string().optional(),
+    forceTopic: z.boolean().default(false),
+  }),
+});
+
+export const LiveDirectSayEventSchema = EventMetadataSchema.extend({
+  type: z.literal("live.direct_say"),
+  source: z.enum(["debug", "system"]),
+  payload: z.object({
+    text: z.string(),
+    originMessageId: z.string().optional(),
+    channelId: z.string().optional(),
+    authorId: z.string().optional(),
+    forceTopic: z.boolean().default(false),
+  }),
+});
+
 export const LiveRequestEventSchema = EventMetadataSchema.extend({
   type: z.literal("live.request"),
   source: z.enum(["discord", "debug", "system"]),
@@ -131,6 +155,8 @@ export const StelleEventSchema = z.union([
   ReflectionEventSchema,
   DiscordMessageEventSchema,
   LiveEventReceivedSchema, // 新增
+  LiveTopicRequestEventSchema,
+  LiveDirectSayEventSchema,
   LiveRequestEventSchema,
   DirectiveEventSchema,
   SystemEventSchema,

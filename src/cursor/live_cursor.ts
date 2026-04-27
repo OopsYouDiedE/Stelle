@@ -8,6 +8,8 @@ import { LiveGateway } from "./live/gateway.js";
 import { LiveRouter } from "./live/router.js";
 import { LiveExecutor } from "./live/executor.js";
 import { LiveResponder } from "./live/responder.js";
+import { CURSOR_CAPABILITIES } from "./capabilities.js";
+import { PolicyOverlayStore } from "./policy_overlay_store.js";
 import type { LiveAction, LiveEmotion } from "./live/types.js";
 
 export const LIVE_PERSONA = `
@@ -15,13 +17,6 @@ You are Stelle's Live Cursor (VTuber/Streamer AI).
 You manage the vibe of the stream. You speak naturally, briefly, and with emotional intelligence.
 Do not act like a robotic assistant. Acknowledge the crowd, play along with jokes, and keep the stream moving.
 `;
-
-const LIVE_CURSOR_TOOLS = [
-  "basic.datetime", "memory.read_long_term", "memory.write_recent", "memory.search", "memory.propose_write",
-  "search.web_search", "search.web_read", "live.status", "live.set_caption", "live.stream_caption",
-  "live.push_event", "live.stream_tts_caption", "live.trigger_motion", "live.set_expression",
-  "obs.status", "tts.kokoro_speech",
-] as const;
 
 export class LiveCursor implements StelleCursor {
   readonly id = "live";
@@ -41,14 +36,15 @@ export class LiveCursor implements StelleCursor {
   private tickInFlight = false;
   private currentEmotion: LiveEmotion = "neutral";
   
-  private activeDirectives: Array<{ id: string; policy: any; expiresAt: number }> = [];
+  private readonly policyStore: PolicyOverlayStore;
   private unsubscribes: (() => void)[] = [];
 
   constructor(private readonly context: CursorContext) {
     this.gateway = new LiveGateway(context);
     this.router = new LiveRouter(context, LIVE_PERSONA);
     this.executor = new LiveExecutor(context, this.id);
-    this.responder = new LiveResponder(context, [...LIVE_CURSOR_TOOLS]);
+    this.responder = new LiveResponder(context, [...CURSOR_CAPABILITIES.live.stageTools]);
+    this.policyStore = new PolicyOverlayStore(context);
   }
 
   async initialize(): Promise<void> {
@@ -56,25 +52,23 @@ export class LiveCursor implements StelleCursor {
       void this.tick().catch(e => console.error("[LiveCursor] Tick error:", e));
     }));
 
+    this.unsubscribes.push(this.context.eventBus.subscribe("live.topic_request", (event: Extract<StelleEvent, { type: "live.topic_request" }>) => {
+      void this.receiveTopicRequest(event).catch(e => console.error("[LiveCursor] Topic request error:", e));
+    }));
+
+    this.unsubscribes.push(this.context.eventBus.subscribe("live.direct_say", (event: Extract<StelleEvent, { type: "live.direct_say" }>) => {
+      void this.receiveDirectSay(event).catch(e => console.error("[LiveCursor] Direct say error:", e));
+    }));
+
     this.unsubscribes.push(this.context.eventBus.subscribe("live.request", (event: Extract<StelleEvent, { type: "live.request" }>) => {
-      void this.receiveDispatch(event).catch(e => console.error("[LiveCursor] Dispatch error:", e));
+      void this.receiveTopicRequest(event).catch(e => console.error("[LiveCursor] Legacy live request error:", e));
     }));
 
     this.unsubscribes.push(this.context.eventBus.subscribe("live.event.received", (event: any) => {
       void this.receiveLiveEvent(event.payload).catch(e => console.error("[LiveCursor] Live event error:", e));
     }));
 
-    this.unsubscribes.push(this.context.eventBus.subscribe("cursor.directive", (event) => {
-      if (event.payload.target === "live" || event.payload.target === "global") {
-        const expiresAt = event.payload.expiresAt || (this.context.now() + 30 * 60 * 1000);
-        this.activeDirectives.push({
-          id: event.id,
-          policy: event.payload.policy || { instruction: String(event.payload.parameters?.instruction || "") },
-          expiresAt
-        });
-        this.summary = `Directive applied: ${truncateText(event.payload.policy?.instruction || "Policy updated", 50)}`;
-      }
-    }));
+    this.unsubscribes.push(this.policyStore.subscribe((summary) => { this.summary = summary; }));
   }
 
   async stop(): Promise<void> {
@@ -86,8 +80,8 @@ export class LiveCursor implements StelleCursor {
   /**
    * 路由：接收外部强推指令 (通常来自系统或调试)
    */
-  async receiveDispatch(event: StelleEvent): Promise<{ accepted: boolean; reason: string; eventId: string }> {
-    if (event.type !== "live.request") return { accepted: false, reason: "Invalid type", eventId: event.id };
+  async receiveDirectSay(event: StelleEvent): Promise<{ accepted: boolean; reason: string; eventId: string }> {
+    if (event.type !== "live.direct_say") return { accepted: false, reason: "Invalid type", eventId: event.id };
     
     const { text, forceTopic } = event.payload;
     if (text) {
@@ -96,6 +90,24 @@ export class LiveCursor implements StelleCursor {
       await this.reportReflection("dispatch", text, 8, "high");
     }
     return { accepted: true, reason: "Accepted", eventId: event.id };
+  }
+
+  async receiveTopicRequest(event: StelleEvent): Promise<{ accepted: boolean; reason: string; eventId: string }> {
+    if (event.type !== "live.topic_request" && event.type !== "live.request") return { accepted: false, reason: "Invalid type", eventId: event.id };
+    const { text, authorId } = event.payload;
+    if (!text) return { accepted: false, reason: "Empty text", eventId: event.id };
+
+    await this.processBatch([{
+      id: event.payload.originMessageId || event.id,
+      source: "debug",
+      kind: "danmaku",
+      priority: "medium",
+      receivedAt: event.timestamp || this.context.now(),
+      user: { id: authorId, name: event.source === "discord" ? "Discord" : event.source },
+      text,
+      raw: event.payload,
+    }]);
+    return { accepted: true, reason: "Routed through live planner", eventId: event.id };
   }
 
   /**
@@ -117,18 +129,26 @@ export class LiveCursor implements StelleCursor {
     const now = this.context.now();
 
     try {
-      this.activeDirectives = this.activeDirectives.filter(d => d.expiresAt > now);
-      const activePolicies = this.activeDirectives.map(d => d.policy);
+      const activePolicies = this.policyStore.activePolicies("live");
 
       // 1. 决策 (Router)
       this.summary = "Designing live strategy...";
-      const decision = await this.router.decide(batch, this.responder.getRecentSpeech(), this.currentEmotion, activePolicies);
+      let decision = await this.router.decide(batch, this.responder.getRecentSpeech(), this.currentEmotion, activePolicies);
       
       // 2. 执行工具 (Executor)
+      let toolResults: any[] = [];
       if (decision.toolPlan) {
         this.status = "waiting";
         this.summary = `Executing tools: ${decision.toolPlan.calls.map(c => c.tool).join(", ")}`;
-        await this.executor.execute(decision);
+        toolResults = await this.executor.execute(decision);
+        decision = await this.router.compose({
+          batch,
+          initialDecision: decision,
+          toolResults,
+          recentSpeech: this.responder.getRecentSpeech(),
+          currentEmotion: this.currentEmotion,
+          activePolicies
+        });
       }
 
       // 3. 响应 (Responder)
@@ -178,8 +198,7 @@ export class LiveCursor implements StelleCursor {
     this.isGenerating = true;
     const now = this.context.now();
     try {
-      this.activeDirectives = this.activeDirectives.filter(d => d.expiresAt > now);
-      const activePolicies = this.activeDirectives.map(d => d.policy);
+      const activePolicies = this.policyStore.activePolicies("live");
       
       const text = await this.router.generateTopic(this.responder.getRecentSpeech(), this.currentEmotion, activePolicies);
       if (text) {

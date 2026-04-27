@@ -2,7 +2,7 @@ import { asRecord, enumValue } from "../../utils/json.js";
 import { sanitizeExternalText, truncateText } from "../../utils/text.js";
 import type { NormalizedLiveEvent } from "../../utils/live_event.js";
 import type { CursorContext } from "../types.js";
-import type { LiveBatchDecision, LiveEmotion } from "./types.js";
+import type { LiveBatchDecision, LiveComposeInput, LiveEmotion } from "./types.js";
 
 /**
  * 模块：Live Router (决策与思维)
@@ -105,4 +105,59 @@ export class LiveRouter {
 
     return this.context.llm.generateText(prompt, { role: "secondary", temperature: 0.8 });
   }
+
+  /**
+   * 二阶段合成：工具执行完后，用真实 toolResults 生成最终台词。
+   */
+  public async compose(input: LiveComposeInput): Promise<LiveBatchDecision> {
+    if (!input.toolResults.length) return input.initialDecision;
+
+    const batchLog = input.batch.map(e => `[${e.priority}] ${e.user?.name ?? "观众"}: ${e.text}`).join("\n");
+    const toolBlock = input.toolResults.map((r) => {
+      const data = r.data ? `\nData: ${truncateText(JSON.stringify(r.data), 1200)}` : "";
+      return `- ${r.name}: ${r.ok ? "ok" : "failed"} | ${r.summary}${data}`;
+    }).join("\n");
+    const directiveBlock = input.activePolicies.length
+      ? `\nCURRENT ACTIVE BEHAVIOR POLICIES:\n${input.activePolicies.map(formatPolicy).join("\n")}`
+      : "";
+
+    const prompt = [
+      this.persona,
+      "You are the Live Responder. Compose the final spoken response using the executed tool results.",
+      directiveBlock,
+      `Initial router decision: ${input.initialDecision.action} / ${input.initialDecision.reason}`,
+      `Initial draft script:\n${input.initialDecision.script || "(none)"}`,
+      `Tool results:\n${toolBlock}`,
+      `What you just said (DO NOT REPEAT):\n${input.recentSpeech.join("\n") || "(Silent)"}`,
+      `Current Emotion: ${input.currentEmotion}`,
+      `LATEST CHAT BATCH:\n${batchLog}`,
+      "Return a short natural script. If the tools prove there is nothing useful to say, choose drop_noise."
+    ].filter(Boolean).join("\n\n");
+
+    return this.context.llm.generateJson(
+      prompt,
+      "live_tool_composition",
+      (raw) => {
+        const v = asRecord(raw);
+        return {
+          action: enumValue(v.action, ["respond_to_crowd", "respond_to_specific", "drop_noise", "generate_topic"] as const, input.initialDecision.action),
+          emotion: enumValue(v.emotion, ["neutral", "happy", "laughing", "sad", "surprised", "thinking", "teasing"] as const, input.initialDecision.emotion) as LiveEmotion,
+          intensity: typeof v.intensity === "number" ? v.intensity : input.initialDecision.intensity,
+          script: sanitizeExternalText(String(v.script || input.initialDecision.script || "")),
+          reason: String(v.reason || "tool_composed"),
+          toolPlan: undefined
+        };
+      },
+      { role: "primary", temperature: 0.55, maxOutputTokens: 400 }
+    );
+  }
+}
+
+function formatPolicy(p: any): string {
+  const parts = [];
+  if (p.replyBias) parts.push(`Reply Bias: ${p.replyBias}`);
+  if (p.vibeIntensity) parts.push(`Vibe Intensity: ${p.vibeIntensity}/5`);
+  if (p.focusTopic) parts.push(`Current Focus: ${p.focusTopic}`);
+  if (p.instruction) parts.push(`Instruction: ${p.instruction}`);
+  return `- ${parts.join(" | ")}`;
 }

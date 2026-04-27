@@ -441,7 +441,7 @@ function createMemoryTools(deps: ToolRegistryDeps): ToolDefinition[] {
     if (!deps.memory) throw new Error("Memory store is not configured.");
     return deps.memory;
   };
-  const MemoryScopeSchema = z.object({ kind: z.enum(["discord_channel", "live", "long_term"]), channelId: z.string().optional(), guildId: z.string().nullable().optional() });
+  const MemoryScopeSchema = z.object({ kind: z.enum(["discord_channel", "discord_global", "live", "long_term"]), channelId: z.string().optional(), guildId: z.string().nullable().optional() });
 
   return [
     {

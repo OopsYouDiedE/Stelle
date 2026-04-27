@@ -1,14 +1,8 @@
 import { asRecord } from "../../utils/json.js";
+import { CURSOR_CAPABILITIES } from "../capabilities.js";
 import type { ToolContext } from "../../tool.js";
 import type { CursorContext } from "../types.js";
 import type { DiscordReplyPolicy, DiscordToolResultView } from "./types.js";
-
-const DISCORD_CURSOR_TOOLS = [
-  "memory.read_recent", "memory.search", "memory.read_long_term", "memory.write_long_term",
-  "memory.append_research_log", "search.web_search", "search.web_read",
-  "discord.status", "discord.get_channel_history", "discord.reply_message",
-  "live.status", "obs.status",
-] as const;
 
 /**
  * 模块：DiscordToolExecutor (执行层)
@@ -108,6 +102,6 @@ export class DiscordToolExecutor {
   }
 
   private toolContext(allowedAuthority: ToolContext["allowedAuthority"]): ToolContext {
-    return { caller: "cursor", cursorId: this.cursorId, cwd: process.cwd(), allowedAuthority, allowedTools: [...DISCORD_CURSOR_TOOLS] };
+    return { caller: "cursor", cursorId: this.cursorId, cwd: process.cwd(), allowedAuthority, allowedTools: [...CURSOR_CAPABILITIES.discord.executeTools] };
   }
 }

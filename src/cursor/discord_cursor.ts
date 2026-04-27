@@ -10,6 +10,7 @@
 import { truncateText } from "../utils/text.js";
 import type { DiscordMessageSummary } from "../utils/discord.js";
 import type { CursorContext, CursorSnapshot, StelleCursor, StelleEvent } from "./types.js";
+import { PolicyOverlayStore } from "./policy_overlay_store.js";
 
 // 子模块导入
 import { DiscordGateway } from "./discord/gateway.js";
@@ -33,8 +34,7 @@ export class DiscordCursor implements StelleCursor {
   private status: CursorSnapshot["status"] = "idle";
   private summary = "Discord Cursor is ready.";
   
-  // 指令覆盖层
-  private activeDirectives: Array<{ id: string; policy: any; expiresAt: number }> = [];
+  private readonly policyStore: PolicyOverlayStore;
   private unsubscribes: (() => void)[] = [];
 
   private readonly gateway: DiscordGateway;
@@ -47,6 +47,7 @@ export class DiscordCursor implements StelleCursor {
     this.router = new DiscordRouter(context, DISCORD_PERSONA);
     this.executor = new DiscordToolExecutor(context, this.id);
     this.responder = new DiscordResponder(context, DISCORD_PERSONA, this.id);
+    this.policyStore = new PolicyOverlayStore(context);
   }
 
   async initialize(): Promise<void> {
@@ -59,19 +60,7 @@ export class DiscordCursor implements StelleCursor {
     );
 
     // 2. 订阅来自 InnerMind 的实时指令 (Runtime Directives)
-    this.unsubscribes.push(
-      this.context.eventBus.subscribe("cursor.directive", (event) => {
-        if (event.payload.target === "discord" || event.payload.target === "global") {
-          const expiresAt = event.payload.expiresAt || (this.context.now() + 30 * 60 * 1000);
-          this.activeDirectives.push({
-            id: event.id,
-            policy: event.payload.policy || { instruction: String(event.payload.parameters?.instruction || "") },
-            expiresAt
-          });
-          this.summary = `Directive applied: ${truncateText(event.payload.policy?.instruction || "Policy updated", 50)}`;
-        }
-      })
-    );
+    this.unsubscribes.push(this.policyStore.subscribe((summary) => { this.summary = summary; }));
   }
 
   async stop(): Promise<void> {
@@ -102,9 +91,7 @@ export class DiscordCursor implements StelleCursor {
     const now = this.context.now();
     this.status = "active";
 
-    // 0. 清理过期指令并提取当前策略
-    this.activeDirectives = this.activeDirectives.filter(d => d.expiresAt > now);
-    const activePolicies = this.activeDirectives.map(d => d.policy);
+    const activePolicies = this.policyStore.activePolicies("discord");
 
     try {
       // 1. 路由决策 (Router)
@@ -112,11 +99,15 @@ export class DiscordCursor implements StelleCursor {
       const policy = await this.router.designPolicy(session, batch, isDirectMention, activePolicies);
       
       if (policy.mode !== "reply") {
-        const waitSeconds = policy.mode === "silent" ? 300 : 3600;
+        const waitSeconds = policy.waitSeconds ?? (policy.mode === "wait_intent" ? 60 : policy.mode === "silent" ? 300 : 3600);
         session.mode = policy.mode === "deactivate" ? "deactivated" : "silent";
         session.modeExpiresAt = this.context.now() + waitSeconds * 1000;
+        if (policy.clearContext || policy.mode === "deactivate") {
+          session.history = [];
+          session.inbox = [];
+        }
         this.status = "idle";
-        this.summary = `Decision: ${policy.mode} - ${policy.reason}`;
+        this.summary = `Decision: ${policy.mode} ${waitSeconds}s - ${policy.reason}`;
         return;
       }
 
@@ -164,7 +155,7 @@ export class DiscordCursor implements StelleCursor {
 
   private async handleLiveDispatch(message: DiscordMessageSummary, policy: DiscordReplyPolicy) {
     this.context.eventBus.publish({
-      type: "live.request",
+      type: "live.topic_request",
       source: "discord",
       id: `live-req-${message.id}`,
       timestamp: this.context.now(),
@@ -194,16 +185,18 @@ export class DiscordCursor implements StelleCursor {
   private async writeRecentMessage(message: DiscordMessageSummary) {
     if (!this.context.memory) return;
     const authorName = message.author.displayName || message.author.username;
-    await this.context.memory.writeRecent(
-      { kind: "discord_channel", channelId: message.channelId, guildId: message.guildId },
-      {
-        id: message.id,
-        timestamp: this.context.now(),
-        source: "discord",
-        type: "observed",
-        text: `${authorName}: ${message.cleanContent || message.content || ""}`,
-      }
-    );
+    const entry = {
+      id: message.id,
+      timestamp: this.context.now(),
+      source: "discord" as const,
+      type: "observed",
+      text: `${authorName}: ${message.cleanContent || message.content || ""}`,
+      metadata: { channelId: message.channelId, guildId: message.guildId },
+    };
+    await Promise.all([
+      this.context.memory.writeRecent({ kind: "discord_channel", channelId: message.channelId, guildId: message.guildId }, entry),
+      this.context.memory.writeRecent({ kind: "discord_global" }, entry),
+    ]);
   }
 
   snapshot(): CursorSnapshot {

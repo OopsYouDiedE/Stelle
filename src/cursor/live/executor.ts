@@ -1,11 +1,6 @@
 import type { CursorContext } from "../types.js";
 import type { LiveBatchDecision, LiveToolResultView } from "./types.js";
-
-const LIVE_WHITELIST_TOOLS = [
-  "memory.read_recent", "memory.search", "memory.read_long_term",
-  "live.status", "live.push_event", "obs.status", "basic.datetime",
-  "search.web_search", "search.web_read"
-];
+import { CURSOR_CAPABILITIES } from "../capabilities.js";
 
 /**
  * 模块：Live Executor (执行层)
@@ -26,7 +21,7 @@ export class LiveExecutor {
           cursorId: this.cursorId,
           cwd: process.cwd(),
           allowedAuthority: ["readonly", "network_read", "external_write"],
-          allowedTools: [...LIVE_WHITELIST_TOOLS]
+          allowedTools: [...CURSOR_CAPABILITIES.live.executeTools]
         });
 
         results.push({ name: call.tool, ok: result.ok, summary: result.summary, data: result.data });

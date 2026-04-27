@@ -98,4 +98,71 @@ describe("Discord Integration Flow", () => {
     const captureWriteCall = writeCalls.find((c: any) => c[1].key === "discord_channel_memory_c1");
     expect(captureWriteCall).toBeUndefined();
   });
+
+  it("should write observed Discord messages to channel and global recent memory", async () => {
+    const message: any = {
+      id: "m3",
+      channelId: "c1",
+      guildId: "g1",
+      content: "Stelle hello",
+      cleanContent: "Stelle hello",
+      author: { id: "u1", username: "User", trustLevel: "external" },
+      createdTimestamp: 1000,
+    };
+
+    await (cursor as any).writeRecentMessage(message);
+
+    expect(context.memory.writeRecent).toHaveBeenCalledWith(
+      { kind: "discord_channel", channelId: "c1", guildId: "g1" },
+      expect.objectContaining({ id: "m3", text: "User: Stelle hello" })
+    );
+    expect(context.memory.writeRecent).toHaveBeenCalledWith(
+      { kind: "discord_global" },
+      expect.objectContaining({ id: "m3", text: "User: Stelle hello", metadata: { channelId: "c1", guildId: "g1" } })
+    );
+  });
+
+  it("should apply wait_intent timing and clear context on deactivate", async () => {
+    const session: any = {
+      channelId: "c1",
+      history: [{ id: "old", author: { username: "User" }, cleanContent: "old context", content: "old context" }],
+      mode: "active",
+      inbox: [{ id: "queued" }],
+      processing: false
+    };
+    const batch: any[] = [{
+      id: "m4",
+      channelId: "c1",
+      content: "Stelle?",
+      cleanContent: "Stelle?",
+      author: { username: "User", trustLevel: "external" },
+      mentionedUserIds: ["bot123"]
+    }];
+
+    context.llm.generateJson.mockImplementationOnce(async (_prompt: string, _schema: string, normalize: any) => normalize({
+      mode: "wait_intent",
+      intent: "local_chat",
+      reason: "unclear",
+      needsThinking: false,
+      wait_seconds: 45
+    }));
+    await (cursor as any).executeBatch(session, batch, true);
+    expect(session.mode).toBe("silent");
+    expect(session.modeExpiresAt).toBe(46000);
+    expect(session.history.length).toBe(1);
+
+    context.llm.generateJson.mockImplementationOnce(async (_prompt: string, _schema: string, normalize: any) => normalize({
+      mode: "deactivate",
+      intent: "local_chat",
+      reason: "leaving",
+      needsThinking: false,
+      wait_seconds: 900,
+      clear_context: true
+    }));
+    await (cursor as any).executeBatch(session, batch, true);
+    expect(session.mode).toBe("deactivated");
+    expect(session.modeExpiresAt).toBe(901000);
+    expect(session.history).toEqual([]);
+    expect(session.inbox).toEqual([]);
+  });
 });

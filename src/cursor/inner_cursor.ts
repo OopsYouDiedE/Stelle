@@ -211,7 +211,7 @@ export class InnerCursor implements StelleCursor {
       // 注入原始背景片段 (从所有作用域读取最近记忆)
       let rawBackground = "";
       if (this.context.memory) {
-        const discordRecent = await this.context.memory.readRecent({ kind: "discord_channel", channelId: "global" }, 15).catch(() => []);
+        const discordRecent = await this.context.memory.readRecent({ kind: "discord_global" }, 15).catch(() => []);
         const liveRecent = await this.context.memory.readRecent({ kind: "live" }, 10).catch(() => []);
         rawBackground = [...discordRecent, ...liveRecent]
           .sort((a, b) => a.timestamp - b.timestamp)

@@ -1,13 +1,10 @@
 import { asRecord, enumValue } from "../../utils/json.js";
+import { capabilitySet, CURSOR_CAPABILITIES } from "../capabilities.js";
 import type { DiscordMessageSummary } from "../../utils/discord.js";
 import type { CursorContext } from "../types.js";
 import type { DiscordChannelSession, DiscordReplyPolicy, DiscordToolPlan } from "./types.js";
 
-const ALLOWED_POLICY_TOOLS = new Set<string>([
-  "memory.read_recent", "memory.search", "memory.read_long_term",
-  "discord.status", "discord.get_channel_history", "live.status", 
-  "search.web_search", "search.web_read"
-]);
+const ALLOWED_POLICY_TOOLS = capabilitySet(CURSOR_CAPABILITIES.discord.planTools);
 
 /**
  * 模块：DiscordRouter (决策层)
@@ -33,11 +30,11 @@ export class DiscordRouter {
 
     // 结构化策略先行：如果 InnerMind 强制要求沉默，则直接返回
     if (activePolicies.some(p => p.replyBias === "silent")) {
-      return { mode: "silent", intent: "local_chat", reason: "inner_mind_silent_bias", needsThinking: false };
+      return { mode: "silent", intent: "local_chat", reason: "inner_mind_silent_bias", needsThinking: false, waitSeconds: 300 };
     }
 
     const batchContent = batch.map(m => `${m.author.username}: ${m.cleanContent}`).join("\n");
-    const recentHistory = session.history.slice(-10).map(m => `${m.author.username}: ${m.cleanContent}`).join("\n");
+    const recentHistory = session.history.slice(-15).map(m => `${m.author.username}: ${m.cleanContent}`).join("\n");
     
     // 构造指令块
     const directiveBlock = activePolicies.length 
@@ -58,14 +55,16 @@ export class DiscordRouter {
           "You are the Strategic Social Router. Decision Layer.",
           directiveBlock,
           "Current Session Mode: " + session.mode,
-          "Decide whether to REPLY, stay SILENT, or DEACTIVATE.",
+          "Decide whether to REPLY, briefly WAIT for clearer intent, stay SILENT, or DEACTIVATE.",
           "",
           "Schema:",
           "{",
-          '  "mode": "reply|silent|deactivate",',
+          '  "mode": "reply|wait_intent|silent|deactivate",',
           '  "intent": "local_chat|live_request|memory_query|memory_write|factual_query|system_status",',
           '  "reason": "short string",',
           '  "needs_thinking": boolean,',
+          '  "wait_seconds": number,',
+          '  "clear_context": boolean,',
           '  "tool_plan": {',
           '    "calls": [{ "tool": "tool_name", "parameters": {} }],',
           '    "parallel": boolean',
@@ -85,6 +84,8 @@ export class DiscordRouter {
           "1. ONLY 'reply' mode can have a tool_plan.",
           "2. If the user asks about the past, use memory tools.",
           "3. If the user asks for information you don't have, use search.web_search.",
+          "4. Use wait_intent for 30-120s when the user is probably addressing Stelle but the intent is not clear yet.",
+          "5. Use silent for 60-600s when observing without replying; use deactivate for 600-10800s and clear_context=true when leaving the channel context.",
           `Context: mentioned=${isMentioned}`,
           `Recent context:\n${recentHistory || "(none)"}`,
           `LATEST OBSERVED BATCH:\n${batchContent}`
@@ -106,12 +107,14 @@ export class DiscordRouter {
           }
 
           return {
-            mode: enumValue(v.mode, ["reply", "silent", "deactivate"] as const, "reply"),
+            mode: enumValue(v.mode, ["reply", "wait_intent", "silent", "deactivate"] as const, "reply"),
             intent: enumValue(v.intent, ["local_chat", "live_request", "memory_query", "memory_write", "factual_query", "system_status"] as const, "local_chat"),
             reason: String(v.reason || "auto"),
             needsThinking: Boolean(v.needsThinking ?? v.needs_thinking),
             toolPlan,
-            focus: String(v.focus || "")
+            focus: String(v.focus || ""),
+            waitSeconds: normalizeWaitSeconds(String(v.mode || "reply"), Number(v.waitSeconds ?? v.wait_seconds)),
+            clearContext: Boolean(v.clearContext ?? v.clear_context ?? String(v.mode) === "deactivate")
           };
         },
         { role: isMentioned ? "primary" : "secondary", temperature: 0.1, maxOutputTokens: 400 }
@@ -120,4 +123,16 @@ export class DiscordRouter {
       return fallback;
     }
   }
+}
+
+function normalizeWaitSeconds(mode: string, value: number): number | undefined {
+  if (mode === "wait_intent") return clampSeconds(value, 30, 120, 60);
+  if (mode === "silent") return clampSeconds(value, 60, 600, 300);
+  if (mode === "deactivate") return clampSeconds(value, 600, 10800, 3600);
+  return undefined;
+}
+
+function clampSeconds(value: number, min: number, max: number, fallback: number): number {
+  if (!Number.isFinite(value)) return fallback;
+  return Math.max(min, Math.min(max, Math.round(value)));
 }

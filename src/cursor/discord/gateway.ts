@@ -43,6 +43,10 @@ export class DiscordGateway {
     }
 
     const now = this.context.now();
+    if (session.mode !== "active" && session.modeExpiresAt && session.modeExpiresAt <= now) {
+      session.mode = "active";
+      session.modeExpiresAt = undefined;
+    }
     const isSilentMode = session.mode !== "active" && session.modeExpiresAt && session.modeExpiresAt > now;
 
     // 冷却检查

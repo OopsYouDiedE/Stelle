@@ -19,6 +19,7 @@ import { sanitizeExternalText, truncateText } from "./text.js";
 
 export type MemoryScope =
   | { kind: "discord_channel"; channelId: string; guildId?: string | null }
+  | { kind: "discord_global" }
   | { kind: "live" }
   | { kind: "long_term" };
 
@@ -240,6 +241,7 @@ export class MemoryStore {
   private async ensureStructure(): Promise<void> {
     await Promise.all([
       mkdir(path.join(this.rootDir, "discord", "channels"), { recursive: true }),
+      mkdir(path.join(this.rootDir, "discord", "global"), { recursive: true }),
       mkdir(path.join(this.rootDir, "live"), { recursive: true }),
       mkdir(path.join(this.rootDir, "long_term", "research_logs"), { recursive: true }),
     ]);
@@ -334,6 +336,7 @@ export class MemoryStore {
 
   private async recoverCheckpoints(): Promise<void> {
     const roots = [path.join(this.rootDir, "live"), path.join(this.rootDir, "discord", "channels")];
+    roots.push(path.join(this.rootDir, "discord", "global"));
     for (const root of roots) {
       await this.recoverCheckpointsUnder(root);
     }
@@ -357,6 +360,7 @@ export class MemoryStore {
   private scopeFromCheckpointPath(file: string): MemoryScope | null {
     const normalized = file.replace(/\\/g, "/");
     if (normalized.includes("/live/checkpoint/")) return { kind: "live" };
+    if (normalized.includes("/discord/global/checkpoint/")) return { kind: "discord_global" };
     const match = normalized.match(/\/discord\/channels\/([^/]+)\/checkpoint\//);
     if (match?.[1]) return { kind: "discord_channel", channelId: decodeURIComponent(match[1]) };
     return null;
@@ -366,6 +370,7 @@ export class MemoryStore {
   private scopeDir(scope: MemoryScope): string {
     if (scope.kind === "live") return path.join(this.rootDir, "live");
     if (scope.kind === "long_term") return path.join(this.rootDir, "long_term");
+    if (scope.kind === "discord_global") return path.join(this.rootDir, "discord", "global");
     return path.join(this.rootDir, "discord", "channels", safeSegment(scope.channelId));
   }
 
@@ -397,6 +402,7 @@ function safeSegment(value: string): string {
 
 function scopeLabel(scope: MemoryScope): string {
   if (scope.kind === "discord_channel") return `discord:${scope.channelId}`;
+  if (scope.kind === "discord_global") return "discord:global";
   return scope.kind;
 }
 

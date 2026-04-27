@@ -18,6 +18,15 @@ export interface LiveBatchDecision {
   };
 }
 
+export interface LiveComposeInput {
+  batch: NormalizedLiveEvent[];
+  initialDecision: LiveBatchDecision;
+  toolResults: LiveToolResultView[];
+  recentSpeech: string[];
+  currentEmotion: string;
+  activePolicies: any[];
+}
+
 /**
  * 接口：直播工具执行结果视图
  */

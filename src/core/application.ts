@@ -165,7 +165,7 @@ export class StelleApplication {
       sendLiveRequest: (input: Record<string, unknown>) => {
         const eventId = `live-request-${Date.now()}`;
         this.eventBus.publish({
-          type: "live.request",
+          type: Boolean(input.directSay ?? input.forceTopic) ? "live.direct_say" : "live.topic_request",
           source: "system",
           id: eventId,
           timestamp: Date.now(),
@@ -245,7 +245,7 @@ export class StelleApplication {
       sendLiveRequest: (input) => {
         const eventId = `debug-live-${Date.now()}`;
         this.eventBus.publish({
-          type: "live.request",
+          type: Boolean(input.directSay ?? input.forceTopic) ? "live.direct_say" : "live.topic_request",
           source: "debug",
           id: eventId,
           timestamp: Date.now(),
