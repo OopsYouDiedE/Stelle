@@ -60,6 +60,10 @@ export class LiveCursor implements StelleCursor {
       void this.receiveDispatch(event).catch(e => console.error("[LiveCursor] Dispatch error:", e));
     }));
 
+    this.unsubscribes.push(this.context.eventBus.subscribe("live.event.received", (event: any) => {
+      void this.receiveLiveEvent(event.payload).catch(e => console.error("[LiveCursor] Live event error:", e));
+    }));
+
     this.unsubscribes.push(this.context.eventBus.subscribe("cursor.directive", (event) => {
       if (event.payload.target === "live" || event.payload.target === "global") {
         const expiresAt = event.payload.expiresAt || (this.context.now() + 30 * 60 * 1000);

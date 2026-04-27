@@ -41,18 +41,19 @@ export const DiscordMessageEventSchema = EventMetadataSchema.extend({
   type: z.literal("discord.message.received"),
   source: z.literal("discord"),
   payload: z.object({
-    id: z.string(),
-    channelId: z.string(),
-    authorId: z.string(),
-    authorName: z.string(),
-    content: z.string(),
-    isMentioned: z.boolean(),
-    isDirectMessage: z.boolean(),
+    // 携带全量摘要，确保 Gateway 判定逻辑不失效
+    message: z.any().describe("DiscordMessageSummary 完整对象"),
   }),
 });
 
+export const LiveEventReceivedSchema = EventMetadataSchema.extend({
+  type: z.literal("live.event.received"),
+  source: z.literal("system"),
+  payload: z.record(z.any()).describe("原始直播事件载荷"),
+});
+
 /**
- * 4. 直播调度类事件 (Live Request Events)
+ * 4. 指令下发类事件 (Directive Events)
  */
 export const LiveRequestEventSchema = EventMetadataSchema.extend({
   type: z.literal("live.request"),
@@ -106,6 +107,7 @@ export const StelleEventSchema = z.union([
   TickEventSchema,
   ReflectionEventSchema,
   DiscordMessageEventSchema,
+  LiveEventReceivedSchema, // 新增
   LiveRequestEventSchema,
   DirectiveEventSchema,
   SystemEventSchema,

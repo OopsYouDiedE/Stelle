@@ -53,23 +53,8 @@ export class DiscordCursor implements StelleCursor {
     // 1. 订阅原始消息事件 (Event-Driven Input)
     this.unsubscribes.push(
       this.context.eventBus.subscribe("discord.message.received", (event) => {
-        // 转换事件 payload 到消息摘要格式
-        const summary: DiscordMessageSummary = {
-          id: event.payload.id,
-          channelId: event.payload.channelId,
-          author: {
-            id: event.payload.authorId,
-            username: event.payload.authorName,
-            bot: false,
-            trustLevel: "external"
-          },
-          content: event.payload.content,
-          cleanContent: event.payload.content,
-          isMentioned: event.payload.isMentioned,
-          isDirectMessage: event.payload.isDirectMessage,
-          createdTimestamp: event.timestamp
-        };
-        void this.receiveMessage(summary).catch(e => console.error("[DiscordCursor] Message handling failed:", e));
+        // 直接透传完整摘要，不再降维
+        void this.receiveMessage(event.payload.message).catch(e => console.error("[DiscordCursor] Message handling failed:", e));
       })
     );
 

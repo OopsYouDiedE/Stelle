@@ -1,7 +1,7 @@
 import type { CursorContext } from "../types.js";
 import type { LiveBatchDecision, LiveToolResultView } from "./types.js";
 
-const LIVE_WHITESPACE_TOOLS = [
+const LIVE_WHITELIST_TOOLS = [
   "memory.read_recent", "memory.search", "memory.read_long_term",
   "live.status", "live.push_event", "obs.status", "basic.datetime",
   "search.web_search", "search.web_read"
@@ -26,7 +26,7 @@ export class LiveExecutor {
           cursorId: this.cursorId,
           cwd: process.cwd(),
           allowedAuthority: ["readonly", "network_read", "external_write"],
-          allowedTools: [...LIVE_WHITESPACE_TOOLS]
+          allowedTools: [...LIVE_WHITELIST_TOOLS]
         });
         results.push({ name: call.tool, ok: result.ok, summary: result.summary, data: result.data });
       } catch (e) {
