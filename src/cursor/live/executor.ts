@@ -16,7 +16,7 @@ export class LiveExecutor {
 
   public async execute(decision: LiveBatchDecision): Promise<LiveToolResultView[]> {
     if (!decision.toolPlan || !decision.toolPlan.calls.length) return [];
-    
+
     const results: LiveToolResultView[] = [];
     for (const call of decision.toolPlan.calls.slice(0, 3)) {
       const refinedParams = this.refineParameters(call.tool, call.parameters);
@@ -28,6 +28,7 @@ export class LiveExecutor {
           allowedAuthority: ["readonly", "network_read", "external_write"],
           allowedTools: [...LIVE_WHITELIST_TOOLS]
         });
+
         results.push({ name: call.tool, ok: result.ok, summary: result.summary, data: result.data });
       } catch (e) {
         results.push({ name: call.tool, ok: false, summary: String(e) });

@@ -7,7 +7,7 @@ export const EventMetadataSchema = z.object({
   id: z.string().describe("唯一事件 ID"),
   timestamp: z.number().describe("时间戳"),
   source: z.string().describe("生产者"),
-  reason: z.string().optional().describe("原因上下文"),
+  reason: z.string().nullish().describe("原因上下文"), // 使用 nullish 增强兼容性
 });
 
 /**
@@ -35,14 +35,37 @@ export const ReflectionEventSchema = EventMetadataSchema.extend({
 });
 
 /**
+ * 核心子对象 Schema (针对 Discord)
+ */
+export const DiscordUserSummarySchema = z.object({
+  id: z.string(),
+  username: z.string(),
+  displayName: z.string().nullable().optional(),
+  bot: z.boolean().optional(),
+  trustLevel: z.enum(["owner", "bot", "external"]).optional(),
+});
+
+export const DiscordMessageSummarySchema = z.object({
+  id: z.string(),
+  channelId: z.string(),
+  guildId: z.string().nullable().optional(),
+  author: DiscordUserSummarySchema,
+  content: z.string(),
+  cleanContent: z.string().optional(),
+  createdTimestamp: z.number(),
+  isMentioned: z.boolean().optional(),
+  isDirectMessage: z.boolean().optional(),
+  mentionedUserIds: z.array(z.string()).optional(),
+});
+
+/**
  * 3. 外部原始事件 (External Raw Events)
  */
 export const DiscordMessageEventSchema = EventMetadataSchema.extend({
   type: z.literal("discord.message.received"),
   source: z.literal("discord"),
   payload: z.object({
-    // 携带全量摘要，确保 Gateway 判定逻辑不失效
-    message: z.any().describe("DiscordMessageSummary 完整对象"),
+    message: DiscordMessageSummarySchema,
   }),
 });
 

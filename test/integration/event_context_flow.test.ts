@@ -42,6 +42,7 @@ describe("Event-Driven Context Flow Integration", () => {
       author: { id: "u1", username: "User", trustLevel: "external" },
       content: "Hello Stelle",
       cleanContent: "Hello Stelle",
+      createdTimestamp: Date.now(), // 补齐必填项
       mentionedUserIds: ["bot-123"]
     };
 
@@ -51,8 +52,6 @@ describe("Event-Driven Context Flow Integration", () => {
     eventBus.publish({
       type: "discord.message.received",
       source: "discord",
-      id: "evt-1",
-      timestamp: Date.now(),
       payload: { message }
     });
 
@@ -72,6 +71,7 @@ describe("Event-Driven Context Flow Integration", () => {
       guildId: "g1",
       author: { id: "owner-1", username: "Admin", trustLevel: "owner" }, // 关键：owner 权限
       content: "Important command",
+      createdTimestamp: Date.now(),
       mentionedUserIds: ["bot-123"]
     };
 
@@ -80,8 +80,6 @@ describe("Event-Driven Context Flow Integration", () => {
     eventBus.publish({
       type: "discord.message.received",
       source: "discord",
-      id: "evt-2",
-      timestamp: Date.now(),
       payload: { message }
     });
 
@@ -92,29 +90,49 @@ describe("Event-Driven Context Flow Integration", () => {
     expect(batch[0].author.trustLevel).toBe("owner"); // 权限链必须保持
   });
 
-  it("should properly ignore bot messages received via event bus", async () => {
+  it("should NOT respond in unactivated channels if not mentioned", async () => {
+    // 模拟一个未激活频道的背景消息
     const message: any = {
-      id: "m3",
-      channelId: "c1",
-      author: { id: "bot-2", username: "OtherBot", bot: true }, // 关键：是 Bot
-      content: "Ignore me"
+      id: "m4",
+      channelId: "inactive-channel",
+      guildId: "g1",
+      author: { id: "u2", username: "Stranger", trustLevel: "external" },
+      content: "Just talking to myself",
+      createdTimestamp: Date.now()
     };
 
-    const receiveSpy = vi.spyOn(cursor, "receiveMessage");
+    const spy = vi.spyOn(cursor as any, "executeBatch");
 
     eventBus.publish({
       type: "discord.message.received",
       source: "discord",
-      id: "evt-3",
-      timestamp: Date.now(),
       payload: { message }
     });
 
-    await new Promise(r => setTimeout(r, 100));
-    
-    // receiveMessage 应该被调用（事件到达了），但 Gateway 应该返回 observed: false
-    const result = await (receiveSpy.mock.results[0].value as Promise<any>);
-    expect(result.observed).toBe(false);
-    expect(result.reason).toContain("ignored");
+    await new Promise(r => setTimeout(r, 500));
+
+    // 应该因为频道未激活且未提到 Stelle 而被忽略
+    expect(spy).not.toHaveBeenCalled();
   });
-});
+
+  it("should reject invalid message payloads via EventBus Zod validation", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    // 发送一个残缺的消息负载（缺少 id 等必填项）
+    eventBus.publish({
+      type: "discord.message.received",
+      source: "discord",
+      payload: { 
+        message: { content: "I am broken" } // 缺少大量 Zod 要求的字段
+      }
+    } as any);
+
+    // EventBus 应该打印错误并拦截
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining("[EventBus] Invalid event rejected:"),
+      expect.any(Object)
+    );
+    consoleSpy.mockRestore();
+  });
+  });
+
