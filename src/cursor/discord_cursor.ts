@@ -100,10 +100,38 @@ export class DiscordCursor implements StelleCursor {
   private status: CursorSnapshot["status"] = "idle";
   private summary = "Discord Cursor is ready.";
   
+  // 重点改进 (P2): 引入运行时指令覆盖层，实现硬控制闭环
+  private policyOverlay: string[] = [];
+  private unsubscribes: (() => void)[] = [];
+
   // 优化点 1: 全局缓存 Bot ID，消除无效的 API 轮询
   private cachedBotUserId: string | null = null;
 
   constructor(private readonly context: CursorContext) {}
+
+  async initialize(): Promise<void> {
+    // 监听来自 InnerCursor 的实时指令
+    this.unsubscribes.push(
+      this.context.eventBus.subscribe("cursor.directive", (event) => {
+        if (event.payload.target === "discord" || event.payload.target === "global") {
+          const instruction = String(event.payload.parameters.instruction || "");
+          if (instruction) {
+            this.policyOverlay.push(instruction);
+            this.summary = `Directive applied: ${truncateText(instruction, 50)}`;
+            // 简单逻辑：30分钟后自动过期覆盖层 (实际生产环境应根据 event.payload.expiresAt 精确清理)
+            setTimeout(() => {
+              this.policyOverlay = this.policyOverlay.filter(i => i !== instruction);
+            }, 30 * 60 * 1000);
+          }
+        }
+      })
+    );
+  }
+
+  async stop(): Promise<void> {
+    for (const unsub of this.unsubscribes) unsub();
+    this.unsubscribes = [];
+  }
 
   /**
    * Layer 1: 物理感知与缓冲层 (Sliding Window Gateway)
@@ -285,12 +313,18 @@ export class DiscordCursor implements StelleCursor {
 
     const batchContent = batch.map(m => `${m.author.username}: ${m.cleanContent}`).join("\n");
     const recentHistory = session.history.slice(-10).map(m => `${m.author.username}: ${m.cleanContent}`).join("\n");
+    
+    // 重点改进 (P2): 注入实时指令覆盖层，强制影响决策逻辑
+    const directiveBlock = this.policyOverlay.length 
+      ? `\nCURRENT ACTIVE DIRECTIVES (MANDATORY):\n${this.policyOverlay.map(d => `- ${d}`).join("\n")}`
+      : "";
 
     try {
       return await this.context.llm.generateJson(
         [
           DISCORD_PERSONA,
           "You are the Strategic Social Router. Decision Layer.",
+          directiveBlock,
           "Current Session Mode: " + session.mode,
           "Decide whether to REPLY, stay SILENT, or DEACTIVATE.",
           "",

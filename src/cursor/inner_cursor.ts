@@ -244,10 +244,26 @@ export class InnerCursor implements StelleCursor {
       const now = this.context.now();
       for (const d of result.directives) {
         if (!d.instruction) continue;
+        const expiresAt = now + (d.lifespanMinutes * 60 * 1000);
+        
+        // 1. 本地记录
         this.activeDirectives.push({
           target: d.target as any,
           instruction: d.instruction,
-          expiresAt: now + (d.lifespanMinutes * 60 * 1000)
+          expiresAt: expiresAt
+        });
+
+        // 2. 重点改进 (P2): 发布硬控制指令事件，实现控制闭环
+        this.context.eventBus.publish({
+          type: "cursor.directive",
+          source: "inner",
+          payload: {
+            target: d.target as any,
+            action: "apply_policy",
+            parameters: { instruction: d.instruction },
+            expiresAt: expiresAt,
+            priority: 2
+          }
         });
       }
 

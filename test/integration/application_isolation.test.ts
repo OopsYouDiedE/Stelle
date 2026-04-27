@@ -46,7 +46,7 @@ describe("StelleApplication Isolation", () => {
     eventBus1.subscribe("inner.tick", spy1);
     eventBus2.subscribe("inner.tick", spy2);
 
-    eventBus1.publish({ type: "inner.tick", reason: "test1" });
+    eventBus1.publish({ type: "inner.tick", source: "test", reason: "test1" });
     expect(spy1).toHaveBeenCalled();
     expect(spy2).not.toHaveBeenCalled();
 

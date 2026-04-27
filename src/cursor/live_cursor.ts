@@ -86,6 +86,9 @@ export class LiveCursor implements StelleCursor {
   private currentEmotion = "neutral";
   private isGenerating = false; // 防止并发生成洪水
   private tickInFlight = false;
+  
+  // 重点改进 (P2): 引入运行时指令覆盖层，实现硬控制闭环
+  private policyOverlay: string[] = [];
   private unsubscribes: (() => void)[] = [];
 
   constructor(private readonly context: CursorContext) {}
@@ -99,6 +102,21 @@ export class LiveCursor implements StelleCursor {
     this.unsubscribes.push(
       this.context.eventBus.subscribe("live.request", (event: Extract<StelleEvent, { type: "live.request" }>) => {
         void this.receiveDispatch(event).catch(e => console.error("[LiveCursor] Dispatch error:", e));
+      })
+    );
+    // 监听来自 InnerCursor 的实时指令
+    this.unsubscribes.push(
+      this.context.eventBus.subscribe("cursor.directive", (event) => {
+        if (event.payload.target === "live" || event.payload.target === "global") {
+          const instruction = String(event.payload.parameters.instruction || "");
+          if (instruction) {
+            this.policyOverlay.push(instruction);
+            this.summary = `Directive applied: ${truncateText(instruction, 50)}`;
+            setTimeout(() => {
+              this.policyOverlay = this.policyOverlay.filter(i => i !== instruction);
+            }, 30 * 60 * 1000);
+          }
+        }
       })
     );
   }
@@ -265,9 +283,15 @@ export class LiveCursor implements StelleCursor {
     const focus = await this.context.memory?.readLongTerm("current_focus").catch(() => null);
     const subconscious = await this.context.memory?.readLongTerm("global_subconscious").catch(() => null);
 
+    // 重点改进 (P2): 注入实时指令覆盖层，强制影响直播决策
+    const directiveBlock = this.policyOverlay.length 
+      ? `\nCURRENT ACTIVE DIRECTIVES (MANDATORY):\n${this.policyOverlay.map(d => `- ${d}`).join("\n")}`
+      : "";
+
     const prompt = [
       LIVE_PERSONA,
       subconscious ? `Internal subconscious guidance:\n${subconscious}` : undefined,
+      directiveBlock,
       "You are the Live Director and Actor in one. Read the recent chat messages.",
       "1. Analyze the VIBE. Is it a crowd reaction (many laughing), or a specific high-value question?",
       "2. Respond naturally. If it's low-value noise, use action 'drop_noise'.",
@@ -306,10 +330,16 @@ export class LiveCursor implements StelleCursor {
       const subconscious = await this.context.memory?.readLongTerm("global_subconscious").catch(() => null);
       const recentContext = this.recentSpeech.join("\n");
       
+      // 重点改进 (P2): 注入实时指令覆盖层，强制影响闲聊决策
+      const directiveBlock = this.policyOverlay.length 
+        ? `\nCURRENT ACTIVE DIRECTIVES (MANDATORY):\n${this.policyOverlay.map(d => `- ${d}`).join("\n")}`
+        : "";
+
       const text = await this.context.llm.generateText(
         [
           LIVE_PERSONA,
           subconscious ? `Internal subconscious guidance:\n${subconscious}` : undefined,
+          directiveBlock,
           "Chat is quiet. Generate ONE short, engaging sentence to keep the stream lively based on the current focus.",
           "It can be a random thought, a question to chat, or a comment on the game.",
           `Current Focus:\n${focus ?? "Relaxed chatting"}`,
@@ -348,9 +378,6 @@ export class LiveCursor implements StelleCursor {
     const queue = target === "topic" ? this.topicQueue : this.responseQueue;
     const chunks = splitSentences(text).filter(s => s.trim().length > 0);
     
-    // 限制队列长度防止无限堆叠
-    const limit = this.context.config.live.speechQueueLimit || 5;
-    if (queue.length > limit) queue.length = limit;
     for (const chunk of chunks) {
       queue.push({
         id: `seq-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -359,6 +386,12 @@ export class LiveCursor implements StelleCursor {
         enqueuedAt: this.context.now(),
         emotion: emotion
       });
+    }
+
+    // 重点改进 (P9): 修正队列裁剪逻辑，确保 push 后依然受控
+    const limit = this.context.config.live.speechQueueLimit || 5;
+    if (queue.length > limit) {
+      queue.splice(0, queue.length - limit);
     }
   }
 

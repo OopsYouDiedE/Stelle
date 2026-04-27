@@ -15,6 +15,9 @@ import type { RuntimeConfig } from "../utils/config_loader.js";
 import type { ToolRegistry } from "../tool.js";
 import type { MemoryStore } from "../utils/memory.js";
 import type { StelleEventBus } from "../utils/event_bus.js";
+import type { StelleEvent } from "../utils/event_schema.js";
+
+export type { StelleEvent };
 
 export type CursorStatus = "idle" | "active" | "waiting" | "cooldown" | "error";
 
@@ -26,33 +29,6 @@ export interface CursorContext {
   eventBus: StelleEventBus;
   now: () => number;
 }
-
-export interface StelleEventBase {
-  id?: string;
-  timestamp?: number;
-}
-
-export type StelleEvent =
-  | (StelleEventBase & {
-      type: "live.request";
-      source: "discord" | "debug" | "system";
-      payload: { text: string; forceTopic?: boolean; [key: string]: unknown };
-    })
-  | (StelleEventBase & { type: "core.tick"; reason: string })
-  | (StelleEventBase & { type: "live.tick"; reason: string })
-  | (StelleEventBase & { type: "inner.tick"; reason: string })
-  | (StelleEventBase & {
-      type: "cursor.reflection";
-      source: "discord" | "live";
-      payload: {
-        intent: string;
-        summary: string;
-        impactScore?: number; // 0-10
-        emotion?: "neutral" | "positive" | "negative" | "tense" | "excited";
-        salience?: "low" | "medium" | "high";
-        [key: string]: unknown;
-      };
-    });
 
 export interface CursorSnapshot {
   id: string;

@@ -152,7 +152,7 @@ export class StelleApplication {
   private setupEventRouting() {
     // 路由内部调度事件到 EventBus
     this.scheduler.onTick((type, reason) => {
-      this.eventBus.publish({ type: type as any, reason });
+      this.eventBus.publish({ type: type as any, source: "scheduler", reason });
     });
   }
 
