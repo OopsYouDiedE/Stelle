@@ -20,16 +20,35 @@ export class DiscordRouter {
     session: DiscordChannelSession,
     batch: DiscordMessageSummary[],
     isMentioned: boolean,
-    policyOverlay: string[] = []
+    activePolicies: any[] = []
   ): Promise<DiscordReplyPolicy> {
-    const fallback: DiscordReplyPolicy = { mode: "reply", intent: "local_chat", reason: "fallback", needsThinking: false };
+    // 默认回退逻辑：没被提到则保持沉默，被提到则简单回复
+    const fallback: DiscordReplyPolicy = { 
+      mode: isMentioned ? "reply" : "silent", 
+      intent: "local_chat", 
+      reason: "llm_error_fallback", 
+      needsThinking: false 
+    };
     if (!this.context.config.models.apiKey) return fallback;
+
+    // 结构化策略先行：如果 InnerMind 强制要求沉默，则直接返回
+    if (activePolicies.some(p => p.replyBias === "silent")) {
+      return { mode: "silent", intent: "local_chat", reason: "inner_mind_silent_bias", needsThinking: false };
+    }
 
     const batchContent = batch.map(m => `${m.author.username}: ${m.cleanContent}`).join("\n");
     const recentHistory = session.history.slice(-10).map(m => `${m.author.username}: ${m.cleanContent}`).join("\n");
     
-    const directiveBlock = policyOverlay.length 
-      ? `\nCURRENT ACTIVE DIRECTIVES (MANDATORY):\n${policyOverlay.map(d => `- ${d}`).join("\n")}`
+    // 构造指令块
+    const directiveBlock = activePolicies.length 
+      ? `\nCURRENT ACTIVE BEHAVIOR POLICIES:\n${activePolicies.map(p => {
+          const parts = [];
+          if (p.replyBias) parts.push(`Reply Bias: ${p.replyBias}`);
+          if (p.vibeIntensity) parts.push(`Vibe Intensity: ${p.vibeIntensity}/5`);
+          if (p.focusTopic) parts.push(`Current Focus: ${p.focusTopic}`);
+          if (p.instruction) parts.push(`Instruction: ${p.instruction}`);
+          return `- ${parts.join(" | ")}`;
+        }).join("\n")}`
       : "";
 
     try {
@@ -54,9 +73,9 @@ export class DiscordRouter {
           "}",
           "",
           "Available Tools for Planning:",
-          "- memory.read_recent: { scope: { kind: 'discord_channel', channelId: '...' }, limit: 10 }",
-          "- memory.search: { scope: { ... }, text: 'query', limit: 3 }",
-          "- memory.read_long_term: { key: '...' }",
+          "- memory.read_recent: { scope: { kind: 'discord_channel', channelId: '...' }, limit: 10 } (Quick glance at last few messages)",
+          "- memory.search: { scope: { ... }, text: 'query', limit: 3 } (Deep search across ALL history, including very recent context)",
+          "- memory.read_long_term: { key: '...' } (Read specific identity/subconscious/facts files)",
           "- discord.status: {}",
           "- discord.get_channel_history: { channel_id: '...', limit: 10 }",
           "- live.status: {}",

@@ -175,23 +175,41 @@ export class MemoryStore {
   }
 
   async searchHistory(scope: MemoryScope, query: MemorySearchQuery): Promise<HistorySummary[]> {
-    const historyPath = this.historyPath(scope);
-    const raw = await readFile(historyPath, "utf8").catch(() => "");
-    if (!raw.trim()) return [];
     const needles = [...(query.keywords ?? []), ...(query.text ? query.text.split(/\s+/) : [])]
       .map((item) => item.trim().toLowerCase())
       .filter(Boolean);
-    const blocks = raw.split(/^## /m).filter((block) => block.trim());
-    const results = blocks
-      .map((block) => {
-        const haystack = block.toLowerCase();
-        const score = needles.length ? needles.reduce((sum, needle) => sum + (haystack.includes(needle) ? 1 : 0), 0) : 1;
-        return { scope, path: historyPath, excerpt: truncateText(block.replace(/\s+/g, " "), 900), score };
-      })
+
+    // 1. 搜索归档历史 (history.md)
+    const historyPath = this.historyPath(scope);
+    const historyRaw = await readFile(historyPath, "utf8").catch(() => "");
+    const historyBlocks = historyRaw.split(/^## /m).filter((block) => block.trim());
+    
+    const historyResults = historyBlocks.map((block) => {
+      const haystack = block.toLowerCase();
+      const score = needles.length ? needles.reduce((sum, needle) => sum + (haystack.includes(needle) ? 1 : 0), 0) : 1;
+      return { scope, path: historyPath, excerpt: truncateText(block.replace(/\s+/g, " "), 900), score };
+    });
+
+    // 2. 搜索最近记忆 (recent.jsonl)
+    const recentEntries = await this.readRecent(scope, 100); // 搜索最近 100 条
+    const recentResults = recentEntries.map((entry) => {
+      const haystack = entry.text.toLowerCase();
+      const score = needles.length ? needles.reduce((sum, needle) => sum + (haystack.includes(needle) ? 1.2 : 0), 0) : 1; // 给予最近记忆略高的权重
+      return { 
+        scope, 
+        path: this.recentPath(scope), 
+        excerpt: `[Recent] ${entry.source}: ${truncateText(entry.text, 500)}`, 
+        score 
+      };
+    });
+
+    // 3. 合并与排序
+    const allResults = [...recentResults, ...historyResults]
       .filter((item) => item.score > 0)
       .sort((a, b) => b.score - a.score)
       .slice(0, Math.max(1, Math.min(20, query.limit ?? 3)));
-    return results;
+
+    return allResults;
   }
 
   async snapshot(): Promise<Record<string, unknown>> {

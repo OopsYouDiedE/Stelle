@@ -46,8 +46,17 @@ export class LiveGateway {
     this.context.tools.execute(
       "live.push_event",
       { event_id: id, lane, text },
-      { caller: "cursor", cursorId: "live", cwd: process.cwd(), allowedAuthority: ["external_write"] }
-    ).catch(() => {});
+      { 
+        caller: "cursor", 
+        cursorId: "live", 
+        cwd: process.cwd(), 
+        allowedAuthority: ["external_write"],
+        allowedTools: ["live.push_event"] // 必须显式授权
+      }
+    ).catch(err => {
+      // 至少在调试时能看到为什么失败
+      if (process.env.DEBUG) console.warn("[LiveGateway] System event push failed:", err.message);
+    });
   }
 
   public getBufferSize(): number {

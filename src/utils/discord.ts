@@ -43,6 +43,8 @@ export interface DiscordMessageSummary {
   content: string;
   cleanContent?: string;
   createdTimestamp: number;
+  isMentioned?: boolean; // 新增：是否提到 Bot
+  isDirectMessage?: boolean; // 新增：是否私聊
   trustedInput?: boolean;
   mentionedUserIds?: string[];
   reference?: {
@@ -137,6 +139,15 @@ export class DiscordRuntime {
   onMessage(handler: DiscordMessageHandler): () => void {
     this.messageHandlers.add(handler);
     return () => this.messageHandlers.delete(handler);
+  }
+
+  getStatusSync(): DiscordStatus {
+    return {
+      connected: Boolean(this.client?.isReady()),
+      botUserId: this.client?.user?.id ?? null,
+      guildCount: this.client?.guilds.cache.size ?? 0,
+      lastError: this.lastError,
+    };
   }
 
   async getStatus(): Promise<DiscordStatus> {

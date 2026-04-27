@@ -35,7 +35,24 @@ export const ReflectionEventSchema = EventMetadataSchema.extend({
 });
 
 /**
- * 3. 直播调度类事件 (Live Request Events)
+ * 3. 外部原始事件 (External Raw Events)
+ */
+export const DiscordMessageEventSchema = EventMetadataSchema.extend({
+  type: z.literal("discord.message.received"),
+  source: z.literal("discord"),
+  payload: z.object({
+    id: z.string(),
+    channelId: z.string(),
+    authorId: z.string(),
+    authorName: z.string(),
+    content: z.string(),
+    isMentioned: z.boolean(),
+    isDirectMessage: z.boolean(),
+  }),
+});
+
+/**
+ * 4. 直播调度类事件 (Live Request Events)
  */
 export const LiveRequestEventSchema = EventMetadataSchema.extend({
   type: z.literal("live.request"),
@@ -52,13 +69,22 @@ export const LiveRequestEventSchema = EventMetadataSchema.extend({
 /**
  * 4. 指令下发类事件 (Directive Events)
  */
+export const BehaviorPolicySchema = z.object({
+  replyBias: z.enum(["aggressive", "normal", "selective", "silent"]).optional(),
+  vibeIntensity: z.number().min(1).max(5).optional(),
+  focusTopic: z.string().optional(),
+  forbiddenTopics: z.array(z.string()).optional(),
+  instruction: z.string().optional(), // 保留自然语言作为补充
+});
+
 export const DirectiveEventSchema = EventMetadataSchema.extend({
   type: z.literal("cursor.directive"),
   source: z.enum(["inner", "system"]),
   payload: z.object({
     target: z.enum(["discord", "live", "global"]),
     action: z.string(),
-    parameters: z.record(z.any()),
+    policy: BehaviorPolicySchema.optional(), // 结构化策略
+    parameters: z.record(z.any()).optional(),
     priority: z.number().default(1),
     expiresAt: z.number().optional(),
   }),
@@ -79,6 +105,7 @@ export const SystemEventSchema = EventMetadataSchema.extend({
 export const StelleEventSchema = z.union([
   TickEventSchema,
   ReflectionEventSchema,
+  DiscordMessageEventSchema,
   LiveRequestEventSchema,
   DirectiveEventSchema,
   SystemEventSchema,

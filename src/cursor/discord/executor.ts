@@ -12,33 +12,73 @@ const DISCORD_CURSOR_TOOLS = [
 
 /**
  * 模块：DiscordToolExecutor (执行层)
- * 职责：权限映射、工具链并发执行、特殊级联工具逻辑。
+ * 职责：权限映射、工具链并发执行、参数自动补全(Scope Injection)。
  */
 export class DiscordToolExecutor {
   constructor(private readonly context: CursorContext, private readonly cursorId: string) {}
 
-  public async execute(policy: DiscordReplyPolicy, trustLevel: string): Promise<DiscordToolResultView[]> {
+  public async execute(
+    policy: DiscordReplyPolicy, 
+    trustLevel: string, 
+    discordCtx: { channelId: string; guildId?: string | null; authorId: string }
+  ): Promise<DiscordToolResultView[]> {
     if (!policy.toolPlan || !policy.toolPlan.calls.length) return [];
     
-    const calls = policy.toolPlan.calls.slice(0, 3); // 限制单次任务规模
+    const calls = policy.toolPlan.calls.slice(0, 3);
     const allowedAuthority = this.getTrustAuthority(trustLevel);
 
+    // 预处理：自动补全参数 (例如为记忆工具注入当前频道 Scope)
+    const refinedCalls = calls.map(call => ({
+      ...call,
+      parameters: this.refineParameters(call.tool, call.parameters, discordCtx)
+    }));
+
     if (policy.toolPlan.parallel) {
-      const results = await Promise.all(calls.map(call => this.executeSingle(call.tool, call.parameters, allowedAuthority)));
+      const results = await Promise.all(refinedCalls.map(call => this.executeSingle(call.tool, call.parameters, allowedAuthority)));
       return results.flat().slice(0, 5);
     } else {
       const results: DiscordToolResultView[] = [];
-      for (const call of calls) {
+      for (const call of refinedCalls) {
         results.push(...(await this.executeSingle(call.tool, call.parameters, allowedAuthority)));
       }
       return results;
     }
   }
 
+  /**
+   * 核心逻辑：参数自动补全
+   * 防止 LLM 遗漏或填错底层的 scope、channelId 等字段
+   */
+  private refineParameters(name: string, params: Record<string, any>, ctx: { channelId: string; guildId?: string | null; authorId: string }): Record<string, any> {
+    const refined = { ...params };
+
+    // 1. 为记忆读取工具注入当前频道 Scope
+    if ((name === "memory.read_recent" || name === "memory.search") && !refined.scope) {
+      refined.scope = {
+        kind: "discord_channel",
+        channelId: ctx.channelId,
+        guildId: ctx.guildId || null
+      };
+    }
+
+    // 2. 为 Discord 消息读取注入当前频道 (如果未指定)
+    if (name === "discord.get_channel_history" && !refined.channel_id) {
+      refined.channel_id = ctx.channelId;
+    }
+
+    return refined;
+  }
+
   private async executeSingle(name: string, input: Record<string, any>, authority: ToolContext["allowedAuthority"]): Promise<DiscordToolResultView[]> {
     try {
       const result = await this.context.tools.execute(name, input, this.toolContext(authority));
-      const view: DiscordToolResultView = { name, ok: result.ok, summary: result.summary, data: result.data as any };
+      const view: DiscordToolResultView = { 
+        name, 
+        ok: result.ok, 
+        summary: result.summary, 
+        data: result.data as any,
+        error: result.error // 保留错误详情
+      };
 
       // 特殊处理：Search 级联读取
       if (name === "search.web_search" && result.ok) {

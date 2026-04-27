@@ -33,8 +33,8 @@ export class DiscordCursor implements StelleCursor {
   private status: CursorSnapshot["status"] = "idle";
   private summary = "Discord Cursor is ready.";
   
-  // 指令覆盖层与子模块
-  private policyOverlay: string[] = [];
+  // 指令覆盖层
+  private activeDirectives: Array<{ id: string; policy: any; expiresAt: number }> = [];
   private unsubscribes: (() => void)[] = [];
 
   private readonly gateway: DiscordGateway;
@@ -50,18 +50,40 @@ export class DiscordCursor implements StelleCursor {
   }
 
   async initialize(): Promise<void> {
-    // 监听实时指令
+    // 1. 订阅原始消息事件 (Event-Driven Input)
+    this.unsubscribes.push(
+      this.context.eventBus.subscribe("discord.message.received", (event) => {
+        // 转换事件 payload 到消息摘要格式
+        const summary: DiscordMessageSummary = {
+          id: event.payload.id,
+          channelId: event.payload.channelId,
+          author: {
+            id: event.payload.authorId,
+            username: event.payload.authorName,
+            bot: false,
+            trustLevel: "external"
+          },
+          content: event.payload.content,
+          cleanContent: event.payload.content,
+          isMentioned: event.payload.isMentioned,
+          isDirectMessage: event.payload.isDirectMessage,
+          createdTimestamp: event.timestamp
+        };
+        void this.receiveMessage(summary).catch(e => console.error("[DiscordCursor] Message handling failed:", e));
+      })
+    );
+
+    // 2. 订阅来自 InnerMind 的实时指令 (Runtime Directives)
     this.unsubscribes.push(
       this.context.eventBus.subscribe("cursor.directive", (event) => {
         if (event.payload.target === "discord" || event.payload.target === "global") {
-          const instruction = String(event.payload.parameters.instruction || "");
-          if (instruction) {
-            this.policyOverlay.push(instruction);
-            this.summary = `Directive applied: ${truncateText(instruction, 50)}`;
-            setTimeout(() => {
-              this.policyOverlay = this.policyOverlay.filter(i => i !== instruction);
-            }, 30 * 60 * 1000);
-          }
+          const expiresAt = event.payload.expiresAt || (this.context.now() + 30 * 60 * 1000);
+          this.activeDirectives.push({
+            id: event.id,
+            policy: event.payload.policy || { instruction: String(event.payload.parameters?.instruction || "") },
+            expiresAt
+          });
+          this.summary = `Directive applied: ${truncateText(event.payload.policy?.instruction || "Policy updated", 50)}`;
         }
       })
     );
@@ -92,40 +114,67 @@ export class DiscordCursor implements StelleCursor {
    */
   private async executeBatch(session: DiscordChannelSession, batch: DiscordMessageSummary[], isDirectMention: boolean) {
     const latestMessage = batch[batch.length - 1];
+    const now = this.context.now();
+    this.status = "active";
 
-    // 1. 路由决策 (Router)
-    const policy = await this.router.designPolicy(session, batch, isDirectMention, this.policyOverlay);
-    
-    if (policy.mode !== "reply") {
-      const waitSeconds = policy.mode === "silent" ? 300 : 3600;
-      session.mode = policy.mode === "deactivate" ? "deactivated" : "silent";
-      session.modeExpiresAt = this.context.now() + waitSeconds * 1000;
-      this.summary = `Router decision: ${policy.mode} - ${policy.reason}`;
-      return;
+    // 0. 清理过期指令并提取当前策略
+    this.activeDirectives = this.activeDirectives.filter(d => d.expiresAt > now);
+    const activePolicies = this.activeDirectives.map(d => d.policy);
+
+    try {
+      // 1. 路由决策 (Router)
+      this.summary = "Designing policy...";
+      const policy = await this.router.designPolicy(session, batch, isDirectMention, activePolicies);
+      
+      if (policy.mode !== "reply") {
+        const waitSeconds = policy.mode === "silent" ? 300 : 3600;
+        session.mode = policy.mode === "deactivate" ? "deactivated" : "silent";
+        session.modeExpiresAt = this.context.now() + waitSeconds * 1000;
+        this.status = "idle";
+        this.summary = `Decision: ${policy.mode} - ${policy.reason}`;
+        return;
+      }
+
+      // 2. 特殊分发逻辑 (直播请求)
+      if (policy.intent === "live_request") {
+        this.status = "waiting";
+        await this.handleLiveDispatch(latestMessage, policy);
+        this.status = "idle";
+        return;
+      }
+
+      // 3. 执行工具 (Executor)
+      this.status = "waiting";
+      this.summary = `Executing tools: ${policy.toolPlan?.calls.map(c => c.tool).join(", ") || "none"}`;
+      const toolResults = await this.executor.execute(policy, latestMessage.author.trustLevel || "external", {
+        channelId: latestMessage.channelId,
+        guildId: latestMessage.guildId,
+        authorId: latestMessage.author.id
+      });
+
+      // 4. 生成回复 (Responder)
+      this.status = "active";
+      this.summary = "Generating response...";
+      const replyText = await this.responder.respond(session, batch, policy, toolResults);
+      
+      // 5. 发送与归档
+      const replySummary = await this.responder.sendAndArchive(latestMessage, replyText, policy);
+      
+      // 6. 更新状态与历史
+      session.history.push(replySummary);
+      session.cooldownUntil = this.context.now() + this.context.config.discord.cooldownSeconds * 1000;
+      this.status = "cooldown";
+      this.summary = `Replied: ${truncateText(replyText, 60)}`;
+      
+      // 7. 上报反思压力 (Orchestration context)
+      this.reportReflection(policy.intent, truncateText(replyText, 240), isDirectMention ? 5 : 2);
+    } catch (e) {
+      this.status = "error";
+      this.summary = `Error: ${String(e)}`;
+      throw e;
+    } finally {
+      if (this.status !== "cooldown") this.status = "idle";
     }
-
-    // 2. 特殊分发逻辑 (直播请求)
-    if (policy.intent === "live_request") {
-      await this.handleLiveDispatch(latestMessage, policy);
-      return;
-    }
-
-    // 3. 执行工具 (Executor)
-    const toolResults = await this.executor.execute(policy, latestMessage.author.trustLevel || "external");
-
-    // 4. 生成回复 (Responder)
-    const replyText = await this.responder.respond(session, batch, policy, toolResults);
-    
-    // 5. 发送与归档
-    const replySummary = await this.responder.sendAndArchive(latestMessage, replyText, policy);
-    
-    // 6. 更新状态与历史
-    session.history.push(replySummary);
-    session.cooldownUntil = this.context.now() + this.context.config.discord.cooldownSeconds * 1000;
-    this.summary = `Replied: ${truncateText(replyText, 100)}`;
-    
-    // 7. 上报反思压力 (Orchestration context)
-    this.reportReflection(policy.intent, truncateText(replyText, 240), isDirectMention ? 5 : 2);
   }
 
   private async handleLiveDispatch(message: DiscordMessageSummary, policy: DiscordReplyPolicy) {

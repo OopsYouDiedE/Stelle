@@ -6,6 +6,7 @@ import { truncateText } from "../utils/text.js";
 import type { CursorContext, CursorSnapshot, StelleEvent, StelleCursor } from "./types.js";
 import { LiveGateway } from "./live/gateway.js";
 import { LiveRouter } from "./live/router.js";
+import { LiveExecutor } from "./live/executor.js";
 import { LiveResponder } from "./live/responder.js";
 import type { LiveAction, LiveEmotion } from "./live/types.js";
 
@@ -32,6 +33,7 @@ export class LiveCursor implements StelleCursor {
 
   private readonly gateway: LiveGateway;
   private readonly router: LiveRouter;
+  private readonly executor: LiveExecutor;
   private readonly responder: LiveResponder;
 
   private nextThemeAt = 0;
@@ -39,12 +41,13 @@ export class LiveCursor implements StelleCursor {
   private tickInFlight = false;
   private currentEmotion: LiveEmotion = "neutral";
   
-  private policyOverlay: string[] = [];
+  private activeDirectives: Array<{ id: string; policy: any; expiresAt: number }> = [];
   private unsubscribes: (() => void)[] = [];
 
   constructor(private readonly context: CursorContext) {
     this.gateway = new LiveGateway(context);
     this.router = new LiveRouter(context, LIVE_PERSONA);
+    this.executor = new LiveExecutor(context, this.id);
     this.responder = new LiveResponder(context, [...LIVE_CURSOR_TOOLS]);
   }
 
@@ -59,11 +62,13 @@ export class LiveCursor implements StelleCursor {
 
     this.unsubscribes.push(this.context.eventBus.subscribe("cursor.directive", (event) => {
       if (event.payload.target === "live" || event.payload.target === "global") {
-        const instruction = String(event.payload.parameters.instruction || "");
-        if (instruction) {
-          this.policyOverlay.push(instruction);
-          setTimeout(() => { this.policyOverlay = this.policyOverlay.filter(i => i !== instruction); }, 30 * 60 * 1000);
-        }
+        const expiresAt = event.payload.expiresAt || (this.context.now() + 30 * 60 * 1000);
+        this.activeDirectives.push({
+          id: event.id,
+          policy: event.payload.policy || { instruction: String(event.payload.parameters?.instruction || "") },
+          expiresAt
+        });
+        this.summary = `Directive applied: ${truncateText(event.payload.policy?.instruction || "Policy updated", 50)}`;
       }
     }));
   }
@@ -104,19 +109,36 @@ export class LiveCursor implements StelleCursor {
   private async processBatch(batch: any[]) {
     if (this.isGenerating || batch.length === 0) return;
     this.isGenerating = true;
+    this.status = "active";
+    const now = this.context.now();
 
     try {
-      const decision = await this.router.decide(batch, this.responder.getRecentSpeech(), this.currentEmotion, this.policyOverlay);
+      this.activeDirectives = this.activeDirectives.filter(d => d.expiresAt > now);
+      const activePolicies = this.activeDirectives.map(d => d.policy);
+
+      // 1. 决策 (Router)
+      this.summary = "Designing live strategy...";
+      const decision = await this.router.decide(batch, this.responder.getRecentSpeech(), this.currentEmotion, activePolicies);
       
+      // 2. 执行工具 (Executor)
+      if (decision.toolPlan) {
+        this.status = "waiting";
+        this.summary = `Executing tools: ${decision.toolPlan.calls.map(c => c.tool).join(", ")}`;
+        await this.executor.execute(decision);
+      }
+
+      // 3. 响应 (Responder)
       if (decision.action !== "drop_noise" && decision.script.trim()) {
+        this.status = "active";
         this.currentEmotion = decision.emotion;
         this.responder.enqueue("response", decision.script, decision.emotion);
         this.summary = `[Live:${decision.action}] ${truncateText(decision.script, 50)}`;
         await this.reportReflection(decision.action, decision.script, 4, "medium");
-        this.nextThemeAt = this.context.now() + 5000; // 推迟下一次自动话题
+        this.nextThemeAt = this.context.now() + 5000;
       }
     } finally {
       this.isGenerating = false;
+      this.status = "idle";
     }
   }
 
@@ -150,8 +172,12 @@ export class LiveCursor implements StelleCursor {
 
   private async handleIdleTopic() {
     this.isGenerating = true;
+    const now = this.context.now();
     try {
-      const text = await this.router.generateTopic(this.responder.getRecentSpeech(), this.currentEmotion, this.policyOverlay);
+      this.activeDirectives = this.activeDirectives.filter(d => d.expiresAt > now);
+      const activePolicies = this.activeDirectives.map(d => d.policy);
+      
+      const text = await this.router.generateTopic(this.responder.getRecentSpeech(), this.currentEmotion, activePolicies);
       if (text) {
         this.responder.enqueue("topic", text, this.currentEmotion);
         await this.reportReflection("idle_topic", text, 1, "low");

@@ -16,15 +16,16 @@ describe("InnerCursor Full Logic Coverage", () => {
         core: { reflectionAccumulationThreshold: 10, reflectionIntervalHours: 6 }
       },
       llm: {
-        generateJson: vi.fn().mockResolvedValue({
+        generateJson: vi.fn().mockImplementation(async (_p, _s, normalize) => normalize({
           insight: "Insight",
           globalMood: "calm",
           newConviction: { topic: "T", stance: "S" },
-          directives: [{ target: "all", instruction: "Do something", lifespanMinutes: 10 }]
-        }),
+          directives: [{ target: "discord", policy: { instruction: "Do something" }, lifespanMinutes: 10 }]
+        })),
         generateText: vi.fn().mockResolvedValue("Advice")
       },
       memory: {
+        readRecent: vi.fn().mockResolvedValue([]), // 补齐 Mock
         readLongTerm: vi.fn().mockResolvedValue(null),
         writeLongTerm: vi.fn().mockResolvedValue(undefined),
         readResearchLogs: vi.fn().mockResolvedValue([]),
@@ -63,6 +64,8 @@ describe("InnerCursor Full Logic Coverage", () => {
 
     // 触发第一次（进入 reflects 状态）
     innerCursor.recordDecision({ salience: "high" } as any);
+    // 等待一个微任务让异步内存读取完成
+    await new Promise(r => setTimeout(r, 0));
     expect(innerCursor.snapshot().status).toBe("active");
 
     // 触发第二次
@@ -70,8 +73,6 @@ describe("InnerCursor Full Logic Coverage", () => {
     
     // 验证 generateJson 只被调用了一次
     expect(context.llm.generateJson).toHaveBeenCalledTimes(1);
-    
-    resolveLlm({ insight: "done", directives: [] }); // 释放
   });
 
   // --- 死角测试 4: 信念容量上限与 shift (L190) ---
@@ -81,7 +82,14 @@ describe("InnerCursor Full Logic Coverage", () => {
     context.memory.readLongTerm.mockResolvedValueOnce(JSON.stringify(existing));
     await innerCursor.initialize();
 
-    // 触发一次合成产生第 21 个
+    // 模拟生成第 21 个信念 (T20)
+    context.llm.generateJson.mockImplementationOnce(async (_p, _s, normalize) => normalize({
+      insight: "...",
+      newConviction: { topic: "T20", stance: "S20" },
+      directives: []
+    }));
+
+    // 触发一次合成
     await innerCursor.recordDecision({ salience: "high" } as any);
     await new Promise(r => setTimeout(r, 50)); // 等待异步逻辑
 
@@ -90,14 +98,15 @@ describe("InnerCursor Full Logic Coverage", () => {
     // 验证第一个是否被挤掉了 (T0 应该不在了)
     const convictions = (innerCursor as any).coreConvictions;
     expect(convictions[0].topic).toBe("T1"); 
+    expect(convictions[19].topic).toBe("T20");
   });
 
   // --- 死角测试 5: 无效指令过滤 (L213) ---
   it("should ignore directives with empty instructions", async () => {
-    context.llm.generateJson.mockResolvedValueOnce({
+    context.llm.generateJson.mockImplementationOnce(async (_p, _s, normalize) => normalize({
       insight: "...",
-      directives: [{ target: "all", instruction: "", lifespanMinutes: 10 }]
-    });
+      directives: [{ target: "discord", policy: { instruction: "" }, lifespanMinutes: 10 }]
+    }));
 
     await innerCursor.recordDecision({ salience: "high" } as any);
     await new Promise(r => setTimeout(r, 50));

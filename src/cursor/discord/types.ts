@@ -13,6 +13,14 @@ export interface DiscordToolPlan {
   parallel: boolean;
 }
 
+export interface BehaviorPolicy {
+  replyBias?: "aggressive" | "normal" | "selective" | "silent";
+  vibeIntensity?: number;
+  focusTopic?: string;
+  forbiddenTopics?: string[];
+  instruction?: string;
+}
+
 export interface DiscordReplyPolicy {
   mode: RouterMode;
   intent: DiscordIntent;
@@ -20,6 +28,7 @@ export interface DiscordReplyPolicy {
   needsThinking: boolean;
   toolPlan?: DiscordToolPlan;
   focus?: string;
+  behaviorOverride?: BehaviorPolicy; // 结构化指令覆盖
 }
 
 export interface DiscordToolResultView {
@@ -27,6 +36,7 @@ export interface DiscordToolResultView {
   ok: boolean;
   summary: string;
   data?: Record<string, unknown>;
+  error?: { code: string; message: string; retryable: boolean };
 }
 
 export interface DiscordChannelSession {

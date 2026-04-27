@@ -136,23 +136,36 @@ export class StelleApplication {
     await Promise.all(this.cursors.map(c => c.initialize?.()));
 
     this.discord.onMessage((message) => {
-      void discordCursor.receiveMessage(message).then(
-        (result) => {
-          this.state.record("discord_message", result.reason, { result });
-          this.state.updateCursors(this.cursors.map(c => c.snapshot()));
-        },
-        (error) => {
-          this.state.recordError(error);
-          this.state.updateCursors(this.cursors.map(c => c.snapshot()));
+      const botStatus = this.discord.getStatusSync();
+      
+      this.eventBus.publish({
+        type: "discord.message.received",
+        source: "discord",
+        id: `evt-${message.id}`,
+        timestamp: Date.now(),
+        payload: {
+          id: message.id,
+          channelId: message.channelId,
+          authorId: message.author.id,
+          authorName: message.author.displayName || message.author.username,
+          content: message.content,
+          isMentioned: message.mentionedUserIds?.includes(botStatus.botUserId || "") || false,
+          isDirectMessage: !message.guildId,
         }
-      );
+      });
     });
   }
 
-  private setupEventRouting() {
+    private setupEventRouting() {
+
     // 路由内部调度事件到 EventBus
     this.scheduler.onTick((type, reason) => {
       this.eventBus.publish({ type: type as any, source: "scheduler", reason });
+    });
+
+    // 可以在这里监听反射事件来更新全局状态记录
+    this.eventBus.subscribe("cursor.reflection", (event) => {
+      this.state.record("cursor_reflection", event.payload.summary, event.payload);
     });
   }
 
@@ -178,8 +191,16 @@ export class StelleApplication {
         return { accepted: true, reason: "Published to event bus", eventId };
       },
       sendLiveEvent: (input: Record<string, unknown>) => {
-        const liveCursor = this.cursors.find(c => c.id === "live") as LiveCursor | undefined;
-        return liveCursor ? liveCursor.receiveLiveEvent(input as any) : { ok: false, error: "LiveCursor not ready" };
+        // 修改为事件发布模式，虽然 LiveCursor 目前还是同步接口，但我们通过 EventBus 中转
+        const eventId = `live-event-${Date.now()}`;
+        this.eventBus.publish({
+          type: "system.ready", // 这里需要一个新的外部输入事件类型，暂用 system.ready 的 payload 承载或定义新类型
+          source: "system",
+          id: eventId,
+          timestamp: Date.now(),
+          payload: { type: "live.raw_event", ...input }
+        } as any);
+        return { accepted: true, reason: "Forwarded to event bus", eventId };
       },
     };
 

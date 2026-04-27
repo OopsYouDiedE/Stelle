@@ -198,19 +198,32 @@ export class InnerCursor implements StelleCursor {
     this.status = "active";
 
     try {
-      const decisionsToReflect = this.recentDecisions.slice(-this.unreflectedCount);
+      const decisionsToReflect = this.recentDecisions.slice(-Math.max(20, this.unreflectedCount));
       if (decisionsToReflect.length === 0) return;
 
       this.unreflectedCount = 0;
       this.pendingImpactScore = 0;
       this.lastReflectionAt = this.context.now();
 
+      // 注入结构化决策日志
       const decisionLog = decisionsToReflect.map(d => `[${d.source}] ${d.type}: ${d.summary}`).join("\n");
 
+      // 注入原始背景片段 (从所有作用域读取最近记忆)
+      let rawBackground = "";
+      if (this.context.memory) {
+        const discordRecent = await this.context.memory.readRecent({ kind: "discord_channel", channelId: "global" }, 15).catch(() => []);
+        const liveRecent = await this.context.memory.readRecent({ kind: "live" }, 10).catch(() => []);
+        rawBackground = [...discordRecent, ...liveRecent]
+          .sort((a, b) => a.timestamp - b.timestamp)
+          .map(e => `[Raw:${e.source}] ${e.text}`).join("\n");
+      }
+
       const prompt = [
-        "You are the 'Inner Mind'. Review recent actions.",
-        'Schema: {"insight":"...","globalMood":"...","newConviction":{"topic":"...","stance":"..."},"directives":[{"target":"discord|live|global","instruction":"...","lifespanMinutes":30}]}',
-        `Recent Actions:\n${decisionLog}`
+        "You are the 'Inner Mind'. Review recent actions and synthesize a cognitive policy.",
+        "Your goal is to guide the interaction cursors (Discord/Live) using structural bias and specific instructions.",
+        `RECENT RAW OBSERVATIONS:\n${rawBackground || "(None)"}`,
+        `RECENT STRUCTURED DECISIONS:\n${decisionLog}`,
+        'Schema: {"insight":"...","globalMood":"...","newConviction":{"topic":"...","stance":"..."},"directives":[{"target":"discord|live|global","policy":{"replyBias":"aggressive|normal|selective|silent","vibeIntensity":1-5,"focusTopic":"...","instruction":"..."},"lifespanMinutes":30}]}',
       ].join("\n\n");
 
       const result = await this.context.llm.generateJson(
@@ -224,17 +237,23 @@ export class InnerCursor implements StelleCursor {
             newConviction: v.newConviction ? { topic: String(asRecord(v.newConviction).topic), stance: String(asRecord(v.newConviction).stance) } : undefined,
             directives: Array.isArray(v.directives) ? v.directives.map((d: any) => {
               const rec = asRecord(d);
+              const pol = asRecord(rec.policy);
               let target = String(rec.target || "global");
-              if (target === "all") target = "global"; // 后向兼容处理
+              if (target === "all") target = "global";
               return {
                 target: target as "discord" | "live" | "global",
-                instruction: String(rec.instruction),
+                policy: {
+                  replyBias: pol.replyBias as any,
+                  vibeIntensity: typeof pol.vibeIntensity === "number" ? pol.vibeIntensity : undefined,
+                  focusTopic: pol.focusTopic ? String(pol.focusTopic) : undefined,
+                  instruction: pol.instruction ? String(pol.instruction) : undefined,
+                },
                 lifespanMinutes: Number(rec.lifespanMinutes || 30)
               };
             }) : []
           };
         },
-        { role: "primary", temperature: 0.35, maxOutputTokens: 500 }
+        { role: "primary", temperature: 0.35, maxOutputTokens: 600 }
       );
 
       this.currentGlobalMood = result.globalMood;
@@ -251,13 +270,23 @@ export class InnerCursor implements StelleCursor {
 
       const now = this.context.now();
       for (const d of result.directives) {
-        if (!d.instruction) continue;
+        const instruction = d.policy.instruction || "";
+        if (!instruction && !d.policy.replyBias && !d.policy.vibeIntensity) continue; // 无效指令跳过
+        
         const expiresAt = now + (d.lifespanMinutes * 60 * 1000);
-        this.activeDirectives.push({ target: d.target, instruction: d.instruction, expiresAt });
+        this.activeDirectives.push({ target: d.target, instruction: instruction || "Policy update", expiresAt });
         this.context.eventBus.publish({
           type: "cursor.directive",
           source: "inner",
-          payload: { target: d.target, action: "apply_policy", parameters: { instruction: d.instruction }, expiresAt, priority: 2 }
+          id: `dir-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+          timestamp: now,
+          payload: { 
+            target: d.target, 
+            action: "apply_policy", 
+            policy: d.policy,
+            expiresAt, 
+            priority: 2 
+          }
         });
       }
 

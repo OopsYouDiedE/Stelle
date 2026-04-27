@@ -13,6 +13,19 @@ export interface LiveBatchDecision {
   intensity: number; // 1-5
   script: string;
   reason: string;
+  toolPlan?: {
+    calls: Array<{ tool: string; parameters: Record<string, any> }>;
+  };
+}
+
+/**
+ * 接口：直播工具执行结果视图
+ */
+export interface LiveToolResultView {
+  name: string;
+  ok: boolean;
+  summary: string;
+  data?: any;
 }
 
 /**
