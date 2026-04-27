@@ -22,11 +22,17 @@ export class DiscordResponder {
     const history = session.history.slice(-12).map(m => `${m.author.username}: ${m.cleanContent}`).join("\n");
     const batchContent = batch.map(m => `${m.author.username}: ${m.cleanContent}`).join("\n");
     const toolBlock = toolResults.length ? truncateText(JSON.stringify(toolResults, null, 2), 3000) : "(none)";
-    const subconscious = await this.context.memory?.readLongTerm("global_subconscious").catch(() => null);
+    
+    // 重点修复 (P1): 显式指定 self_state 层，否则由于 memory.ts 默认 observations 导致无法读取
+    const [subconscious, focus] = await Promise.all([
+      this.context.memory?.readLongTerm("global_subconscious", "self_state").catch(() => null),
+      this.context.memory?.readLongTerm("current_focus", "self_state").catch(() => null),
+    ]);
 
     const prompt = [
       this.persona,
       subconscious ? `Internal subconscious guidance:\n${subconscious}` : undefined,
+      focus ? `Current collective focus:\n${focus}` : undefined,
       "You are Layer 3 (Execution). Generate the final plain-text reply.",
       "Rules: No JSON, no internal chain-of-thought visible to users.",
       policy.needsThinking ? "Think carefully. Provide a deliberate, accurate answer." : "Give a fast, natural, direct answer.",

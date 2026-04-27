@@ -280,8 +280,10 @@ export class LiveCursor implements StelleCursor {
 
     const batchLog = batch.map(e => `[${e.priority}] ${e.user?.name ?? "观众"}: ${e.text}`).join("\n");
     const recentContext = this.recentSpeech.join("\n");
-    const focus = await this.context.memory?.readLongTerm("current_focus").catch(() => null);
-    const subconscious = await this.context.memory?.readLongTerm("global_subconscious").catch(() => null);
+    
+    // 重点修复 (P1): 显式指定 self_state 层
+    const focus = await this.context.memory?.readLongTerm("current_focus", "self_state").catch(() => null);
+    const subconscious = await this.context.memory?.readLongTerm("global_subconscious", "self_state").catch(() => null);
 
     // 重点改进 (P2): 注入实时指令覆盖层，强制影响直播决策
     const directiveBlock = this.policyOverlay.length 
@@ -326,8 +328,8 @@ export class LiveCursor implements StelleCursor {
   private async generateIdleTopic(): Promise<void> {
     this.isGenerating = true;
     try {
-      const focus = await this.context.memory?.readLongTerm("current_focus").catch(() => null);
-      const subconscious = await this.context.memory?.readLongTerm("global_subconscious").catch(() => null);
+      const focus = await this.context.memory?.readLongTerm("current_focus", "self_state").catch(() => null);
+      const subconscious = await this.context.memory?.readLongTerm("global_subconscious", "self_state").catch(() => null);
       const recentContext = this.recentSpeech.join("\n");
       
       // 重点改进 (P2): 注入实时指令覆盖层，强制影响闲聊决策
