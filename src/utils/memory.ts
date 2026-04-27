@@ -60,6 +60,18 @@ export interface MemoryStoreOptions {
   llm?: import("./llm.js").LlmClient;
 }
 
+export type MemoryLayer = "observations" | "user_facts" | "self_state" | "core_identity" | "research_logs";
+
+export interface MemoryProposal {
+  id: string;
+  timestamp: number;
+  authorId: string;
+  source: string;
+  content: string;
+  reason: string;
+  layer: MemoryLayer;
+}
+
 // Module: memory store public API.
 export class MemoryStore {
   private readonly rootDir: string;
@@ -80,6 +92,9 @@ export class MemoryStore {
     await this.recoverCheckpoints();
   }
 
+  /**
+   * Layer 1: Raw Observations (JSONL per session)
+   */
   async writeRecent(scope: MemoryScope, entry: MemoryEntry): Promise<void> {
     await this.inScopeQueue(scope, async () => {
       const dir = this.scopeDir(scope);
@@ -100,6 +115,35 @@ export class MemoryStore {
       .filter(Boolean)
       .map((line) => JSON.parse(line) as MemoryEntry)
       .slice(-limit);
+  }
+
+  /**
+   * Layer 2: Memory Proposals (Transient storage for non-owners)
+   */
+  async proposeMemory(proposal: Omit<MemoryProposal, "id" | "timestamp">): Promise<string> {
+    const id = `prop-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const fullProposal: MemoryProposal = { ...proposal, id, timestamp: Date.now() };
+    
+    const dir = path.join(this.rootDir, "long_term", "proposals");
+    await mkdir(dir, { recursive: true });
+    await appendFile(path.join(dir, "log.jsonl"), `${JSON.stringify(fullProposal)}\n`, "utf8");
+    return id;
+  }
+
+  /**
+   * Layer 3: Credibility Zones (Structured Long-Term Markdown)
+   */
+  async readLongTerm(key: string, layer: MemoryLayer = "self_state"): Promise<string | null> {
+    const file = path.join(this.rootDir, "long_term", layer, `${safeSegment(key)}.md`);
+    return readFile(file, "utf8").catch(() => null);
+  }
+
+  async writeLongTerm(key: string, value: string, layer: MemoryLayer = "self_state"): Promise<void> {
+    await this.inScopeQueue({ kind: "long_term" }, async () => {
+      const dir = path.join(this.rootDir, "long_term", layer);
+      await mkdir(dir, { recursive: true });
+      await atomicWrite(path.join(dir, `${safeSegment(key)}.md`), sanitizeExternalText(value));
+    });
   }
 
   async searchHistory(scope: MemoryScope, query: MemorySearchQuery): Promise<HistorySummary[]> {

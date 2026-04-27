@@ -55,6 +55,34 @@ export class InnerCursor implements StelleCursor {
     this.lastCoreReflectionAt = context.now();
   }
 
+  async initialize(): Promise<void> {
+    this.unsubscribes.push(
+      this.context.eventBus.subscribe("inner.tick", () => {
+        void this.tick().catch(e => console.error("[InnerCursor] Tick error:", e));
+      })
+    );
+    this.unsubscribes.push(
+      this.context.eventBus.subscribe("cursor.reflection", (event: Extract<StelleEvent, { type: "cursor.reflection" }>) => {
+        this.receiveDispatch(event);
+      })
+    );
+    
+    if (!this.context.memory) return;
+    try {
+      const savedConvictions = await this.context.memory.readLongTerm("core_convictions", "self_state");
+      if (savedConvictions) {
+        this.coreConvictions = JSON.parse(savedConvictions) as CoreConviction[];
+      }
+    } catch (e) {
+      console.warn("[Inner] Failed to load convictions.");
+    }
+  }
+
+  async stop(): Promise<void> {
+    for (const unsub of this.unsubscribes) unsub();
+    this.unsubscribes = [];
+  }
+
   receiveDispatch(event: StelleEvent): { accepted: boolean; reason: string; eventId: string } {
     if (event.type !== "cursor.reflection") {
       return { accepted: false, reason: `InnerCursor cannot handle ${event.type}.`, eventId: event.id ?? `inner-${Date.now()}` };
@@ -71,34 +99,6 @@ export class InnerCursor implements StelleCursor {
     return { accepted: true, reason: "Reflection recorded.", eventId: event.id ?? `inner-${Date.now()}` };
   }
 
-  async initialize(): Promise<void> {
-    this.unsubscribes.push(
-      this.context.eventBus.subscribe("inner.tick", () => {
-        void this.tick().catch(e => console.error("[InnerCursor] Tick error:", e));
-      })
-    );
-    this.unsubscribes.push(
-      this.context.eventBus.subscribe("cursor.reflection", (event: Extract<StelleEvent, { type: "cursor.reflection" }>) => {
-        this.receiveDispatch(event);
-      })
-    );
-    
-    if (!this.context.memory) return;
-    try {
-      const savedConvictions = await this.context.memory.readLongTerm("core_convictions");
-      if (savedConvictions) {
-        this.coreConvictions = JSON.parse(savedConvictions) as CoreConviction[];
-      }
-    } catch (e) {
-      console.warn("[Inner] Failed to load convictions.");
-    }
-  }
-
-  async stop(): Promise<void> {
-    for (const unsub of this.unsubscribes) unsub();
-    this.unsubscribes = [];
-  }
-
   recordDecision(decision: RuntimeDecision): void {
     this.recentDecisions.push(decision);
     this.unreflectedCount++;
@@ -109,7 +109,7 @@ export class InnerCursor implements StelleCursor {
     const shouldReflect = 
       decision.salience === "high" || 
       this.pendingImpactScore >= threshold || 
-      this.unreflectedCount >= (threshold * 1.5); // Count threshold slightly higher than impact
+      this.unreflectedCount >= (threshold * 1.5);
 
     if (shouldReflect) {
       void this.triggerCognitiveSynthesis().catch(e => console.error("[Inner] Synthesis failed:", e));
@@ -137,7 +137,7 @@ export class InnerCursor implements StelleCursor {
     this.status = "active";
 
     try {
-      const previousFocus = await this.context.memory.readLongTerm("current_focus");
+      const previousFocus = await this.context.memory.readLongTerm("current_focus", "self_state");
       const recentLogs = await this.context.memory.readResearchLogs(6);
 
       const prompt = [
@@ -150,7 +150,11 @@ export class InnerCursor implements StelleCursor {
       const focus = await this.context.llm.generateText(prompt, { role: "secondary", temperature: 0.5, maxOutputTokens: 240 });
       if (focus) {
         this.currentFocus = truncateText(focus, 1200);
-        await this.context.memory.writeLongTerm("current_focus", this.currentFocus);
+        await this.context.tools.execute("memory.write_long_term", 
+          { key: "current_focus", value: this.currentFocus, layer: "self_state" },
+          { caller: "core", cwd: process.cwd(), allowedAuthority: ["safe_write"], allowedTools: ["memory.write_long_term"] }
+        ).catch(() => {});
+
         await this.context.memory.appendResearchLog({
           focus: this.currentFocus,
           process: [`Scheduled reflection`, `Previous focus: ${truncateText(previousFocus ?? "(none)", 240)}`],
@@ -188,9 +192,6 @@ export class InnerCursor implements StelleCursor {
     }
   }
 
-  /**
-   * 改为返回 Promise<void> 以支持单元测试 await
-   */
   async triggerCognitiveSynthesis(): Promise<void> {
     if (this.isReflecting || !this.context.config.models.apiKey) return;
     this.isReflecting = true;
@@ -205,7 +206,6 @@ export class InnerCursor implements StelleCursor {
       this.lastReflectionAt = this.context.now();
 
       const decisionLog = decisionsToReflect.map(d => `[${d.source}] ${d.type}: ${d.summary}`).join("\n");
-      const convictionBlock = this.coreConvictions.map(c => `- ${c.topic}: ${c.stance}`).join("\n");
 
       const prompt = [
         "You are the 'Inner Mind'. Review recent actions.",
@@ -238,36 +238,28 @@ export class InnerCursor implements StelleCursor {
       if (result.newConviction && result.newConviction.topic && result.newConviction.stance) {
         this.coreConvictions.push(result.newConviction);
         if (this.coreConvictions.length > 20) this.coreConvictions.shift(); 
-        await this.context.memory?.writeLongTerm("core_convictions", JSON.stringify(this.coreConvictions)).catch(() => {});
+        await this.context.tools.execute("memory.write_long_term", 
+          { key: "core_convictions", value: JSON.stringify(this.coreConvictions), layer: "self_state" },
+          { caller: "core", cwd: process.cwd(), allowedAuthority: ["safe_write"], allowedTools: ["memory.write_long_term"] }
+        ).catch(() => {});
       }
 
       const now = this.context.now();
       for (const d of result.directives) {
         if (!d.instruction) continue;
         const expiresAt = now + (d.lifespanMinutes * 60 * 1000);
-        
-        // 1. 本地记录
-        this.activeDirectives.push({
-          target: d.target as any,
-          instruction: d.instruction,
-          expiresAt: expiresAt
-        });
-
-        // 2. 重点改进 (P2): 发布硬控制指令事件，实现控制闭环
+        this.activeDirectives.push({ target: d.target as any, instruction: d.instruction, expiresAt });
         this.context.eventBus.publish({
           type: "cursor.directive",
           source: "inner",
-          payload: {
-            target: d.target as any,
-            action: "apply_policy",
-            parameters: { instruction: d.instruction },
-            expiresAt: expiresAt,
-            priority: 2
-          }
+          payload: { target: d.target as any, action: "apply_policy", parameters: { instruction: d.instruction }, expiresAt, priority: 2 }
         });
       }
 
-      await this.context.memory?.writeLongTerm("global_subconscious", this.buildContextBlock()).catch(() => {});
+      await this.context.tools.execute("memory.write_long_term", 
+        { key: "global_subconscious", value: this.buildContextBlock(), layer: "self_state" },
+        { caller: "core", cwd: process.cwd(), allowedAuthority: ["safe_write"], allowedTools: ["memory.write_long_term"] }
+      ).catch(() => {});
     } finally {
       this.isReflecting = false;
       this.status = "idle";
@@ -280,15 +272,11 @@ export class InnerCursor implements StelleCursor {
   }
 
   buildContextBlock(callerSource?: "discord" | "live"): string {
-    // 过滤出通用的和针对当前调用者的指令
     const relevantDirectives = this.activeDirectives
       .filter(d => d.target === "all" || (callerSource && d.target === callerSource))
       .map(d => `[URGENT DIRECTIVE]: ${d.instruction}`);
-
     const allDirectivesForStorage = this.activeDirectives
       .map(d => `[DIRECTIVE TO ${d.target.toUpperCase()}]: ${d.instruction}`);
-
-    // 如果没有传 callerSource (说明是写入 memory)，则写入全部指令
     const displayDirectives = callerSource ? relevantDirectives : allDirectivesForStorage;
 
     return [

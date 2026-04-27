@@ -1,41 +1,27 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { DiscordCursor } from "../../src/cursor/discord_cursor.js";
+import { DiscordRouter } from "../../src/cursor/discord/router.js";
 import { StelleEventBus } from "../../src/utils/event_bus.js";
 
-describe("DiscordCursor Tool Routing Integration", () => {
+describe("DiscordRouter Strategy", () => {
   let context: any;
-  let cursor: DiscordCursor;
-  let generateJson: ReturnType<typeof vi.fn>;
-  let eventBus: StelleEventBus;
+  let router: DiscordRouter;
+  let generateJson: any;
 
   beforeEach(() => {
     generateJson = vi.fn();
-    eventBus = new StelleEventBus();
     context = {
       now: () => Date.now(),
       config: { 
-        models: { 
-          apiKey: "test-key",
-          dashscopeApiKey: "test-key",
-          geminiApiKey: "",
-          primaryModel: "qwen-max",
-          secondaryModel: "qwen-plus"
-        },
-        discord: { ambientEnabled: true, cooldownSeconds: 0 },
-        rawYaml: { channels: { "c1": { activated: true } } }
+        models: { apiKey: "test-key" }
       },
-      llm: { generateJson, generateText: vi.fn() },
-      memory: { writeRecent: async () => {}, readLongTerm: async () => null },
-      tools: { 
-        execute: vi.fn().mockResolvedValue({ ok: true, summary: "Tool Result Data" }) 
-      },
-      eventBus
+      llm: { generateJson },
+      eventBus: new StelleEventBus()
     };
-    cursor = new DiscordCursor(context);
+    router = new DiscordRouter(context, "Test Persona");
   });
 
   it("should route to memory_query and structured ToolPlan when asked about history", async () => {
-    generateJson.mockImplementationOnce(async (_prompt, _schema, normalize) => normalize({
+    generateJson.mockImplementationOnce(async (_p, _s, normalize) => normalize({
       mode: "reply",
       intent: "memory_query",
       reason: "user asks about remembered history",
@@ -49,17 +35,14 @@ describe("DiscordCursor Tool Routing Integration", () => {
       }
     }));
 
-    const session = (cursor as any).sessionFor({ channelId: "c1", guildId: "g1" });
-    session.mode = "active";
-
-    const batch = [{
-      id: "m1", content: "Stelle，你还记得我们上次聊的那个垃圾桶吗？",
-      cleanContent: "Stelle，你还记得我们上次聊的那个垃圾桶吗？",
-      author: { username: "Explorer", trustLevel: "owner" },
-      mentionedUserIds: []
+    const session: any = { channelId: "c1", history: [], mode: "active" };
+    const batch: any[] = [{
+      author: { username: "Explorer" },
+      content: "Stelle，你还记得我们上次聊的那个垃圾桶吗？",
+      cleanContent: "Stelle，你还记得我们上次聊的那个垃圾桶吗？"
     }];
 
-    const policy = await (cursor as any).designPolicy(session, batch, true);
+    const policy = await router.designPolicy(session, batch, true);
 
     expect(policy.intent).toBe("memory_query");
     expect(policy.toolPlan?.calls[0].tool).toBe("memory.search");
@@ -67,26 +50,25 @@ describe("DiscordCursor Tool Routing Integration", () => {
   });
 
   it("should route to system_status when asked about live stream state", async () => {
-    generateJson.mockImplementationOnce(async (_prompt, _schema, normalize) => normalize({
+    generateJson.mockImplementationOnce(async (_p, _s, normalize) => normalize({
       mode: "reply",
       intent: "system_status",
       reason: "user asks for runtime status",
-      needsThinking: false,
+      needs_thinking: false,
       tool_plan: {
         calls: [{ tool: "live.status", parameters: {} }],
         parallel: true
       }
     }));
 
-    const session = (cursor as any).sessionFor({ channelId: "c1", guildId: "g1" });
-    const batch = [{
-      id: "m2", content: "现在直播间在线吗？",
-      cleanContent: "现在直播间在线吗？",
-      author: { username: "Explorer", trustLevel: "external" },
-      mentionedUserIds: []
+    const session: any = { channelId: "c1", history: [], mode: "active" };
+    const batch: any[] = [{
+      author: { username: "Explorer" },
+      content: "现在直播间在线吗？",
+      cleanContent: "现在直播间在线吗？"
     }];
 
-    const policy = await (cursor as any).designPolicy(session, batch, true);
+    const policy = await router.designPolicy(session, batch, true);
 
     expect(policy.intent).toBe("system_status");
     expect(policy.toolPlan?.calls[0].tool).toBe("live.status");

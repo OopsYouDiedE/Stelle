@@ -5,13 +5,20 @@ import fs from "node:fs";
 import YAML from "yaml";
 import { asRecord, asString, clamp } from "./json.js";
 
-export interface ModelConfig {
+export type LlmProviderType = "dashscope" | "gemini" | "openai" | "custom";
+
+export interface ModelProviderConfig {
+  provider: LlmProviderType;
+  model: string;
   apiKey: string;
-  geminiApiKey: string;
-  dashscopeApiKey: string;
-  baseUrl: string;
-  primaryModel: string;
-  secondaryModel: string;
+  baseUrl?: string;
+}
+
+export interface ModelConfig {
+  primary: ModelProviderConfig;
+  secondary: ModelProviderConfig;
+  fallback?: ModelProviderConfig;
+  apiKey: string; // 后向兼容或全局 Key
 }
 
 export interface DiscordConfig {
@@ -60,16 +67,36 @@ export function loadRuntimeConfig(): RuntimeConfig {
 
   const geminiApiKey = process.env.GEMINI_API_KEY || "";
   const dashscopeApiKey = process.env.DASHSCOPE_API_KEY || "";
-  const modelApiKey = dashscopeApiKey || geminiApiKey;
+  const openaiApiKey = process.env.OPENAI_API_KEY || "";
+
+  // 优先级推断逻辑 (P5)
+  const primaryModel = process.env.STELLE_PRIMARY_MODEL || "qwen-max";
+  const primaryProvider: LlmProviderType = primaryModel.startsWith("gemini") ? "gemini" : "dashscope";
+  
+  const secondaryModel = process.env.STELLE_SECONDARY_MODEL || "qwen-plus";
+  const secondaryProvider: LlmProviderType = secondaryModel.startsWith("gemini") ? "gemini" : "dashscope";
 
   return {
     models: {
-      apiKey: modelApiKey,
-      geminiApiKey,
-      dashscopeApiKey,
-      baseUrl: process.env.QWEN_BASE_URL || "https://dashscope.aliyuncs.com/compatible-mode/v1",
-      primaryModel: process.env.STELLE_PRIMARY_MODEL || "qwen-max",
-      secondaryModel: process.env.STELLE_SECONDARY_MODEL || "qwen-plus",
+      primary: {
+        provider: primaryProvider,
+        model: primaryModel,
+        apiKey: primaryProvider === "gemini" ? geminiApiKey : dashscopeApiKey,
+        baseUrl: primaryProvider === "dashscope" ? (process.env.QWEN_BASE_URL || "https://dashscope.aliyuncs.com/compatible-mode/v1") : undefined
+      },
+      secondary: {
+        provider: secondaryProvider,
+        model: secondaryModel,
+        apiKey: secondaryProvider === "gemini" ? geminiApiKey : dashscopeApiKey,
+        baseUrl: secondaryProvider === "dashscope" ? (process.env.QWEN_BASE_URL || "https://dashscope.aliyuncs.com/compatible-mode/v1") : undefined
+      },
+      fallback: {
+        provider: "dashscope",
+        model: "qwen-plus",
+        apiKey: dashscopeApiKey,
+        baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+      },
+      apiKey: dashscopeApiKey || geminiApiKey || openaiApiKey,
     },
     discord: {
       token: process.env.DISCORD_TOKEN,

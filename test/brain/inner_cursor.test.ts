@@ -30,6 +30,9 @@ describe("InnerCursor Full Logic Coverage", () => {
         readResearchLogs: vi.fn().mockResolvedValue([]),
         appendResearchLog: vi.fn().mockResolvedValue("log-123")
       },
+      tools: {
+        execute: vi.fn().mockResolvedValue({ ok: true, summary: "OK" })
+      },
       eventBus: new StelleEventBus()
     };
     innerCursor = new InnerCursor(context as any);
