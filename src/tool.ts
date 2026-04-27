@@ -68,7 +68,7 @@ export interface ToolDefinition {
   title: string;
   description: string;
   authority: ToolAuthority;
-  inputSchema: z.ZodObject<any>;
+  inputSchema: z.ZodObject<any, any, any>;
   sideEffects: ToolSideEffectProfile;
   execute(input: any, context: ToolContext): Promise<ToolResult> | ToolResult;
 }
@@ -284,14 +284,14 @@ function createCoreTools(): ToolDefinition[] {
     {
       name: "fs.write_file",
       title: "Write File",
-      description: "Write a UTF-8 workspace file.",
+      description: "Write a UTF-8 workspace file atomically.",
       authority: "safe_write",
       inputSchema: z.object({ file_path: z.string(), content: z.string() }),
       sideEffects: sideEffects({ writesFileSystem: true }),
-      async execute(input, context) {
+      async execute(input: any, context) {
         const target = workspacePath(context, input.file_path);
         await mkdir(path.dirname(target), { recursive: true });
-        await writeFile(target, input.content, "utf8");
+        await atomicWrite(target, input.content);
         return {
           ...ok(`Wrote ${path.relative(context.cwd, target)}.`, { chars: input.content.length }),
           sideEffects: [{ type: "file_write", summary: "Wrote workspace file.", visible: false, timestamp: Date.now() }],
@@ -699,4 +699,10 @@ function normalizeDuckDuckGoUrl(rawUrl: string): string | null {
   } catch {
     return null;
   }
+}
+
+async function atomicWrite(file: string, content: string): Promise<void> {
+  const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
+  await writeFile(temp, content, "utf8");
+  await import("node:fs/promises").then(f => f.rename(temp, file));
 }

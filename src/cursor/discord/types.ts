@@ -5,7 +5,7 @@ export type DiscordIntent = "local_chat" | "live_request" | "memory_query" | "me
 
 export interface DiscordToolCall {
   tool: string;
-  parameters: Record<string, any>;
+  parameters: Record<string, unknown>;
 }
 
 export interface DiscordToolPlan {
@@ -26,7 +26,7 @@ export interface DiscordToolResultView {
   name: string;
   ok: boolean;
   summary: string;
-  data?: Record<string, any>;
+  data?: Record<string, unknown>;
 }
 
 export interface DiscordChannelSession {

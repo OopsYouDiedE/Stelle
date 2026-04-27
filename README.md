@@ -1,6 +1,11 @@
 # Stelle (V2 Architecture)
 
-Stelle 是一个轻量级、高度拟人化的数字生命运行时。它围绕 `Inner Ego (InnerCursor) + Interaction Cursors + Tool Registry + Memory Store` 组织。
+Stelle 是一个轻量级、高度拟人化的数字生命运行时。
+
+> **重要开发规范**：关于 V2 架构的硬性规则、模块化 Cursor 分层规范 (Gateway/Router/Executor/Responder)、工具安全及记忆分层契约，请务必阅读 [**`docs/ARCHITECTURE.md`**](docs/ARCHITECTURE.md)。
+
+Stelle 围绕 `Inner Ego (InnerCursor) + Interaction Cursors + Tool Registry + Memory Store` 组织。
+...
 
 在最新演进的 V2 架构中，我们全面移除了早期的强耦合代码，拥抱了 **事件总线 (EventBus)** 和 **应用容器化 (Application Container)**，并使用 **Express + Socket.io** 彻底重构了内部的通信协议。
 
