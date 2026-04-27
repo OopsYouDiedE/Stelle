@@ -1,319 +1,105 @@
-# Stelle
+# Stelle (V2 Architecture)
 
-Stelle 是一个本地运行时项目，围绕 `Core Mind + Cursor + Tools + Live Renderer + Memory` 组织。
+Stelle 是一个轻量级、高度拟人化的数字生命运行时。它围绕 `Inner Ego (InnerCursor) + Interaction Cursors + Tool Registry + Memory Store` 组织。
 
-当前代码结构已经按下面这几个原则收敛过一轮：
+在最新演进的 V2 架构中，我们全面移除了早期的强耦合代码，拥抱了 **事件总线 (EventBus)** 和 **应用容器化 (Application Container)**，并使用 **Express + Socket.io** 彻底重构了内部的通信协议。
 
-- Discord 和 live 是两个不同环境，不再强行揉成一个上下文。
-- 路由先看硬编码规则，再把剩余判断交给模型。
-- 硬编码规则可以基于明确规则词或结构特征。
-- Prompt 不再内嵌在 TS 文件里，统一外提到 `prompts/`。
-- 调试日志、浏览器 profile、临时评测产物不再作为仓库文档保留。
+## 项目愿景
 
-## 运行方式
+Stelle 不仅仅是一个复杂的软件平台，而是一个“在场的生命”。其行为逻辑遵循以下原则：
+- **反思压力阀**：潜意识反思（Inner Ego）由事件的“影响力 (Impact)”和“显著性 (Salience)”驱动，而非简单的计数。
+- **动态静音**：在 Discord 中，静音不再是死板的时间锁，而是可以被语境、情绪或直接呼唤打破的阈值锁。
+- **氛围感知**：在直播 (Live) 模式下，系统能够感知直播间的“热度”和“氛围 (Vibe)”，在冷场时主动发起话题。
 
-安装依赖：
+## 核心架构演进 (V2)
 
-```bash
-npm install
-```
+1. **统一通信协议 (Express + Socket.io)**: 
+   - 彻底废弃了原生的 `node:http` 和单向的 SSE (`Server-Sent Events`)。
+   - 后端路由与静态资源现在由 **Express** 托管。
+   - 前后端实时通信切换为 **Socket.io**，提供低延迟的双向舞台控制（动作、表情、背景、语音等下发机制完全统一）。
+   - 引入 `http-proxy-middleware` 将 Kokoro TTS 微服务无缝集成至同一端口。
 
-开发：
+2. **事件驱动与高度解耦 (Event Bus)**:
+   - 废弃了各 Cursor 之间硬编码的 `dispatch` 函数调用链。
+   - 引入全局 `StelleEventBus` (基于 EventEmitter)，所有模块仅通过订阅/发布标准化的 `StelleEvent` (如 `live.request`, `core.tick`, `cursor.reflection`) 来通信，实现极低的耦合度。
 
-```bash
-npm run dev
-npm run dev:discord
-npm run dev:live
-```
+3. **应用容器化生命周期 (StelleApplication)**:
+   - 新增 `src/core/application.ts` 容器类和 `src/core/scheduler.ts` 独立调度器。
+   - 彻底梳理并接管了原先庞大的入口初始化逻辑，统一管理配置加载、数据库/内存生命周期、Discord Client 以及 Live 前端。
 
-构建与运行：
-
-```bash
-npm run build
-npm run start
-npm run start:discord
-npm run start:live
-```
-
-本地 Kokoro TTS 服务：
-
-```bash
-npm run start:kokoro
-```
-
-## 启动入口
-
-统一入口：
-
-- `src/start.ts`
-
-支持三种模式：
-
-- `runtime`：完整运行时
-- `discord`：只启动 Discord 主链
-- `live`：只启动 live renderer
-
-对应脚本：
-
-- `npm run dev` / `npm run dev:runtime` -> `tsx watch src/start.ts runtime`
-- `npm run dev:discord` -> `tsx src/start.ts discord`
-- `npm run dev:live` -> `tsx src/start.ts live`
-- `npm run start` -> `node dist/start.js runtime`
-- `npm run start:discord` -> `node dist/start.js discord`
-- `npm run start:live` -> `node dist/start.js live`
-
-## 路由原则
-
-### Discord
-
-`src/stelle/DiscordAttachedCoreMind.ts` 当前采用两层路由：
-
-1. 硬编码规则
-   只处理必须明确拦截的情况，比如高风险请求、live/OBS 控制、定向社交动作、自我/系统问题、明确的记忆连续性操作。
-2. AI 路由
-   剩余普通消息交给模型判断是走 `cursor` 还是走 `stelle`。
-
-Discord 前台回复本身还带一个小型工具循环：
-
-- 模型自己决定直接回复，还是先调用 `search.cursor_web_search`
-- 如有必要，再调用 `search.cursor_web_read`
-- 最多循环 3 轮，再产出最终回复
-
-也就是说：
-
-- 不再用关键词直接决定“要不要搜”
-- 关键词类规则只保留在硬编码规则层
-
-### Live
-
-`src/stelle/LiveContentController.ts` 也是两层：
-
-1. 硬编码规则
-   处理高风险、敏感内容、社交点名、明确的记忆叙事请求。
-2. AI 路由
-   剩余 live 请求由模型决定：
-   - 走本地轻量脚本 `local`
-   - 走 Stelle 生成 `stelle`
-
-## Prompt 外置
-
-所有当前模型实际使用的 Prompt 都已经外提到 `prompts/`。
-
-格式统一为：
-
-1. 上半部分写 `Variables`
-2. 标出可用变量名和含义
-3. 下半部分写 `Body`
-4. 运行时用 `{{variable_name}}` 替换
-
-当前 prompt 目录：
-
-```text
-prompts/
-|-- discord/
-|   |-- core_reply.md
-|   |-- cursor_reply.md
-|   |-- cursor_tool_loop.md
-|   |-- judge.md
-|   |-- route_decider.md
-|   `-- social_reply.md
-`-- live/
-    |-- route_decider.md
-    `-- script.md
-```
-
-运行时加载器：
-
-- `src/PromptTemplates.ts`
-
-## 当前目录结构
+## 目录结构
 
 ```text
 .
-|-- assets/
-|   `-- live2d/
-|-- docs/
-|   |-- LiveArchitecture.md
-|   |-- NextStepDesign.md
-|   `-- personality_prompt/
-|       |-- 00_data_collection.md
-|       |-- 01_baseline_style_profiles.md
-|       |-- 02_rubric_and_target_ranges.md
-|       |-- 03_prompt_core.md
-|       |-- 04_test_cases.md
-|       |-- 05_evaluation_and_revision_log.md
-|       |-- 06_final_prompt.md
-|       |-- 10_real_chat_interjection_cases.md
-|       `-- README.md
-|-- memory/
-|   |-- channels/
-|   |-- experiences/
-|   |-- guilds/
-|   |-- people/
-|   |-- relationships/
-|   |-- summaries/
-|   `-- README.md
-|-- prompts/
-|   |-- discord/
-|   `-- live/
-|-- scripts/
-|-- src/
-|   |-- CoreMind.ts
-|   |-- DiscordRuntime.ts
-|   |-- index.ts
-|   |-- KokoroTtsProvider.ts
-|   |-- MemoryManager.ts
-|   |-- PromptTemplates.ts
-|   |-- start.ts
-|   |-- StelleConfig.ts
-|   |-- TextStream.ts
-|   |-- types.ts
-|   |-- cursors/
-|   |   |-- BaseCursor.ts
-|   |   |-- DiscordCursor.ts
-|   |   `-- LiveCursor.ts
-|   |-- live/
-|   |   |-- LiveRuntime.ts
-|   |   `-- renderer/
-|   |       |-- LiveRendererServer.ts
-|   |       |-- renderDebugHtml.ts
-|   |       |-- renderLiveHtml.ts
-|   |       `-- client/
-|   |           |-- vite.config.ts
-|   |           `-- src/
-|   |               |-- audioShared.ts
-|   |               |-- live2dRuntime.ts
-|   |               `-- main.ts
-|   |-- stelle/
-|   |   |-- DiscordAttachedCoreMind.ts
-|   |   `-- LiveContentController.ts
-|   `-- tools/
-|       |-- discord.ts
-|       |-- index.ts
-|       `-- live.ts
-|-- config.yaml
-|-- package.json
-`-- tsconfig.json
+├── assets/             # 静态资源
+│   ├── renderer/       # 前端 Live2D 渲染器 (Vite/TS/Socket.io)
+│   └── models/         # Live2D 模型文件 (Mao)
+├── evals/              # 依赖大模型 (LLM) 的能力评估测试体系
+│   ├── capabilities/   # 人格合成、场控干预等专项评估脚本
+│   └── logs/           # 人类易读的 Markdown 评估报告输出目录
+├── memory/             # 长期记忆与本地持久化 (Markdown/JSONL)
+├── scripts/            # 启动脚本与 Kokoro TTS Python 服务
+├── src/
+│   ├── start.ts        # 统一启动入口 (极简)
+│   ├── core/           # 核心架构: Application 生命周期与 Scheduler 时钟调度
+│   ├── tool.ts         # 工具注册表 (Tool Registry)
+│   ├── cursor/         # 行为决策引擎 (Cursors)
+│   │   ├── types.ts    # 共享 StelleEvent 协议定义
+│   │   ├── inner_cursor.ts   # 潜意识核心 (Inner Ego) 与认知升华
+│   │   ├── discord_cursor.ts # Discord 交互逻辑与软静音管理
+│   │   └── live_cursor.ts    # 直播交互、队列管理与氛围评估
+│   └── utils/          # 底层支撑工具 (LLM, Memory, Renderer 等)
+├── test/               # 确定性单元测试与集成测试 (不发写真实网络请求)
+├── config.yaml         # 项目配置
+└── package.json
 ```
 
-说明：
+## 运行方式
 
-- `artifacts/` 属于运行时生成物，已从仓库工作文档中清走，并通过 `.gitignore` 忽略。
-- `docs/personality_prompt/` 只保留当前仍有参考价值的正式材料；旧测试跑批、候选 prompt 和临时快照已移除。
+### 1. 环境准备
+确保已安装 Node.js (>=20) 并配置好 `.env`（需要配置 `GEMINI_API_KEY` 或 `DASHSCOPE_API_KEY` 以及 `DISCORD_TOKEN`，参考 `.env.example`）。
 
-## `src/` 结构说明
-
-### 根层
-
-- `src/start.ts`
-  统一启动入口，负责 runtime / discord / live 三种模式。
-
-- `src/CoreMind.ts`
-  Core Mind 本体，负责 cursor 注册、附着切换、上下文转移、tool 接入和连续性状态。
-
-- `src/DiscordRuntime.ts`
-  Discord.js 运行时封装、消息摘要、频道 session、连接状态。
-
-- `src/MemoryManager.ts`
-  长期记忆管理、落盘、整理、摘要、recall。
-
-- `src/KokoroTtsProvider.ts`
-  TTS 提供层。
-
-- `src/StelleConfig.ts`
-  模型配置、运行时配置、Discord 配置存取。
-
-- `src/TextStream.ts`
-  文本流处理、清洗、句段切分，以及 `GeminiTextProvider`。
-
-- `src/PromptTemplates.ts`
-  外部 prompt 模板加载与变量渲染。
-
-- `src/types.ts`
-  共享运行时类型。
-
-- `src/index.ts`
-  对外导出聚合入口。
-
-### Cursor 层
-
-- `src/cursors/BaseCursor.ts`
-  基础 cursor 抽象，以及默认 `InnerCursor`。
-
-- `src/cursors/DiscordCursor.ts`
-  Discord 现场上下文、被动回复边界、只读搜索工具暴露。
-
-- `src/cursors/LiveCursor.ts`
-  直播语境、发言队列、live 输出桥接。
-
-### Stelle 主链
-
-- `src/stelle/DiscordAttachedCoreMind.ts`
-  Discord 主链入口，负责治理命令、AI 路由、judge、回复生成、工具循环、memory 记录。
-
-- `src/stelle/LiveContentController.ts`
-  Live 主链入口，负责 live 路由、文案生成、字幕/TTS 输出协调。
-
-### Tools
-
-- `src/tools/index.ts`
-  通用 tool registry、memory/search/tts 等通用工具。
-
-- `src/tools/discord.ts`
-  Discord 专属工具。
-
-- `src/tools/live.ts`
-  Live 专属工具。
-
-### Live Renderer
-
-- `src/live/LiveRuntime.ts`
-  Live 运行时主文件。
-
-- `src/live/renderer/LiveRendererServer.ts`
-  Renderer 服务端主文件，包含 HTTP 服务、debug API、HTTP bridge 以及服务端辅助逻辑。
-
-- `src/live/renderer/renderLiveHtml.ts`
-  live 页面 HTML 输出。
-
-- `src/live/renderer/renderDebugHtml.ts`
-  debug 页面 HTML 输出。
-
-- `src/live/renderer/client/src/main.ts`
-  浏览器端入口。
-
-- `src/live/renderer/client/src/live2dRuntime.ts`
-  浏览器端 Live2D 运行时。
-
-- `src/live/renderer/client/src/audioShared.ts`
-  浏览器端音频共享逻辑。
-
-## 当前实际模型 Prompt 来源
-
-### Discord
-
-- `discord/core_reply`
-- `discord/cursor_reply`
-- `discord/cursor_tool_loop`
-- `discord/judge`
-- `discord/route_decider`
-- `discord/social_reply`
-
-### Live
-
-- `live/route_decider`
-- `live/script`
-
-## 验证
-
-结构或 Prompt 改动后，至少执行：
-
+### 2. 安装与构建
 ```bash
+npm install
 npm run build
 ```
 
-更严格的检查：
+### 3. 启动服务
+Stelle 支持多种启动模式，通常建议运行完整运行时：
+
+- **完整模式**: `npm run start` (生产) 或 `npm run dev` (开发)
+- **只运行 Discord**: `npm run start:discord`
+- **只运行直播渲染**: `npm run start:live`
+- **TTS 服务 (Python)**: `npm run start:kokoro`
+
+## 测试与评估体系 (Testing & Evals)
+
+为了有效应对大模型（LLM）带来的随机性和测试脆弱性，我们建立了两套界限分明的测试体系：
+
+### 1. 核心逻辑测试 (Test)
+用于验证确定性逻辑和基础架构，**不发起真实的网络 LLM 请求**，全 Mock 环境。使用此套件进行 CI/CD 的快速验证。
 
 ```bash
-npx tsc --noEmit --noUnusedLocals --noUnusedParameters
+npm run test          # 运行所有确定性测试 (Vitest)
+npm run test:coverage # 生成覆盖率报告
 ```
+
+### 2. 模型能力评估 (Evals)
+大模型的效果无法用简单的相等断言来判断对错。我们专门在 `evals/` 目录下设计了一套能力评估系统，该系统会调用真实的 API Keys。
+
+**评估场景包括：**
+- `infra/llm_stress`: 多模型网络压力和错误重试机制测试。
+- `capabilities/ego_synthesis`: 模拟混乱的高频聊天弹幕，测试 Inner Ego 是否能提取稳定的“世界观(Convictions)”和情绪。
+- `capabilities/moderation`: 场控模拟，在 "静默" 观察模式下，测试 LLM 能否精确判断何时需要“打破沉默”下场干预弹幕节奏。
+
+```bash
+npm run test:eval     # 运行真实的 LLM 评估场景
+```
+
+运行 `test:eval` 后，除了控制台输出外，会自动向 `evals/logs/` 写入 Markdown 格式的人类友好 **评估报告（Eval Report）**，方便开发者对大模型当前“智商”进行直观的审阅。
+
+## 开发规范
+- **代码位置**：所有核心逻辑必须位于 `src/` 目录下。
+- **Prompt 管理**：当前 Prompt 内嵌于各 Cursor 实现类中（如 `DISCORD_PERSONA`, `LIVE_PERSONA`），以保持行为与定义的紧密耦合。
+- **安全性**：严禁在代码或提交中包含 API Key，统一使用 `dotenv`。

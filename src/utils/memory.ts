@@ -57,6 +57,7 @@ export interface MemoryStoreOptions {
   rootDir?: string;
   recentLimit?: number;
   compactionEnabled?: boolean;
+  llm?: import("./llm.js").LlmClient;
 }
 
 // Module: memory store public API.
@@ -64,12 +65,14 @@ export class MemoryStore {
   private readonly rootDir: string;
   private readonly recentLimit: number;
   private readonly compactionEnabled: boolean;
+  private readonly llm?: import("./llm.js").LlmClient;
   private readonly queues = new Map<string, Promise<void>>();
 
   constructor(options: MemoryStoreOptions = {}) {
     this.rootDir = path.resolve(options.rootDir ?? "memory");
     this.recentLimit = options.recentLimit ?? 50;
     this.compactionEnabled = options.compactionEnabled ?? true;
+    this.llm = options.llm;
   }
 
   async start(): Promise<void> {
@@ -125,9 +128,11 @@ export class MemoryStore {
   }
 
   async writeLongTerm(key: string, value: string): Promise<void> {
-    const dir = path.join(this.rootDir, "long_term");
-    await mkdir(dir, { recursive: true });
-    await atomicWrite(path.join(dir, `${safeSegment(key)}.md`), sanitizeExternalText(value));
+    await this.inScopeQueue({ kind: "long_term" }, async () => {
+      const dir = path.join(this.rootDir, "long_term");
+      await mkdir(dir, { recursive: true });
+      await atomicWrite(path.join(dir, `${safeSegment(key)}.md`), sanitizeExternalText(value));
+    });
   }
 
   async appendResearchLog(log: ResearchLog): Promise<string> {
@@ -197,19 +202,69 @@ export class MemoryStore {
       await rm(checkpointPath, { force: true });
       return;
     }
+
     const first = entries[0]!;
     const last = entries.at(-1)!;
-    const keywords = [...new Set(entries.flatMap((entry) => keywordSnippets(entry.text)).slice(0, 12))];
-    const summary = [
+    
+    let keywords: string[];
+    let participants: string[];
+    let narrativeSummary: string;
+
+    if (this.llm?.config.dashscopeApiKey || this.llm?.config.geminiApiKey) {
+      const batchText = entries.map((e) => `[${new Date(e.timestamp).toLocaleTimeString()}] ${e.source}: ${e.text}`).join("\n");
+      const prompt = [
+        "You are Stelle's Memory Compactor. Summarize the following chat/event batch into a concise narrative (max 2 sentences).",
+        "Also extract main participants (user names) and 5-8 semantic keywords.",
+        "Focus on the main topics, conflicts, active users, or emotional shifts.",
+        `Context Scope: ${scopeLabel(scope)}`,
+        'Schema: {"summary": "...", "keywords": ["..."], "participants": ["..."]}',
+        `Batch Content:\n${batchText}`
+      ].join("\n\n");
+
+      try {
+        const result = await this.llm.generateJson(
+          prompt,
+          "memory_compaction",
+          (raw) => {
+            const v = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+            return {
+              summary: String(v.summary || ""),
+              keywords: Array.isArray(v.keywords) ? v.keywords.map(String) : [],
+              participants: Array.isArray(v.participants) ? v.participants.map(String) : []
+            };
+          },
+          { role: "secondary", temperature: 0.3 }
+        );
+        narrativeSummary = result.summary;
+        keywords = result.keywords;
+        participants = result.participants;
+      } catch (e) {
+        console.warn("[Memory] LLM compaction failed, falling back to simple mode.", e);
+        keywords = [...new Set(entries.flatMap((entry) => keywordSnippets(entry.text)).slice(0, 12))];
+        participants = [...new Set(entries.map((e) => e.text.split(":")[0]?.trim()).filter((n) => n && n.length < 32))];
+        narrativeSummary = truncateText(entries.map((entry) => `${entry.source}: ${entry.text}`).join(" | "), 1600);
+      }
+    } else {
+      keywords = [...new Set(entries.flatMap((entry) => keywordSnippets(entry.text)).slice(0, 12))];
+      participants = [...new Set(entries.map(e => e.text.split(":")[0]?.trim()).filter(n => n && n.length < 32))];
+      narrativeSummary = truncateText(entries.map((entry) => `${entry.source}: ${entry.text}`).join(" | "), 1600);
+    }
+
+    const output = [
       `## ${new Date(last.timestamp).toISOString()} | ${scopeLabel(scope)}`,
       "",
       `Time window: ${new Date(first.timestamp).toISOString()} - ${new Date(last.timestamp).toISOString()}`,
+      `Participants: [${participants.join(", ")}]`,
       `Keywords: [${keywords.join(", ")}]`,
       "Summary:",
-      truncateText(entries.map((entry) => `${entry.source}/${entry.type}: ${entry.text}`).join(" | "), 1600),
+      narrativeSummary,
+      "",
+      "--- RAW FRAGMENTS ---",
+      truncateText(entries.map((e) => e.text).join(" | "), 800),
       "",
     ].join("\n");
-    await appendFile(this.historyPath(scope), summary, "utf8");
+
+    await appendFile(this.historyPath(scope), output, "utf8");
     await rm(checkpointPath, { force: true });
   }
 
@@ -262,7 +317,11 @@ export class MemoryStore {
     const key = scopeLabel(scope);
     const pending = this.queues.get(key) ?? Promise.resolve();
     const next = pending.then(task, task);
-    this.queues.set(key, next.catch(() => undefined));
+    const tracked = next.catch(() => undefined);
+    this.queues.set(key, tracked);
+    void tracked.finally(() => {
+      if (this.queues.get(key) === tracked) this.queues.delete(key);
+    });
     await next;
   }
 }
@@ -278,13 +337,10 @@ function scopeLabel(scope: MemoryScope): string {
 }
 
 function keywordSnippets(text: string): string[] {
-  return sanitizeExternalText(text)
-    .replace(/https?:\/\/\S+/g, " ")
-    .replace(/[^\p{L}\p{N}\s_-]+/gu, " ")
-    .split(/\s+/)
-    .map((item) => item.trim())
-    .filter((item) => item.length >= 2 && item.length <= 24)
-    .slice(0, 6);
+  const clean = sanitizeExternalText(text).replace(/https?:\/\/\S+/g, " ");
+  // 提取连续的字母数字或中文字符
+  const matches = clean.match(/[\p{L}\p{N}]{2,12}/gu) || [];
+  return matches.slice(0, 6);
 }
 
 async function atomicWrite(file: string, content: string): Promise<void> {

@@ -66,11 +66,12 @@ if (shouldAutoplay()) {
 }
 
 function connectEvents(): void {
-  const events = new EventSource("/events");
-  events.addEventListener("command", (event) => {
-    applyCommand(JSON.parse(event.data) as RendererCommand);
+  const socket = io();
+  socket.on("command", (command: RendererCommand) => {
+    applyCommand(command);
   });
-  events.addEventListener("error", () => setSpeaker("event stream reconnecting"));
+  socket.on("connect_error", () => setSpeaker("socket reconnecting"));
+  socket.on("disconnect", () => setSpeaker("socket disconnected"));
 }
 
 function bindSimulationForm(): void {

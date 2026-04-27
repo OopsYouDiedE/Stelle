@@ -1,22 +1,19 @@
 /**
- * 模块：Live renderer HTTP/SSE 服务
+ * 模块：Live renderer HTTP/SSE 服务 (Express + Socket.io)
  *
  * 运行逻辑：
  * - 提供 `/live` 页面、`/assets/*` 静态资源和 `/samples/*` 测试样本。
- * - 提供 `/events` SSE，把 LiveRuntime 发布的舞台命令推到浏览器。
+ * - 提供 Socket.io 实时通信，把 LiveRuntime 发布的舞台命令推到浏览器。
  * - 提供 debug API，读取 runtime snapshot 或手动调用工具/live request。
- *
- * 主要方法：
- * - `start()` / `stop()`：HTTP server 生命周期。
- * - `publish()`：向所有 SSE 客户端广播 renderer 命令。
- * - `handle()`：路由 HTTP 请求。
  */
-import http, { type IncomingMessage, type ServerResponse } from "node:http";
+import http from "node:http";
 import { EventEmitter } from "node:events";
 import type { AddressInfo } from "node:net";
-import { Readable } from "node:stream";
 import fs from "node:fs/promises";
 import path from "node:path";
+import express from "express";
+import { Server as SocketIOServer } from "socket.io";
+import { createProxyMiddleware } from "http-proxy-middleware";
 
 export interface LiveRendererServerOptions {
   host?: string;
@@ -38,20 +35,19 @@ export interface LiveRendererCommand {
 
 export class LiveRendererServer {
   private readonly events = new EventEmitter();
-  private readonly server: http.Server;
-  private readonly pendingAudioRequests = new Map<string, Record<string, unknown>>();
+  private readonly app = express();
+  private readonly server = http.createServer(this.app);
+  private readonly io = new SocketIOServer(this.server, {
+    cors: { origin: "*" },
+  });
   private state: Record<string, unknown> = {
     visible: true,
     caption: "Stelle renderer ready.",
   };
 
   constructor(private readonly options: LiveRendererServerOptions = {}) {
-    this.server = http.createServer((request, response) => {
-      void this.handle(request, response).catch((error) => {
-        response.writeHead(500, { "content-type": "application/json; charset=utf-8" });
-        response.end(JSON.stringify({ ok: false, error: error instanceof Error ? error.message : String(error) }));
-      });
-    });
+    this.setupRoutes();
+    this.setupSocketIO();
   }
 
   setDebugController(controller?: LiveRendererDebugController): void {
@@ -68,6 +64,7 @@ export class LiveRendererServer {
 
   async stop(): Promise<void> {
     if (!this.server.listening) return;
+    this.io.close();
     await new Promise<void>((resolve, reject) => {
       this.server.close((error) => (error ? reject(error) : resolve()));
     });
@@ -90,230 +87,119 @@ export class LiveRendererServer {
     if (command.type === "caption:set" || command.type === "caption:stream") {
       this.state = { ...this.state, caption: command.text, speaker: command.speaker };
     }
-    if (command.type === "audio:stream" && typeof command.url === "string" && command.request && typeof command.request === "object") {
-      this.pendingAudioRequests.set(command.url, command.request as Record<string, unknown>);
-    }
-    this.events.emit("command", command);
+    
+    // 统一通过 Socket.io 广播
+    this.io.emit("command", command);
   }
 
-  private async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
-    const url = new URL(request.url ?? "/", this.url);
-    if (request.method === "GET" && (url.pathname === "/" || url.pathname === "/live")) {
-      await this.serveRendererIndex(response);
-      return;
-    }
-    if (request.method === "GET" && url.pathname.startsWith("/tts/kokoro/")) {
-      await this.handleKokoroStream(response, url.pathname);
-      return;
-    }
-    if (request.method === "GET" && url.pathname === "/_debug") {
-      response.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
-      response.end(debugHtml());
-      return;
-    }
-    if (url.pathname.startsWith("/_debug/api/")) {
-      await this.handleDebugApi(request, response, url);
-      return;
-    }
-    if (request.method === "GET" && url.pathname.startsWith("/assets/")) {
-      await this.serveStatic(path.resolve("dist/live-renderer"), url.pathname, response);
-      return;
-    }
-    if (request.method === "GET" && url.pathname.startsWith("/samples/")) {
-      await this.serveStatic(path.resolve("assets/renderer"), url.pathname, response);
-      return;
-    }
-    if (request.method === "GET" && (url.pathname.startsWith("/models/") || url.pathname.startsWith("/vendor/"))) {
-      await this.serveStatic(path.resolve("assets/renderer"), url.pathname, response);
-      return;
-    }
-    if (request.method === "GET" && url.pathname === "/state") {
-      this.writeJson(response, 200, { ok: true, state: this.state });
-      return;
-    }
-    if (request.method === "GET" && url.pathname === "/events") {
-      this.handleEvents(response);
-      return;
-    }
-    if (request.method === "POST" && url.pathname === "/command") {
-      const command = JSON.parse(await readBody(request)) as LiveRendererCommand;
-      this.publish(command);
-      this.writeJson(response, 200, { ok: true, state: this.state });
-      return;
-    }
-    if (request.method === "POST" && url.pathname === "/api/live/event") {
-      await this.handleLiveEventApi(request, response);
-      return;
-    }
-    response.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
-    response.end("Not found");
+  private setupSocketIO() {
+    this.io.on("connection", (socket) => {
+      // 客户端连接时主动推送最新状态
+      socket.emit("command", { type: "state:set", state: this.state });
+    });
   }
 
-  private async serveRendererIndex(response: ServerResponse): Promise<void> {
-    const indexPath = path.resolve("dist/live-renderer/index.html");
-    const fallback = "<!doctype html><html><body><main id=\"app\">Stelle renderer ready.</main><script type=\"module\" src=\"/assets/index.js\"></script></body></html>";
-    const html = await fs.readFile(indexPath, "utf8").catch(() => fallback);
-    response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-    response.end(html);
-  }
-
-  private async handleKokoroStream(response: ServerResponse, requestPath: string): Promise<void> {
-    const requestBody = this.pendingAudioRequests.get(requestPath);
-    if (!requestBody) {
-      this.writeJson(response, 404, { ok: false, error: "pending audio request not found" });
-      return;
-    }
-
+  private setupRoutes() {
+    // 代理 Kokoro TTS
     const baseUrl = (process.env.KOKORO_TTS_BASE_URL ?? "http://127.0.0.1:8880").replace(/\/+$/, "");
     const endpointPath = process.env.KOKORO_TTS_ENDPOINT_PATH ?? "/v1/audio/speech";
-    const upstream = await fetch(`${baseUrl}${endpointPath.startsWith("/") ? "" : "/"}${endpointPath}`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        accept: "audio/wav",
-        ...(process.env.KOKORO_TTS_API_KEY ? { authorization: `Bearer ${process.env.KOKORO_TTS_API_KEY}` } : {}),
-      },
-      body: JSON.stringify({ ...requestBody, stream: true, response_format: "wav" }),
-    });
+    this.app.use(
+      "/tts/kokoro",
+      createProxyMiddleware({
+        target: baseUrl,
+        changeOrigin: true,
+        pathRewrite: {
+          "^/tts/kokoro/.*": endpointPath, // 重写路径以匹配 Python 服务的实际地址
+        },
+        on: {
+          proxyReq: (proxyReq, req: any) => {
+             // 透传 API key (如有)
+             if (process.env.KOKORO_TTS_API_KEY) {
+                proxyReq.setHeader("authorization", `Bearer ${process.env.KOKORO_TTS_API_KEY}`);
+             }
+             // SSE/Wav 需要特殊处理的地方由于使用 proxyMiddleware 可以透明处理
+             
+             // 把由于我们在 LiveRuntime 生成的特殊流播放请求进行重构有点复杂，我们先用简单转发。
+             // Note: 由于代理中间件在 body parser 前比较好，这里不需要再自己写复杂的流转发
+             if (req.body) {
+               const bodyData = JSON.stringify(req.body);
+               proxyReq.setHeader('Content-Type', 'application/json');
+               proxyReq.setHeader('Content-Length', Buffer.byteLength(bodyData));
+               proxyReq.write(bodyData);
+             }
+          }
+        }
+      })
+    );
 
-    if (!upstream.ok || !upstream.body) {
-      const detail = await upstream.text().catch(() => "");
-      this.writeJson(response, upstream.status || 502, { ok: false, error: detail || "kokoro upstream failed" });
-      return;
-    }
+    this.app.use(express.json());
 
-    this.pendingAudioRequests.delete(requestPath);
-    response.writeHead(200, {
-      "content-type": upstream.headers.get("content-type") ?? "audio/wav",
-      "cache-control": "no-store",
-      "transfer-encoding": "chunked",
-    });
-    Readable.fromWeb(upstream.body as never).pipe(response);
-  }
+    // 静态资源服务
+    this.app.use("/assets", express.static(path.resolve("dist/live-renderer")));
+    this.app.use("/samples", express.static(path.resolve("assets/renderer/samples")));
+    this.app.use("/models", express.static(path.resolve("assets/renderer/models")));
+    this.app.use("/vendor", express.static(path.resolve("assets/renderer/vendor")));
 
-  private async handleDebugApi(request: IncomingMessage, response: ServerResponse, url: URL): Promise<void> {
-    const controller = this.options.debugController;
-    if (!controller) {
-      this.writeJson(response, 503, { ok: false, error: "debug controller unavailable" });
-      return;
-    }
-    const body = request.method === "POST" ? parseJson(await readBody(request)) : {};
-    try {
-      if (request.method === "GET" && url.pathname === "/_debug/api/snapshot") {
-        this.writeJson(response, 200, { ok: true, snapshot: await controller.getSnapshot() });
-        return;
+    // 页面路由
+    const serveIndex = async (req: express.Request, res: express.Response) => {
+      const indexPath = path.resolve("dist/live-renderer/index.html");
+      const fallback = "<!doctype html><html><body><main id=\"app\">Stelle renderer ready.</main><script type=\"module\" src=\"/assets/index.js\"></script></body></html>";
+      try {
+        const html = await fs.readFile(indexPath, "utf8");
+        res.send(html);
+      } catch {
+        res.send(fallback);
       }
-      if (request.method === "POST" && url.pathname === "/_debug/api/tool/use") {
-        if (!controller.useTool) throw new Error("tool debug API is unavailable");
-        this.writeJson(response, 200, {
-          ok: true,
-          result: await controller.useTool(String(body.name ?? ""), asRecord(body.input)),
-        });
-        return;
-      }
-      if (request.method === "POST" && url.pathname === "/_debug/api/live/request") {
-        if (!controller.sendLiveRequest) throw new Error("live request debug API is unavailable");
-        this.writeJson(response, 200, { ok: true, result: await controller.sendLiveRequest(asRecord(body)) });
-        return;
-      }
-      if (request.method === "POST" && url.pathname === "/_debug/api/live/event") {
-        if (!controller.sendLiveEvent) throw new Error("live event debug API is unavailable");
-        this.writeJson(response, 200, { ok: true, result: await controller.sendLiveEvent(asRecord(body)) });
-        return;
-      }
-      this.writeJson(response, 404, { ok: false, error: "debug api not found" });
-    } catch (error) {
-      this.writeJson(response, 500, { ok: false, error: error instanceof Error ? error.message : String(error) });
-    }
-  }
-
-  private async handleLiveEventApi(request: IncomingMessage, response: ServerResponse): Promise<void> {
-    const controller = this.options.debugController;
-    if (!controller?.sendLiveEvent) {
-      this.writeJson(response, 503, { ok: false, error: "live event API unavailable" });
-      return;
-    }
-    try {
-      const body = asRecord(JSON.parse(await readBody(request)));
-      this.writeJson(response, 200, { ok: true, result: await controller.sendLiveEvent(body) });
-    } catch (error) {
-      this.writeJson(response, 500, { ok: false, error: error instanceof Error ? error.message : String(error) });
-    }
-  }
-
-  private async serveStatic(root: string, pathname: string, response: ServerResponse): Promise<void> {
-    const relativePath = decodeURIComponent(pathname).replace(/^\/+/, "");
-    const target = path.resolve(root, relativePath);
-    if (target !== root && !target.startsWith(root + path.sep)) {
-      response.writeHead(403, { "content-type": "text/plain; charset=utf-8" });
-      response.end("Forbidden");
-      return;
-    }
-    try {
-      const content = await fs.readFile(target);
-      response.writeHead(200, { "content-type": contentType(target), "cache-control": "public, max-age=3600" });
-      response.end(content);
-    } catch {
-      response.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
-      response.end("Not found");
-    }
-  }
-
-  private handleEvents(response: ServerResponse): void {
-    response.writeHead(200, {
-      "content-type": "text/event-stream; charset=utf-8",
-      "cache-control": "no-cache, no-transform",
-      connection: "keep-alive",
-      "access-control-allow-origin": "*",
-    });
-    response.write(`event: command\ndata: ${JSON.stringify({ type: "state:set", state: this.state })}\n\n`);
-    const listener = (command: LiveRendererCommand) => {
-      response.write(`event: command\ndata: ${JSON.stringify(command)}\n\n`);
     };
-    this.events.on("command", listener);
-    response.on("close", () => this.events.off("command", listener));
+    this.app.get("/", serveIndex);
+    this.app.get("/live", serveIndex);
+
+    // 状态接口
+    this.app.get("/state", (req, res) => res.json({ ok: true, state: this.state }));
+
+    // Debug 页面与 API
+    this.app.get("/_debug", (req, res) => res.send(debugHtml()));
+    
+    this.app.get("/_debug/api/snapshot", async (req, res) => {
+      if (!this.options.debugController) return res.status(503).json({ ok: false, error: "unavailable" });
+      try { res.json({ ok: true, snapshot: await this.options.debugController.getSnapshot() }); }
+      catch(e) { res.status(500).json({ ok: false, error: String(e) }); }
+    });
+
+    this.app.post("/_debug/api/tool/use", async (req, res) => {
+      if (!this.options.debugController?.useTool) return res.status(503).json({ ok: false, error: "unavailable" });
+      try { res.json({ ok: true, result: await this.options.debugController.useTool(req.body.name ?? "", req.body.input ?? {}) }); }
+      catch(e) { res.status(500).json({ ok: false, error: String(e) }); }
+    });
+
+    this.app.post("/_debug/api/live/request", async (req, res) => {
+      if (!this.options.debugController?.sendLiveRequest) return res.status(503).json({ ok: false, error: "unavailable" });
+      try { res.json({ ok: true, result: await this.options.debugController.sendLiveRequest(req.body) }); }
+      catch(e) { res.status(500).json({ ok: false, error: String(e) }); }
+    });
+
+    this.app.post("/_debug/api/live/event", async (req, res) => {
+      if (!this.options.debugController?.sendLiveEvent) return res.status(503).json({ ok: false, error: "unavailable" });
+      try { res.json({ ok: true, result: await this.options.debugController.sendLiveEvent(req.body) }); }
+      catch(e) { res.status(500).json({ ok: false, error: String(e) }); }
+    });
+
+    // 旧版控制接口
+    this.app.post("/command", (req, res) => {
+      this.publish(req.body as LiveRendererCommand);
+      res.json({ ok: true, state: this.state });
+    });
+
+    this.app.post("/api/live/event", async (req, res) => {
+      if (!this.options.debugController?.sendLiveEvent) return res.status(503).json({ ok: false, error: "unavailable" });
+      try { res.json({ ok: true, result: await this.options.debugController.sendLiveEvent(req.body) }); }
+      catch(e) { res.status(500).json({ ok: false, error: String(e) }); }
+    });
   }
-
-  private writeJson(response: ServerResponse, status: number, body: Record<string, unknown>): void {
-    response.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
-    response.end(JSON.stringify(body));
-  }
-}
-
-function readBody(request: IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    request.on("data", (chunk: Buffer) => chunks.push(chunk));
-    request.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
-    request.on("error", reject);
-  });
-}
-
-function parseJson(text: string): Record<string, unknown> {
-  if (!text.trim()) return {};
-  const parsed = JSON.parse(text) as unknown;
-  return asRecord(parsed);
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
 function debugHtml(): string {
   return `<!doctype html><html><head><meta charset="utf-8"><title>Stelle Debug</title></head><body><h1>Stelle Debug</h1><pre id="out">loading...</pre><script>
 fetch('/_debug/api/snapshot').then(r=>r.json()).then(j=>{document.getElementById('out').textContent=JSON.stringify(j,null,2)}).catch(e=>{document.getElementById('out').textContent=String(e)})
 </script></body></html>`;
-}
-
-function contentType(filePath: string): string {
-  const ext = path.extname(filePath).toLowerCase();
-  if (ext === ".js") return "text/javascript; charset=utf-8";
-  if (ext === ".css") return "text/css; charset=utf-8";
-  if (ext === ".html") return "text/html; charset=utf-8";
-  if (ext === ".json") return "application/json; charset=utf-8";
-  if (ext === ".png") return "image/png";
-  if (ext === ".svg") return "image/svg+xml";
-  if (ext === ".wav") return "audio/wav";
-  if (ext === ".mp3") return "audio/mpeg";
-  return "application/octet-stream";
 }

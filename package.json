@@ -13,7 +13,11 @@
     "dev:live": "node scripts/start_all.js live --watch",
     "dev:discord": "tsx watch src/start.ts discord",
     "dev": "node scripts/start_all.js runtime --watch",
-    "dev:runtime": "node scripts/start_all.js runtime --watch"
+    "dev:runtime": "node scripts/start_all.js runtime --watch",
+    "test": "vitest run",
+    "test:eval": "vitest run -c vitest.eval.config.ts",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "engines": {
     "node": ">=20"
@@ -22,13 +26,21 @@
     "@google/genai": "^1.50.1",
     "discord.js": "^14.16.3",
     "dotenv": "^16.4.7",
+    "express": "^5.2.1",
+    "http-proxy-middleware": "^3.0.5",
     "mime": "^4.1.0",
+    "pixi-live2d-display": "^0.4.0",
+    "pixi.js": "^8.18.1",
+    "socket.io": "^4.8.3",
+    "socket.io-client": "^4.8.3",
     "vite": "^8.0.9",
     "yaml": "^2.7.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
+    "@vitest/coverage-v8": "^4.1.5",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vitest": "^4.1.5"
   }
 }

@@ -13,7 +13,7 @@
 export { start, startRuntime } from "./start.js";
 export { createDefaultToolRegistry, ToolRegistry } from "./tool.js";
 
-export type { StartMode, StelleRuntime } from "./start.js";
+export type { StartMode, StelleApplication } from "./core/application.js";
 export type { RuntimeStateSnapshot } from "./runtime_state.js";
 export type { ToolAuthority, ToolContext, ToolDefinition, ToolResult } from "./tool.js";
 export type { CursorSnapshot, StelleCursor } from "./cursor/types.js";

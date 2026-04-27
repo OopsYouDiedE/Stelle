@@ -13,7 +13,9 @@
  * - `create*Tools()`：按能力域注册具体工具。
  */
 import { exec } from "node:child_process";
+import { lookup } from "node:dns/promises";
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { isIP } from "node:net";
 import path from "node:path";
 import { safeErrorMessage } from "./utils/json.js";
 import type { DiscordRuntime } from "./utils/discord.js";
@@ -503,8 +505,9 @@ function createSearchTools(): ToolDefinition[] {
       sideEffects: sideEffects({ networkAccess: true, consumesBudget: true }),
       async execute(input) {
         const url = new URL(String(input.url));
-        if (!["http:", "https:"].includes(url.protocol)) return fail("unsupported_protocol", "Only HTTP(S) URLs are allowed.");
-        const response = await fetch(url, { headers: { "user-agent": browserUserAgent(), accept: "text/html,text/plain;q=0.9,*/*;q=0.8" } });
+        const blocked = await validatePublicHttpUrl(url);
+        if (blocked) return blocked;
+        const response = await fetchPublicUrl(url);
         if (!response.ok) throw new Error(`web_read failed: ${response.status} ${response.statusText}`);
         const raw = await response.text();
         const text = htmlToText(raw);
@@ -906,6 +909,79 @@ async function duckDuckGoHtmlSearch(query: string, count: number): Promise<Searc
 
 function browserUserAgent(): string {
   return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36";
+}
+
+async function fetchPublicUrl(url: URL): Promise<Response> {
+  let current = url;
+  for (let redirects = 0; redirects <= 5; redirects++) {
+    const blocked = await validatePublicHttpUrl(current);
+    if (blocked) throw new Error(blocked.summary);
+    const response = await fetch(current, {
+      redirect: "manual",
+      headers: { "user-agent": browserUserAgent(), accept: "text/html,text/plain;q=0.9,*/*;q=0.8" },
+    });
+    if (![301, 302, 303, 307, 308].includes(response.status)) return response;
+    const location = response.headers.get("location");
+    if (!location) return response;
+    current = new URL(location, current);
+  }
+  throw new Error("web_read redirected too many times.");
+}
+
+async function validatePublicHttpUrl(url: URL): Promise<ToolResult | undefined> {
+  if (!["http:", "https:"].includes(url.protocol)) return fail("unsupported_protocol", "Only HTTP(S) URLs are allowed.");
+  if (!url.hostname) return fail("invalid_url", "URL hostname is required.");
+
+  const hostname = url.hostname.toLowerCase().replace(/\.$/, "");
+  if (hostname === "localhost" || hostname.endsWith(".localhost")) return fail("blocked_private_host", "Localhost URLs are not allowed.");
+
+  const literal = normalizeIpLiteral(hostname);
+  const addresses = literal ? [literal] : (await lookup(hostname, { all: true })).map((entry) => entry.address);
+  if (!addresses.length) return fail("blocked_private_host", "URL hostname did not resolve to a public address.");
+  for (const address of addresses) {
+    if (!isPublicIp(address)) return fail("blocked_private_host", `URL resolves to a non-public address: ${address}.`);
+  }
+  return undefined;
+}
+
+function normalizeIpLiteral(hostname: string): string | null {
+  const unwrapped = hostname.startsWith("[") && hostname.endsWith("]") ? hostname.slice(1, -1) : hostname;
+  return isIP(unwrapped) ? unwrapped : null;
+}
+
+function isPublicIp(address: string): boolean {
+  const mapped = address.toLowerCase().startsWith("::ffff:") ? address.slice(7) : address;
+  const version = isIP(mapped);
+  if (version === 4) return isPublicIpv4(mapped);
+  if (version === 6) return isPublicIpv6(mapped);
+  return false;
+}
+
+function isPublicIpv4(address: string): boolean {
+  const parts = address.split(".").map((part) => Number(part));
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
+  const [a, b] = parts;
+  if (a === 0 || a === 10 || a === 127) return false;
+  if (a === 100 && b >= 64 && b <= 127) return false;
+  if (a === 169 && b === 254) return false;
+  if (a === 172 && b >= 16 && b <= 31) return false;
+  if (a === 192 && b === 0 && parts[2] === 2) return false;
+  if (a === 192 && b === 168) return false;
+  if (a === 192 && b === 0) return false;
+  if (a === 198 && b === 51 && parts[2] === 100) return false;
+  if (a === 203 && b === 0 && parts[2] === 113) return false;
+  if (a >= 224) return false;
+  return true;
+}
+
+function isPublicIpv6(address: string): boolean {
+  const value = address.toLowerCase();
+  if (value === "::" || value === "::1") return false;
+  if (value.startsWith("fe80:")) return false;
+  if (/^f[cd][0-9a-f]{2}:/u.test(value)) return false;
+  if (value.startsWith("2001:db8:")) return false;
+  if (value.startsWith("2001:2:")) return false;
+  return true;
 }
 
 function htmlToText(html: string): string {
