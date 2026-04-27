@@ -43,6 +43,9 @@ export class RuntimeState {
   private lastError?: string;
   private cursors: Record<string, CursorSnapshot> = {};
   private stelleCore: RuntimeStateSnapshot["stelleCore"] = {};
+  private memory: RuntimeStateSnapshot["memory"] = { channelRecentCounts: {}, researchLogCount: 0 };
+  private discord: RuntimeStateSnapshot["discord"] = { connected: false };
+  private renderer: RuntimeStateSnapshot["renderer"] = { connected: false };
 
   record(type: string, summary: string, payload?: Record<string, unknown>): RuntimeEvent {
     const event: RuntimeEvent = {
@@ -70,18 +73,27 @@ export class RuntimeState {
     this.stelleCore = snapshot;
   }
 
+  updateMemory(snapshot: Partial<RuntimeStateSnapshot["memory"]>): void {
+    this.memory = { ...this.memory, ...snapshot };
+  }
+
+  updateDiscord(snapshot: RuntimeStateSnapshot["discord"]): void {
+    this.discord = snapshot;
+  }
+
+  updateRenderer(snapshot: RuntimeStateSnapshot["renderer"]): void {
+    this.renderer = snapshot;
+  }
+
   snapshot(): RuntimeStateSnapshot {
     return {
       cursors: this.cursors,
       recentEvents: [...this.events].reverse().slice(0, 50),
       lastError: this.lastError,
       stelleCore: this.stelleCore,
-      memory: {
-        channelRecentCounts: {},
-        researchLogCount: 0,
-      },
-      discord: { connected: false },
-      renderer: { connected: false },
+      memory: this.memory,
+      discord: this.discord,
+      renderer: this.renderer,
     };
   }
 }

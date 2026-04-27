@@ -34,11 +34,19 @@ export interface CoreConfig {
   reflectionAccumulationThreshold: number;
 }
 
+export interface DebugConfig {
+  enabled: boolean;
+  requireToken: boolean;
+  token?: string;
+  allowExternalWrite: boolean;
+}
+
 export interface RuntimeConfig {
   models: ModelConfig;
   discord: DiscordConfig;
   live: LiveConfig;
   core: CoreConfig;
+  debug: DebugConfig;
   rawYaml: Record<string, unknown>;
 }
 
@@ -48,6 +56,7 @@ export function loadRuntimeConfig(): RuntimeConfig {
   const discordCursor = asRecord(cursors.discord);
   const liveCursor = asRecord(cursors.live);
   const core = asRecord(rawYaml.core);
+  const debug = asRecord(rawYaml.debug);
 
   const geminiApiKey = process.env.GEMINI_API_KEY || "";
   const dashscopeApiKey = process.env.DASHSCOPE_API_KEY || "";
@@ -78,6 +87,12 @@ export function loadRuntimeConfig(): RuntimeConfig {
     core: {
       reflectionIntervalHours: clamp(core.reflectionIntervalHours, 1, 168, 6),
       reflectionAccumulationThreshold: clamp(core.reflectionAccumulationThreshold, 1, 10000, 30),
+    },
+    debug: {
+      enabled: process.env.STELLE_DEBUG_ENABLED === "true" || debug.enabled === true,
+      requireToken: process.env.STELLE_DEBUG_REQUIRE_TOKEN !== "false" && debug.requireToken !== false,
+      token: process.env.STELLE_DEBUG_TOKEN || asString(debug.token) || undefined,
+      allowExternalWrite: process.env.STELLE_DEBUG_ALLOW_EXTERNAL_WRITE === "true" || debug.allowExternalWrite === true,
     },
     rawYaml,
   };

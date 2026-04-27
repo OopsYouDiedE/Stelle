@@ -90,7 +90,6 @@ export class LiveCursor implements StelleCursor {
   constructor(private readonly context: CursorContext) {}
 
   async initialize(): Promise<void> {
-    this.context.publishEvent({ type: "live.tick", reason: "init_dummy_event" } as any); // just for type check bypassing
     import("../utils/event_bus.js").then(({ eventBus }) => {
        eventBus.subscribe("live.tick", () => {
          void this.tick().catch(e => console.error("[LiveCursor] Tick error:", e));

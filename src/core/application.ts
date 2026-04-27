@@ -23,7 +23,7 @@ export class StelleApplication {
   public readonly llm: LlmClient;
   public readonly memory: MemoryStore;
   public readonly discord: DiscordRuntime;
-  public readonly tools: ToolRegistry;
+  public tools: ToolRegistry;
   public readonly scheduler: StelleScheduler;
   
   public renderer?: LiveRendererServer;
@@ -43,7 +43,11 @@ export class StelleApplication {
     this.discord = new DiscordRuntime();
     this.live = new LiveRuntime(new ObsWebSocketController({ enabled: this.config.live.obsControlEnabled }));
     this.tools = createDefaultToolRegistry({ discord: this.discord, live: this.live, memory: this.memory, cwd: process.cwd() });
-    this.scheduler = new StelleScheduler();
+    this.scheduler = new StelleScheduler({
+      liveEnabled: mode === "runtime" || mode === "live",
+      innerEnabled: true,
+      innerTickMs: 45_000,
+    });
   }
 
   public async start(): Promise<void> {
@@ -54,12 +58,20 @@ export class StelleApplication {
     await this.memory.start();
 
     if (this.mode === "runtime" || this.mode === "live") {
-      this.renderer = new LiveRendererServer({ host: this.config.live.rendererHost, port: this.config.live.rendererPort });
+      this.renderer = new LiveRendererServer({
+        host: this.config.live.rendererHost,
+        port: this.config.live.rendererPort,
+        debug: {
+          enabled: this.config.debug.enabled,
+          requireToken: this.config.debug.requireToken,
+          token: this.config.debug.token,
+        },
+      });
       const url = await this.renderer.start();
       process.env.LIVE_RENDERER_URL = url;
       this.live = new LiveRuntime(new ObsWebSocketController({ enabled: this.config.live.obsControlEnabled }), new LocalLiveRendererBridge(this.renderer));
-      // Re-create tools with the updated live runtime reference
-      (this as any).tools = createDefaultToolRegistry({ discord: this.discord, live: this.live, memory: this.memory, cwd: process.cwd() });
+      this.tools = createDefaultToolRegistry({ discord: this.discord, live: this.live, memory: this.memory, cwd: process.cwd() });
+      this.state.updateRenderer({ connected: true });
       this.state.record("renderer_started", `Live renderer ready: ${url}/live`);
       console.log(`[Stelle] Live renderer ready: ${url}/live`);
     }
@@ -77,6 +89,7 @@ export class StelleApplication {
       const discordCursor = this.cursors.find(c => c.id === "discord");
       await this.discord.setBotPresence({ window: discordCursor?.id ?? "unknown", detail: "runtime" }).catch(() => undefined);
       const status = await this.discord.getStatus();
+      this.state.updateDiscord({ connected: status.connected });
       this.state.record("discord_connected", `Discord connected=${status.connected} botUserId=${status.botUserId ?? "unknown"}`);
       console.log(`[Stelle] Discord connected=${status.connected} botUserId=${status.botUserId ?? "unknown"}`);
     } else if (this.mode !== "live") {
@@ -101,6 +114,8 @@ export class StelleApplication {
       this.renderer?.stop(),
       this.core?.stop()
     ]);
+    this.state.updateDiscord({ connected: false });
+    this.state.updateRenderer({ connected: false });
     this.state.record("runtime_stopped", "Runtime stopped.");
   }
 
@@ -118,10 +133,15 @@ export class StelleApplication {
     await innerCursor.initialize();
     
     const discordCursor = new DiscordCursor(context);
-    const liveCursor = new LiveCursor(context);
-    await liveCursor.initialize();
+    const cursors: StelleCursor[] = [innerCursor, discordCursor];
 
-    this.cursors = [innerCursor, discordCursor, liveCursor];
+    if (this.mode === "runtime" || this.mode === "live") {
+      const liveCursor = new LiveCursor(context);
+      await liveCursor.initialize();
+      cursors.push(liveCursor);
+    }
+
+    this.cursors = cursors;
 
     this.discord.onMessage((message) => {
       void discordCursor.receiveMessage(message).then(
@@ -151,22 +171,57 @@ export class StelleApplication {
   private setupDebugController() {
     if (!this.renderer) return;
 
+    const liveController = {
+      sendLiveRequest: (input: Record<string, unknown>) => {
+        const eventId = `live-request-${Date.now()}`;
+        eventBus.publish({ type: "live.request", source: "system", payload: { ...input, text: String(input.text ?? "") }, id: eventId });
+        return { accepted: true, reason: "Published to event bus", eventId };
+      },
+      sendLiveEvent: (input: Record<string, unknown>) => {
+        const liveCursor = this.cursors.find(c => c.id === "live") as LiveCursor | undefined;
+        return liveCursor ? liveCursor.receiveLiveEvent(input as any) : { ok: false, error: "LiveCursor not ready" };
+      },
+    };
+
+    this.renderer.setLiveController(liveController);
+
+    if (!this.config.debug.enabled) {
+      this.state.record("debug_disabled", "Debug controller is disabled by configuration.");
+      return;
+    }
+
     this.renderer.setDebugController({
       getSnapshot: async () => {
         this.state.updateCursors(this.cursors.map(c => c.snapshot()));
         if (this.core) this.state.updateStelleCore(this.core.snapshot());
+        const [discordStatus, liveStatus, memorySnapshot] = await Promise.all([
+          this.discord.getStatus(),
+          this.live?.getStatus(),
+          this.memory.snapshot(),
+        ]);
+        this.state.updateDiscord({ connected: discordStatus.connected });
+        if (this.renderer) this.state.updateRenderer({ connected: this.renderer.getStatus().connected });
+        this.state.updateMemory({
+          channelRecentCounts: (memorySnapshot.channelRecentCounts as Record<string, number> | undefined) ?? {},
+          researchLogCount: Number(memorySnapshot.researchLogCount ?? 0),
+        });
         return {
           runtime: this.state.snapshot(),
+          discord: discordStatus,
+          live: liveStatus,
+          renderer: this.renderer?.getStatus(),
           tools: this.tools.list().map(t => ({ name: t.name, authority: t.authority, title: t.title })),
           audit: this.tools.audit.slice(-50),
-          memory: await this.memory.snapshot(),
+          memory: memorySnapshot,
         };
       },
       useTool: (name, input) => {
         return this.tools.execute(name, input, {
           caller: "debug",
           cwd: process.cwd(),
-          allowedAuthority: ["readonly", "safe_write", "network_read", "external_write"],
+          allowedAuthority: this.config.debug.allowExternalWrite
+            ? ["readonly", "safe_write", "network_read", "external_write"]
+            : ["readonly", "safe_write", "network_read"],
         });
       },
       sendLiveRequest: (input) => {
@@ -174,10 +229,7 @@ export class StelleApplication {
         eventBus.publish({ type: "live.request", source: "debug", payload: { ...input, text: String(input.text ?? "") }, id: eventId });
         return { accepted: true, reason: "Published to event bus", eventId };
       },
-      sendLiveEvent: (input) => {
-        const liveCursor = this.cursors.find(c => c.id === "live") as LiveCursor | undefined;
-        return liveCursor ? liveCursor.receiveLiveEvent(input as any) : { ok: false, error: "LiveCursor not ready" };
-      },
+      sendLiveEvent: liveController.sendLiveEvent,
     });
   }
 }

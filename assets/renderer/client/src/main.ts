@@ -1,4 +1,5 @@
 import "./style.css";
+import { io } from "socket.io-client";
 import { Live2DAvatar } from "./live2d";
 
 interface RendererCommand {
@@ -334,6 +335,6 @@ function delay(ms: number): Promise<void> {
 }
 
 function shouldAutoplay(): boolean {
-  const value = String(params.get("autoplay") ?? "1").toLowerCase();
+  const value = String(params.get("autoplay") ?? "0").toLowerCase();
   return !["0", "false", "off"].includes(value);
 }

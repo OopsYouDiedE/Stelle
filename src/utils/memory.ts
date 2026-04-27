@@ -164,12 +164,27 @@ export class MemoryStore {
   }
 
   async snapshot(): Promise<Record<string, unknown>> {
+    const channelRecentCounts = await this.countDiscordRecentEntries();
     return {
       rootDir: this.rootDir,
       recentLimit: this.recentLimit,
       compactionEnabled: this.compactionEnabled,
+      channelRecentCounts,
       researchLogCount: (await this.readResearchLogs(1000)).length,
     };
+  }
+
+  private async countDiscordRecentEntries(): Promise<Record<string, number>> {
+    const channelsDir = path.join(this.rootDir, "discord", "channels");
+    const channelIds = await readdir(channelsDir).catch(() => []);
+    const counts: Record<string, number> = {};
+    await Promise.all(
+      channelIds.map(async (channelId) => {
+        const raw = await readFile(path.join(channelsDir, channelId, "recent.jsonl"), "utf8").catch(() => "");
+        counts[channelId] = raw.split(/\r?\n/).filter((line) => line.trim()).length;
+      })
+    );
+    return counts;
   }
 
   // Module: compaction and checkpoint recovery.

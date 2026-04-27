@@ -19,6 +19,11 @@ core:
   reflectionIntervalHours: 6
   reflectionAccumulationThreshold: 30
 
+debug:
+  enabled: false
+  requireToken: true
+  allowExternalWrite: false
+
 channels:
   "1235845356697288747":
     activated: true
