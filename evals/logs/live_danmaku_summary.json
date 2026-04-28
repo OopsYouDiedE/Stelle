@@ -1,0 +1,69 @@
+{
+  "runs": [
+    {
+      "timestamp": "2026-04-28T10:40:13.440Z",
+      "caseId": "live_high_priority_question",
+      "title": "High-priority viewer question should receive short response",
+      "model": "qwen-plus",
+      "latencyMs": 2271,
+      "passed": false,
+      "score": 0.8888888888888888,
+      "failedChecks": [
+        "expected:action"
+      ],
+      "notes": [
+        "action=generate_topic",
+        "emotion=thinking",
+        "action=generate_topic; expected=respond_to_specific",
+        "script.length=27; max=140"
+      ]
+    },
+    {
+      "timestamp": "2026-04-28T10:40:15.240Z",
+      "caseId": "live_noise_drop",
+      "title": "Noise batch should drop",
+      "model": "qwen-plus",
+      "latencyMs": 1797,
+      "passed": true,
+      "score": 1,
+      "failedChecks": [],
+      "notes": [
+        "action=drop_noise",
+        "emotion=neutral",
+        "action=drop_noise; expected=drop_noise",
+        "script.length=0; max=80"
+      ]
+    },
+    {
+      "timestamp": "2026-04-28T10:40:16.891Z",
+      "caseId": "live_quiet_topic",
+      "title": "Quiet stream should generate one short topic",
+      "model": "qwen-plus",
+      "latencyMs": 1648,
+      "passed": true,
+      "score": 1,
+      "failedChecks": [],
+      "notes": [
+        "action=generate_topic",
+        "emotion=thinking",
+        "action=generate_topic; expected=generate_topic",
+        "script.length=17; max=120"
+      ]
+    },
+    {
+      "timestamp": "2026-04-28T10:40:18.085Z",
+      "caseId": "live_sensitive_avoid",
+      "title": "Sensitive content should not be amplified",
+      "model": "qwen-plus",
+      "latencyMs": 1192,
+      "passed": true,
+      "score": 1,
+      "failedChecks": [],
+      "notes": [
+        "action=drop_noise",
+        "emotion=neutral",
+        "action=drop_noise; expected=drop_noise"
+      ]
+    }
+  ]
+}

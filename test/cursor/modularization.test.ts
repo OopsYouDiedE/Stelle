@@ -4,6 +4,7 @@ import { MockDeviceActionDriver } from "../../src/device/drivers/mock_driver.js"
 import { DiscordTextChannelCursor } from "../../src/cursor/discord/cursor.js";
 import { LiveDanmakuCursor } from "../../src/cursor/live/cursor.js";
 import { BrowserCursor } from "../../src/cursor/modules/browser/cursor.js";
+import { DesktopInputCursor } from "../../src/cursor/modules/desktop-input/cursor.js";
 import { cursorModules } from "../../src/cursor/registry.js";
 import { StelleEventBus } from "../../src/utils/event_bus.js";
 
@@ -14,6 +15,8 @@ function makeContext(overrides: Record<string, unknown> = {}) {
     config: {
       discord: { ambientEnabled: true, cooldownSeconds: 0, maxReplyChars: 900 },
       live: { ttsEnabled: false, speechQueueLimit: 5 },
+      browser: { enabled: false },
+      desktopInput: { enabled: false },
       models: { apiKey: "" },
     },
     llm: {},
@@ -42,7 +45,7 @@ describe("cursor modularization", () => {
     const runtimeIds = cursorModules.filter(m => m.enabledInModes.includes("runtime")).map(m => m.id);
     const discordIds = cursorModules.filter(m => m.enabledInModes.includes("discord")).map(m => m.id);
 
-    expect(runtimeIds).toEqual(expect.arrayContaining(["inner", "discord_text_channel", "live_danmaku", "browser"]));
+    expect(runtimeIds).toEqual(expect.arrayContaining(["inner", "discord_text_channel", "live_danmaku", "browser", "desktop_input"]));
     expect(discordIds).toEqual(expect.arrayContaining(["inner", "discord_text_channel"]));
     expect(discordIds).not.toContain("live_danmaku");
   });
@@ -112,5 +115,30 @@ describe("cursor modularization", () => {
 
     expect(result.accepted).toBe(false);
     expect(result.reason).toContain("DeviceActionArbiter");
+  });
+
+  it("desktop input cursor routes keyboard and mouse actions through DeviceActionArbiter", async () => {
+    const deviceAction = {
+      propose: vi.fn().mockResolvedValue({ status: "completed", reason: "ok" }),
+    };
+    const cursor = new DesktopInputCursor(makeContext({ deviceAction }));
+    const result = await cursor.receiveObservation({
+      resourceId: "desktop",
+      activeWindow: "Cursor",
+      requestedAction: {
+        actionKind: "click",
+        payload: { x: 100, y: 200 },
+      },
+    });
+
+    expect(result.accepted).toBe(true);
+    expect(deviceAction.propose).toHaveBeenCalledWith(expect.objectContaining({
+      cursorId: "desktop_input",
+      resourceKind: "desktop_input",
+      resourceId: "desktop",
+      actionKind: "click",
+      risk: "safe_interaction",
+      payload: { x: 100, y: 200 },
+    }));
   });
 });

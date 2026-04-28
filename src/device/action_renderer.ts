@@ -19,4 +19,8 @@ export class DeviceActionRenderer {
     }
     return driver.execute(intent);
   }
+
+  driverKinds(): DeviceResourceKind[] {
+    return [...this.drivers.keys()];
+  }
 }

@@ -22,6 +22,10 @@ The project maintains two distinct testing environments:
    - Run: `npm run test:eval`
    - Reports are generated in `evals/logs/` in Markdown format.
 
+When expanding either layer, follow [`docs/TEST_AND_EVALS_GUIDE_FOR_GEMINI.md`](docs/TEST_AND_EVALS_GUIDE_FOR_GEMINI.md). In particular, keep deterministic tests free of real network/LLM calls, and build evals from sanitized, curated material rather than ad hoc prompt snippets.
+
+For the concrete eval completion backlog, follow [`docs/GEMINI_EVALS_COMPLETION_TASK.md`](docs/GEMINI_EVALS_COMPLETION_TASK.md).
+
 ## Development Conventions
 - **Event-Driven**: Avoid direct calls between Cursors. Use `eventBus.publish(StelleEvent)` and `eventBus.subscribe(type, listener)`.
 - **Memory Management**: Use `MemoryStore` for both recent (JSONL) and long-term (Markdown) storage.

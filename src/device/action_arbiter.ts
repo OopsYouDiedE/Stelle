@@ -1,30 +1,17 @@
 import { DeviceActionRenderer } from "./action_renderer.js";
 import { DeviceActionIntentSchema } from "./action_types.js";
+import { validateDeviceActionPolicy } from "./action_policy.js";
 import type { 
   DeviceActionArbiterDeps, 
+  DeviceActionArbiterSnapshot,
   DeviceActionDecision, 
-  DeviceActionIntent, 
-  DeviceResourceKind,
-  DeviceActionRisk,
-  DeviceActionKind
+  DeviceActionIntent
 } from "./action_types.js";
 
 interface ResourceLease {
   cursorId: string;
   expiresAt: number;
 }
-
-const KIND_RISK_MAP: Record<DeviceActionKind, DeviceActionRisk[]> = {
-  "observe": ["readonly"],
-  "navigate": ["safe_interaction"],
-  "click": ["safe_interaction"],
-  "scroll": ["safe_interaction"],
-  "type": ["text_input"],
-  "hotkey": ["safe_interaction", "system"],
-  "android_tap": ["safe_interaction"],
-  "android_text": ["text_input"],
-  "android_back": ["safe_interaction"],
-};
 
 export class DeviceActionArbiter {
   private readonly renderer: DeviceActionRenderer;
@@ -58,40 +45,11 @@ export class DeviceActionArbiter {
       return { status: "rejected", reason, intent };
     }
 
-    // 3. Consistency Check (actionKind -> minimum risk)
-    const riskLevels: DeviceActionRisk[] = ["readonly", "safe_interaction", "text_input", "external_commit", "system"];
-    const minRequiredRisk = KIND_RISK_MAP[intent.actionKind][0]; // Using first element as min required
-    const intentRiskIndex = riskLevels.indexOf(intent.risk);
-    const minRiskIndex = riskLevels.indexOf(minRequiredRisk);
-
-    if (intentRiskIndex < minRiskIndex) {
-      const reason = `Risk level too low: ${intent.actionKind} requires at least ${minRequiredRisk}, but intent has ${intent.risk}.`;
-      this.publish("device.action.rejected", intent, { reason });
-      return { status: "rejected", reason, intent };
-    }
-
-    // 4. Allowlist Check (Default Deny)
-    const allowlist = this.deps.allowlist;
-    if (!allowlist) {
-      const reason = "DeviceActionArbiter has no allowlist configured. Defaulting to deny all.";
-      this.publish("device.action.rejected", intent, { reason });
-      return { status: "rejected", reason, intent };
-    }
-
-    if (allowlist.cursors && !allowlist.cursors.includes(intent.cursorId)) {
-      const reason = `Cursor ${intent.cursorId} is not in the allowlist.`;
-      this.publish("device.action.rejected", intent, { reason });
-      return { status: "rejected", reason, intent };
-    }
-    if (allowlist.resources && !allowlist.resources.includes(intent.resourceId)) {
-      const reason = `Resource ${intent.resourceId} is not in the allowlist.`;
-      this.publish("device.action.rejected", intent, { reason });
-      return { status: "rejected", reason, intent };
-    }
-    if (allowlist.risks && !allowlist.risks.includes(intent.risk)) {
-      const reason = `Risk ${intent.risk} is not in the allowlist.`;
-      this.publish("device.action.rejected", intent, { reason });
-      return { status: "rejected", reason, intent };
+    // 3. Static action policy: resource support, risk, allowlist, payload.
+    const policyDecision = validateDeviceActionPolicy(intent, this.deps.allowlist);
+    if (!policyDecision.allowed) {
+      this.publish("device.action.rejected", intent, { reason: policyDecision.reason });
+      return { status: "rejected", reason: policyDecision.reason, intent };
     }
 
     // 5. Resource Lease / Focus Lock
@@ -100,13 +58,6 @@ export class DeviceActionArbiter {
       const reason = `Resource ${intent.resourceId} is currently locked by ${currentLease.cursorId}.`;
       this.publish("device.action.rejected", intent, { reason });
       return { status: "rejected", reason, intent };
-    }
-
-    // 6. Security Approval Check (Existing logic)
-    const riskDecision = this.checkRisk(intent);
-    if (!riskDecision.allowed) {
-      this.publish("device.action.rejected", intent, { reason: riskDecision.reason });
-      return { status: "rejected", reason: riskDecision.reason, intent };
     }
 
     // Accept and acquire lease
@@ -134,14 +85,16 @@ export class DeviceActionArbiter {
     }
   }
 
-  private checkRisk(intent: DeviceActionIntent): { allowed: boolean; reason: string } {
-    if (intent.requiresApproval) {
-      return { allowed: false, reason: "Action requires explicit approval." };
+  snapshot(): DeviceActionArbiterSnapshot {
+    const now = this.deps.now();
+    for (const [resourceId, lease] of this.leases) {
+      if (lease.expiresAt <= now) this.leases.delete(resourceId);
     }
-    if (intent.risk === "system" || intent.risk === "external_commit") {
-      return { allowed: false, reason: "High-risk action requires explicit approval." };
-    }
-    return { allowed: true, reason: "Risk accepted." };
+    return {
+      allowlistConfigured: Boolean(this.deps.allowlist),
+      drivers: this.renderer.driverKinds(),
+      leases: [...this.leases.entries()].map(([resourceId, lease]) => ({ resourceId, ...lease })),
+    };
   }
 
   private publish(type: string, intent: DeviceActionIntent, extra: Record<string, unknown>): void {

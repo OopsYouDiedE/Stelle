@@ -16,6 +16,8 @@ interface RendererCommand {
   expression?: string;
   group?: string;
   source?: string;
+  status?: string;
+  provider?: string;
 }
 
 interface BilibiliFixtureEvent {
@@ -41,6 +43,7 @@ interface BilibiliFixture {
 const caption = document.querySelector<HTMLHeadingElement>("#caption");
 const speaker = document.querySelector<HTMLParagraphElement>("#speaker");
 const avatarStatus = document.querySelector<HTMLParagraphElement>("#avatar-status");
+const audioStatus = document.querySelector<HTMLParagraphElement>("#audio-status");
 const liveCanvas = document.querySelector<HTMLCanvasElement>("#live2d-canvas");
 const feed = document.querySelector<HTMLOListElement>("#event-log");
 const simulateForm = document.querySelector<HTMLFormElement>("#simulate-form");
@@ -151,6 +154,14 @@ function applyCommand(command: RendererCommand): void {
     queueAudio(command.url ?? "");
     return;
   }
+  if (command.type === "audio:stop") {
+    stopAudioPlayback();
+    return;
+  }
+  if (command.type === "audio:status") {
+    setAudioStatus([command.provider, command.status].filter(Boolean).join(" ") || "audio idle");
+    return;
+  }
   if (command.type === "state:set") {
     setCaption(command.state?.caption ?? "Renderer ready.");
     setSpeaker(command.state?.speaker ?? "runtime state");
@@ -255,6 +266,7 @@ async function playAudio(url: string): Promise<void> {
   audio.playsInline = true;
   activeAudio = audio;
   try {
+    setAudioStatus("audio loading");
     await avatar?.startLipSync(audio);
     await new Promise<void>((resolve, reject) => {
       audio.addEventListener("ended", () => {
@@ -271,6 +283,7 @@ async function playAudio(url: string): Promise<void> {
         reject(new Error(`audio element error: ${url}`));
       }, { once: true });
       audio.play().then(() => {
+        setAudioStatus("audio playing");
         console.log("live audio playing", url);
       }).catch(reject);
     });
@@ -279,7 +292,19 @@ async function playAudio(url: string): Promise<void> {
     avatar?.stopLipSync();
   } finally {
     if (activeAudio === audio) activeAudio = null;
+    setAudioStatus(pendingAudioQueue.length > 0 ? "audio queued" : "audio idle");
   }
+}
+
+function stopAudioPlayback(): void {
+  pendingAudioQueue.length = 0;
+  if (activeAudio) {
+    activeAudio.pause();
+    activeAudio.currentTime = 0;
+    activeAudio = null;
+  }
+  avatar?.stopLipSync();
+  setAudioStatus("audio stopped");
 }
 
 function pushFeed(item: {
@@ -318,6 +343,10 @@ function setCaption(text: string): void {
 
 function setSpeaker(text: string): void {
   if (speaker) speaker.textContent = text;
+}
+
+function setAudioStatus(text: string): void {
+  if (audioStatus) audioStatus.textContent = text;
 }
 
 function extractDanmakuText(raw: unknown): string | undefined {

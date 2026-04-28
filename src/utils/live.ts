@@ -186,6 +186,7 @@ export class LiveRuntime {
   }
 
   async playAudio(url: string, text?: string): Promise<LiveActionResult> {
+    await this.renderer?.publish({ type: "audio:status", status: "queued", text: text ? sanitizeExternalText(text) : undefined });
     await this.renderer?.publish({ type: "audio:play", url, text: text ? sanitizeExternalText(text) : undefined });
     return liveOk(`Queued live audio playback: ${url}.`, this.stage);
   }
@@ -193,11 +194,13 @@ export class LiveRuntime {
   async playTtsStream(text: string, request: Record<string, unknown>): Promise<LiveActionResult> {
     const id = `kokoro-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const url = `/tts/kokoro/${id}`;
+    await this.renderer?.publish({ type: "audio:status", status: "streaming", provider: "kokoro", text: sanitizeExternalText(text) });
     await this.renderer?.publish({ type: "audio:stream", url, provider: "kokoro", request, text: sanitizeExternalText(text) });
     return liveOk(`Queued live Kokoro stream playback: ${url}.`, this.stage);
   }
 
   async stopAudio(): Promise<LiveActionResult> {
+    await this.renderer?.publish({ type: "audio:status", status: "stopped" });
     await this.renderer?.publish({ type: "audio:stop" });
     return liveOk("Stopped live audio.", this.stage);
   }

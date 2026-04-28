@@ -90,6 +90,12 @@ export const BrowserObservationReceivedSchema = EventMetadataSchema.extend({
   payload: z.record(z.any()).describe("浏览器观察快照"),
 });
 
+export const DesktopInputObservationReceivedSchema = EventMetadataSchema.extend({
+  type: z.literal("desktop.input.observation.received"),
+  source: z.enum(["desktop_input", "system"]),
+  payload: z.record(z.any()).describe("键鼠输入观察快照"),
+});
+
 /**
  * 4. 指令下发类事件 (Directive Events)
  */
@@ -187,9 +193,15 @@ const DeviceResourceKindSchema = z.enum(["browser", "desktop_input", "android_de
 const DeviceActionKindSchema = z.enum([
   "observe",
   "navigate",
+  "move_mouse",
   "click",
+  "mouse_down",
+  "mouse_up",
+  "drag",
   "type",
   "hotkey",
+  "key_down",
+  "key_up",
   "scroll",
   "android_tap",
   "android_text",
@@ -262,6 +274,7 @@ export const StelleEventSchema = z.union([
   DiscordMessageEventSchema,
   LiveEventReceivedSchema, // 新增
   BrowserObservationReceivedSchema,
+  DesktopInputObservationReceivedSchema,
   LiveTopicRequestEventSchema,
   LiveDirectSayEventSchema,
   LiveRequestEventSchema,

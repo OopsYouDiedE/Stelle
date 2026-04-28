@@ -4,6 +4,7 @@ const LIVE_STAGE_TOOLS = [
   "live.set_caption",
   "live.stream_caption",
   "live.stream_tts_caption",
+  "live.push_event",
   "live.trigger_motion",
   "live.set_expression",
 ] as const;
@@ -49,8 +50,16 @@ export class StageOutputRenderer implements StageOutputRendererContract {
 
       if (!intent.output.caption && !intent.output.tts) return;
 
+      await this.deps.tools.execute("live.push_event", {
+        event_id: intent.id,
+        lane: stageLaneToLiveLane(intent.lane),
+        text: intent.summary ?? intent.text,
+        user_name: intent.cursorId,
+        priority: intent.salience === "critical" || intent.salience === "high" ? "high" : intent.salience === "medium" ? "medium" : "low",
+      }, toolContext).catch(() => undefined);
+
       if (intent.output.tts && this.deps.ttsEnabled) {
-        await this.deps.tools.execute("live.stream_tts_caption", { text: intent.text }, toolContext);
+        await this.deps.tools.execute("live.stream_tts_caption", { text: intent.text, speaker: "Stelle", rate_ms: 32 }, toolContext);
         return;
       }
 
@@ -63,4 +72,10 @@ export class StageOutputRenderer implements StageOutputRendererContract {
       // No more fire-and-forget abort listener here.
     }
   }
+}
+
+function stageLaneToLiveLane(lane: OutputIntent["lane"]): "incoming" | "response" | "topic" | "system" {
+  if (lane === "topic_hosting") return "topic";
+  if (lane === "debug" || lane === "emergency" || lane === "inner_reaction") return "system";
+  return "response";
 }

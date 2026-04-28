@@ -1,13 +1,8 @@
 import type { CursorContext } from "../../types.js";
-import type { DeviceActionDecision, DeviceActionIntent } from "../../../device/action_types.js";
+import { DeviceObservationExecutor } from "../device_observation_parts.js";
 
-export class BrowserExecutor {
-  constructor(private readonly context: CursorContext) {}
-
-  async execute(intent: DeviceActionIntent): Promise<DeviceActionDecision> {
-    if (!this.context.deviceAction) {
-      return { status: "rejected", reason: "DeviceActionArbiter is not configured.", intent };
-    }
-    return this.context.deviceAction.propose(intent);
+export class BrowserExecutor extends DeviceObservationExecutor {
+  constructor(context: CursorContext) {
+    super(context);
   }
 }

@@ -1,77 +1,36 @@
-import "dotenv/config";
-import { describe, it } from "vitest";
-import { LlmClient } from "../../src/utils/llm.js";
-import fs from "node:fs/promises";
-import path from "node:path";
+import { describe, expect, it } from "vitest";
+import { hasEvalLlmKeys, evalModelLabel, makeEvalLlm } from "../utils/env.js";
+import { recordEvalCase } from "../utils/report.js";
+import { summarizeChecks } from "../utils/scoring.js";
 
-const hasGemini = !!process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== "test-key";
-const hasDashscope = !!process.env.DASHSCOPE_API_KEY && process.env.DASHSCOPE_API_KEY !== "test-key";
-
-async function logEvalResult(modelId: string, prompt: string, latency: number, result: string, error?: string) {
-  const logDir = path.resolve("evals/logs");
-  await fs.mkdir(logDir, { recursive: true });
-  const logPath = path.join(logDir, "llm_stress_report.md");
-  
-  const content = [
-    `### Eval: ${modelId} @ ${new Date().toISOString()}`,
-    `- **Prompt**: \`${prompt}\``,
-    `- **Latency**: ${latency}ms`,
-    `- **Status**: ${error ? "❌ Error" : "✅ Success"}`,
-    ``,
-    `#### Output`,
-    `\`\`\``,
-    error ? error : result,
-    `\`\`\``,
-    `\n---\n`
-  ].join("\n");
-
-  await fs.appendFile(logPath, content, "utf8");
-}
-
-describe("Multi-Model Stress & Retry Test", () => {
-  it.skipIf(!hasGemini)(`should evaluate Gemini model`, async () => {
-    const modelId = "gemini-2.5-flash";
-    const llm = new LlmClient({
-      geminiApiKey: process.env.GEMINI_API_KEY || "",
-      dashscopeApiKey: process.env.DASHSCOPE_API_KEY || "",
-      primaryModel: modelId,
-      secondaryModel: modelId,
-      ttsModel: "",
-      baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    });
-
-    const prompt = 'Reply exactly "OK".';
+describe.skipIf(!hasEvalLlmKeys())("Multi-Model Stress & Retry Eval", () => {
+  it("returns a minimal response from the configured eval model", async () => {
+    const llm = makeEvalLlm();
     const start = Date.now();
-    try {
-      const res = await llm.generateText(prompt, { maxOutputTokens: 10 });
-      const latency = Date.now() - start;
-      await logEvalResult(modelId, prompt, latency, res);
-    } catch (e) {
-      const latency = Date.now() - start;
-      await logEvalResult(modelId, prompt, latency, "", String(e));
-    }
-  }, 60000);
+    let output = "";
+    let error: string | undefined;
 
-  it.skipIf(!hasDashscope)(`should evaluate Qwen model`, async () => {
-    const modelId = "qwen-plus";
-    const llm = new LlmClient({
-      geminiApiKey: process.env.GEMINI_API_KEY || "",
-      dashscopeApiKey: process.env.DASHSCOPE_API_KEY || "",
-      primaryModel: modelId,
-      secondaryModel: modelId,
-      ttsModel: "",
-      baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    try {
+      output = await llm.generateText('Reply exactly "OK".', { role: "secondary", temperature: 0, maxOutputTokens: 10 });
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : String(caught);
+    }
+
+    const score = summarizeChecks([
+      { ok: !error, name: "no_provider_error", note: error },
+      { ok: output.trim().length > 0, name: "non_empty_output", note: `output=${output}` },
+    ]);
+
+    expect(error).toBeUndefined();
+    expect(output.trim().length).toBeGreaterThan(0);
+    await recordEvalCase({
+      suite: "llm_stress",
+      caseId: "llm_stress_ok",
+      title: "Configured eval model returns OK",
+      model: evalModelLabel(),
+      latencyMs: Date.now() - start,
+      output: { output, error },
+      score,
     });
-
-    const prompt = 'Reply exactly "OK".';
-    const start = Date.now();
-    try {
-      const res = await llm.generateText(prompt, { maxOutputTokens: 10 });
-      const latency = Date.now() - start;
-      await logEvalResult(modelId, prompt, latency, res);
-    } catch (e) {
-      const latency = Date.now() - start;
-      await logEvalResult(modelId, prompt, latency, "", String(e));
-    }
-  }, 60000);
+  }, 120000);
 });

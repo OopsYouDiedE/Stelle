@@ -6,9 +6,15 @@ export type DeviceResourceKind = "browser" | "desktop_input" | "android_device";
 export type DeviceActionKind =
   | "observe"
   | "navigate"
+  | "move_mouse"
   | "click"
+  | "mouse_down"
+  | "mouse_up"
+  | "drag"
   | "type"
   | "hotkey"
+  | "key_down"
+  | "key_up"
   | "scroll"
   | "android_tap"
   | "android_text"
@@ -24,9 +30,15 @@ export const DeviceActionIntentSchema = z.object({
   actionKind: z.enum([
     "observe",
     "navigate",
+    "move_mouse",
     "click",
+    "mouse_down",
+    "mouse_up",
+    "drag",
     "type",
     "hotkey",
+    "key_down",
+    "key_up",
     "scroll",
     "android_tap",
     "android_text",
@@ -35,7 +47,7 @@ export const DeviceActionIntentSchema = z.object({
   risk: z.enum(["readonly", "safe_interaction", "text_input", "external_commit", "system"]),
   priority: z.number(),
   createdAt: z.number(),
-  ttlMs: z.number().int(),
+  ttlMs: z.number().int().positive(),
   requiresApproval: z.boolean().optional(),
   reason: z.string(),
   payload: z.record(z.any()),
@@ -67,7 +79,20 @@ export interface DeviceActionDriver {
 export interface DeviceActionAllowlist {
   cursors?: string[];
   resources?: string[];
+  resourceKinds?: DeviceResourceKind[];
   risks?: DeviceActionRisk[];
+}
+
+export interface DeviceActionLeaseSnapshot {
+  resourceId: string;
+  cursorId: string;
+  expiresAt: number;
+}
+
+export interface DeviceActionArbiterSnapshot {
+  allowlistConfigured: boolean;
+  drivers: DeviceResourceKind[];
+  leases: DeviceActionLeaseSnapshot[];
 }
 
 export interface DeviceActionArbiterDeps {

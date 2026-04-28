@@ -1,0 +1,17 @@
+{
+  "runs": [
+    {
+      "timestamp": "2026-04-28T10:40:11.959Z",
+      "caseId": "llm_stress_ok",
+      "title": "Configured eval model returns OK",
+      "model": "qwen-plus",
+      "latencyMs": 794,
+      "passed": true,
+      "score": 1,
+      "failedChecks": [],
+      "notes": [
+        "output=OK"
+      ]
+    }
+  ]
+}

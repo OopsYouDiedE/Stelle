@@ -42,3 +42,19 @@ OK
 ```
 
 ---
+### llm_stress: llm_stress_ok @ 2026-04-28T10:40:11.959Z
+- **Title**: Configured eval model returns OK
+- **Model**: qwen-plus
+- **Latency**: 794ms
+- **Passed**: true
+- **Score**: 1.00
+- **Failed Checks**: none
+
+#### Output
+```json
+{
+  "output": "OK"
+}
+```
+
+---

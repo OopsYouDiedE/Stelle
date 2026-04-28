@@ -567,7 +567,14 @@ function createLiveTools(deps: ToolRegistryDeps): ToolDefinition[] {
     },
     liveActionTool("live.set_caption", "Set Caption", z.object({ text: z.string().min(1) }), async (live, input) => live.setCaption(input.text)),
     liveActionTool("live.stream_caption", "Stream Caption", z.object({ text: z.string().min(1), speaker: z.string().optional(), rate_ms: z.number().int().optional().default(34) }), async (live, input) => live.streamCaption(input.text, input.speaker, input.rate_ms)),
-    liveActionTool("live.push_event", "Push Event", z.object({ event_id: z.string().optional(), lane: z.enum(["incoming", "response", "topic", "system"]), text: z.string().min(1), user_name: z.string().optional(), priority: z.enum(["low", "medium", "high"]).optional() }), async (live, input) => live.pushEvent(input)),
+    liveActionTool("live.push_event", "Push Event", z.object({ event_id: z.string().optional(), lane: z.enum(["incoming", "response", "topic", "system"]), text: z.string().min(1), user_name: z.string().optional(), priority: z.enum(["low", "medium", "high"]).optional(), note: z.string().optional() }), async (live, input) => live.pushEvent({
+      eventId: input.event_id,
+      lane: input.lane,
+      text: input.text,
+      userName: input.user_name,
+      priority: input.priority,
+      note: input.note,
+    })),
     liveActionTool("live.trigger_motion", "Trigger Motion", z.object({ group: z.string().min(1), priority: z.enum(["normal", "force"]).optional().default("normal") }), async (live, input) => live.triggerMotion(input.group, input.priority as any)),
     liveActionTool("live.set_expression", "Set Expression", z.object({ expression: z.string().min(1) }), async (live, input) => live.setExpression(input.expression)),
     {
@@ -588,11 +595,11 @@ function createLiveTools(deps: ToolRegistryDeps): ToolDefinition[] {
       title: "Stream TTS",
       description: "Synthesize speech and display caption simultaneously.",
       authority: "external_write",
-      inputSchema: z.object({ text: z.string().min(1), voice_name: z.string().optional() }),
+      inputSchema: z.object({ text: z.string().min(1), voice_name: z.string().optional(), speaker: z.string().optional(), rate_ms: z.number().int().optional().default(34) }),
       sideEffects: sideEffects({ externalVisible: true, networkAccess: true, consumesBudget: true, affectsUserState: true }),
       async execute(input) {
         const live = liveRequired();
-        await live.setCaption(sanitizeExternalText(input.text));
+        await live.streamCaption(sanitizeExternalText(input.text), input.speaker ?? "Stelle", input.rate_ms);
         const result = await live.playTtsStream(input.text, { voice: input.voice_name });
         return ok(result.summary, { result });
       },

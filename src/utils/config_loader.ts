@@ -58,6 +58,17 @@ export interface BrowserConfig {
   allowlist?: {
     cursors?: string[];
     resources?: string[];
+    resourceKinds?: string[];
+    risks?: string[];
+  };
+}
+
+export interface DesktopInputConfig {
+  enabled: boolean;
+  allowlist?: {
+    cursors?: string[];
+    resources?: string[];
+    resourceKinds?: string[];
     risks?: string[];
   };
 }
@@ -67,6 +78,7 @@ export interface RuntimeConfig {
   discord: DiscordConfig;
   live: LiveConfig;
   browser: BrowserConfig;
+  desktopInput: DesktopInputConfig;
   core: CoreConfig;
   debug: DebugConfig;
   control: ControlConfig;
@@ -81,6 +93,7 @@ export function loadRuntimeConfig(): RuntimeConfig {
   const discordCursor = asRecord(cursors.discord_text_channel || cursors.discord);
   const liveCursor = asRecord(cursors.live_danmaku || cursors.live);
   const browserCursor = asRecord(cursors.browser);
+  const desktopInputCursor = asRecord(cursors.desktop_input || cursors.desktopInput);
   
   const core = asRecord(rawYaml.core);
   const debug = asRecord(rawYaml.debug);
@@ -137,6 +150,10 @@ export function loadRuntimeConfig(): RuntimeConfig {
     browser: {
       enabled: browserCursor.enabled === true || process.env.BROWSER_ENABLED === "true",
       allowlist: asRecord(browserCursor.allowlist) as any,
+    },
+    desktopInput: {
+      enabled: desktopInputCursor.enabled === true || process.env.DESKTOP_INPUT_ENABLED === "true",
+      allowlist: asRecord(desktopInputCursor.allowlist) as any,
     },
     core: {
       reflectionIntervalHours: clamp(core.reflectionIntervalHours, 1, 168, 6),

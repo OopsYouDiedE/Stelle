@@ -2,9 +2,13 @@
  * Module: Inner Cursor (Ego & Cognitive Synthesis Engine)
  */
 
-import { asRecord, enumValue } from "../utils/json.js";
-import { truncateText } from "../utils/text.js";
-import type { CursorContext, CursorSnapshot, StelleEvent, StelleCursor } from "./types.js";
+import { asRecord, enumValue } from "../../utils/json.js";
+import { truncateText } from "../../utils/text.js";
+import type { CursorContext, CursorSnapshot, StelleEvent, StelleCursor } from "../types.js";
+import { DefaultResearchAgenda } from "./research_agenda.js";
+import { DefaultFieldSampler } from "./field_sampler.js";
+import { DefaultSelfModel } from "./self_model.js";
+import type { CognitiveSignal, SelfModelSnapshot, FieldNote } from "./types.js";
 
 export interface RuntimeDecision {
   id: string;
@@ -50,9 +54,22 @@ export class InnerCursor implements StelleCursor {
   private unsubscribes: (() => void)[] = [];
   private currentFocus = "保持轻量观察：先关注最近对话里反复出现的关系、情绪和未完成问题。";
 
+  private readonly agenda: DefaultResearchAgenda;
+  private readonly fieldSampler: DefaultFieldSampler;
+  private readonly selfModel: DefaultSelfModel;
+  private recentFieldNotes: FieldNote[] = [];
+  private recommendedLiveFocus?: string;
+
   constructor(private readonly context: CursorContext) {
     this.lastReflectionAt = context.now();
     this.lastCoreReflectionAt = context.now();
+    this.agenda = new DefaultResearchAgenda();
+    this.fieldSampler = new DefaultFieldSampler({ maxNotes: 12, now: () => this.context.now() });
+    this.selfModel = new DefaultSelfModel({
+      mood: this.currentGlobalMood,
+      currentFocus: this.currentFocus,
+      activeConvictions: this.coreConvictions.map(c => ({ topic: c.topic, stance: c.stance, confidence: 1 })),
+    });
   }
 
   async initialize(): Promise<void> {
@@ -72,9 +89,43 @@ export class InnerCursor implements StelleCursor {
       const savedConvictions = await this.context.memory.readLongTerm("core_convictions", "self_state");
       if (savedConvictions) {
         this.coreConvictions = JSON.parse(savedConvictions) as CoreConviction[];
+        this.selfModel.hydrate({
+          activeConvictions: this.coreConvictions.map(c => ({ topic: c.topic, stance: c.stance, confidence: 1 })),
+        });
       }
     } catch (e) {
       console.warn("[Inner] Failed to load convictions.");
+    }
+
+    try {
+      const savedAgenda = await this.context.memory.readLongTerm("research_agenda", "self_state");
+      if (savedAgenda) {
+        const topics = JSON.parse(savedAgenda);
+        this.agenda.hydrate(topics);
+      }
+    } catch (e) {
+      console.warn("[Inner] Failed to load research agenda.");
+    }
+
+    try {
+      const savedNotes = await this.context.memory.readLongTerm("field_notes", "self_state");
+      if (savedNotes) {
+        this.recentFieldNotes = JSON.parse(savedNotes) as FieldNote[];
+      }
+    } catch (e) {
+      console.warn("[Inner] Failed to load field notes.");
+    }
+
+    try {
+      const savedSelfModel = await this.context.memory.readLongTerm("self_model", "self_state");
+      if (savedSelfModel) {
+        this.selfModel.hydrate(JSON.parse(savedSelfModel));
+        const snap = this.selfModel.snapshot();
+        this.currentGlobalMood = snap.mood;
+        this.currentFocus = snap.currentFocus;
+      }
+    } catch (e) {
+      console.warn("[Inner] Failed to load self model. Continuing with defaults.");
     }
   }
 
@@ -129,6 +180,18 @@ export class InnerCursor implements StelleCursor {
     if (now - this.lastCoreReflectionAt > coreInterval && !this.isReflecting) {
       await this.triggerCoreReflection();
     }
+  }
+
+  private mapSourceToCognitive(source: unknown): CognitiveSignal["source"] {
+    if (typeof source !== "string") return "system";
+    const s = source.toLowerCase();
+    if (s === "discord" || s === "discord_text_channel") return "discord_text_channel";
+    if (s === "live" || s === "live_danmaku") return "live_danmaku";
+    if (s === "stage_output") return "stage_output";
+    if (s === "browser") return "browser";
+    if (s === "system") return "system";
+    // Map unsupported runtime sources such as desktop_input/android_device to system
+    return "system";
   }
 
   async triggerCoreReflection(): Promise<void> {
@@ -201,9 +264,127 @@ export class InnerCursor implements StelleCursor {
       const decisionsToReflect = this.recentDecisions.slice(-Math.max(20, this.unreflectedCount));
       if (decisionsToReflect.length === 0) return;
 
+      const now = this.context.now();
       this.unreflectedCount = 0;
       this.pendingImpactScore = 0;
-      this.lastReflectionAt = this.context.now();
+      this.lastReflectionAt = now;
+
+      // Update Research Agenda
+      const signals: CognitiveSignal[] = decisionsToReflect.map(d => ({
+        id: d.id,
+        source: this.mapSourceToCognitive(d.source),
+        kind: d.type,
+        summary: d.summary,
+        timestamp: d.timestamp,
+        impactScore: d.impactScore,
+        salience: d.salience,
+      }));
+
+      const agendaUpdate = await this.agenda.update(signals, this.getSelfSnapshot(), now);
+
+      if (this.context.memory) {
+        for (const topic of agendaUpdate.addedTopics) {
+          await this.context.memory.appendResearchLog({
+            focus: topic.title,
+            process: [
+              `Topic created: ${topic.title}`,
+              ...topic.evidence.map(e => `Evidence [${e.source}]: ${e.excerpt}`)
+            ],
+            conclusion: `New research agenda item: ${topic.id}`
+          }).catch(() => {});
+        }
+        for (const topic of agendaUpdate.updatedTopics) {
+          await this.context.memory.appendResearchLog({
+            focus: topic.title,
+            process: [
+              `Topic updated: ${topic.title}`,
+              ...topic.evidence.slice(-3).map(e => `Recent Evidence [${e.source}]: ${e.excerpt}`)
+            ],
+            conclusion: `Updated research topic: ${topic.id} (Confidence: ${topic.confidence.toFixed(2)})`
+          }).catch(() => {});
+        }
+        for (const topic of agendaUpdate.closedTopics) {
+          await this.context.memory.appendResearchLog({
+            focus: topic.title,
+            process: [`Topic closed: ${topic.title}`],
+            conclusion: `Closed research topic: ${topic.id}`,
+          }).catch(() => {});
+        }
+
+        // Persist active agenda
+        await this.context.tools.execute("memory.write_long_term",
+          { key: "research_agenda", value: JSON.stringify(this.agenda.activeTopics()), layer: "self_state" },
+          { caller: "core", cwd: process.cwd(), allowedAuthority: ["safe_write"], allowedTools: ["memory.write_long_term"] }
+        ).catch(() => {});
+      }
+
+      const selfUpdate = await this.selfModel.update({ signals, researchUpdates: agendaUpdate });
+      this.applySelfModelSnapshot(selfUpdate.snapshot);
+
+      if (this.context.memory && selfUpdate.changes.length > 0) {
+        await this.context.tools.execute("memory.write_long_term",
+          { key: "self_model", value: JSON.stringify(selfUpdate.snapshot), layer: "self_state" },
+          { caller: "core", cwd: process.cwd(), allowedAuthority: ["safe_write"], allowedTools: ["memory.write_long_term"] }
+        ).catch(() => {});
+        await this.context.tools.execute("memory.write_long_term",
+          { key: "current_focus", value: this.currentFocus, layer: "self_state" },
+          { caller: "core", cwd: process.cwd(), allowedAuthority: ["safe_write"], allowedTools: ["memory.write_long_term"] }
+        ).catch(() => {});
+        await this.context.memory.appendResearchLog({
+          focus: this.currentFocus,
+          process: selfUpdate.changes.slice(0, 6),
+          conclusion: `Self model updated: mood=${selfUpdate.snapshot.mood}`,
+        }).catch(() => {});
+      }
+
+      // Phase 3: Field Sampling
+      const samplingResult = await this.fieldSampler.sample({
+        activeTopics: this.agenda.activeTopics(),
+        recentSignals: signals,
+        selfModel: this.getSelfSnapshot()
+      });
+      this.recentFieldNotes = samplingResult.notes;
+      this.recommendedLiveFocus = samplingResult.recommendedFocus;
+
+      if (this.context.memory) {
+        await this.context.tools.execute("memory.write_long_term",
+          { key: "field_notes", value: JSON.stringify(this.recentFieldNotes), layer: "self_state" },
+          { caller: "core", cwd: process.cwd(), allowedAuthority: ["safe_write"], allowedTools: ["memory.write_long_term"] }
+        ).catch(() => {});
+
+        if (this.recentFieldNotes.length > 0) {
+          await this.context.memory.appendResearchLog({
+            focus: "Field Sampling",
+            process: [
+              `Sampled ${this.recentFieldNotes.length} field notes.`,
+              `Recommended focus: ${this.recommendedLiveFocus || "none"}`
+            ],
+            conclusion: `Field sampling complete. Recent vibes: ${this.recentFieldNotes.map(n => n.vibe).slice(0, 3).join(", ")}`
+          }).catch(() => {});
+        }
+      }
+
+      if (this.recommendedLiveFocus) {
+        const expiresAt = now + (30 * 60 * 1000);
+        this.context.eventBus.publish({
+          type: "cursor.directive",
+          source: "inner",
+          id: `dir-field-${now}`,
+          timestamp: now,
+          payload: {
+            target: "live_danmaku",
+            action: "apply_policy",
+            policy: {
+              replyBias: "selective",
+              vibeIntensity: 3,
+              focusTopic: this.recommendedLiveFocus,
+              instruction: `Focus on: ${this.recommendedLiveFocus}`
+            },
+            expiresAt,
+            priority: 2
+          }
+        });
+      }
 
       // 注入结构化决策日志
       const decisionLog = decisionsToReflect.map(d => `[${d.source}] ${d.type}: ${d.summary}`).join("\n");
@@ -264,13 +445,15 @@ export class InnerCursor implements StelleCursor {
       if (result.newConviction && result.newConviction.topic && result.newConviction.stance) {
         this.coreConvictions.push(result.newConviction);
         if (this.coreConvictions.length > 20) this.coreConvictions.shift(); 
+        this.selfModel.hydrate({
+          activeConvictions: this.coreConvictions.map(c => ({ topic: c.topic, stance: c.stance, confidence: 1 })),
+        });
         await this.context.tools.execute("memory.write_long_term", 
           { key: "core_convictions", value: JSON.stringify(this.coreConvictions), layer: "self_state" },
           { caller: "core", cwd: process.cwd(), allowedAuthority: ["safe_write"], allowedTools: ["memory.write_long_term"] }
         ).catch(() => {});
       }
 
-      const now = this.context.now();
       for (const d of result.directives) {
         const instruction = d.policy.instruction || "";
         if (!instruction && !d.policy.replyBias && !d.policy.vibeIntensity) continue; // 无效指令跳过
@@ -324,7 +507,20 @@ export class InnerCursor implements StelleCursor {
     ].join("\n");
   }
 
+  private getSelfSnapshot(): SelfModelSnapshot {
+    return this.selfModel.snapshot();
+  }
+
+  private applySelfModelSnapshot(snapshot: SelfModelSnapshot): void {
+    this.currentGlobalMood = snapshot.mood;
+    this.currentFocus = snapshot.currentFocus || this.currentFocus;
+    this.coreConvictions = snapshot.activeConvictions
+      .slice(0, 20)
+      .map(c => ({ topic: c.topic, stance: c.stance }));
+  }
+
   snapshot(): CursorSnapshot {
+    const selfSnap = this.selfModel.snapshot();
     return {
       id: this.id, kind: this.kind, status: this.status, summary: this.summary,
       state: {
@@ -334,6 +530,12 @@ export class InnerCursor implements StelleCursor {
         unreflectedCount: this.unreflectedCount,
         lastCoreReflectionAt: this.lastCoreReflectionAt,
         currentFocusSummary: truncateText(this.currentFocus, 100),
+        fieldNotesCount: this.recentFieldNotes.length,
+        recommendedLiveFocus: this.recommendedLiveFocus,
+        selfModelMood: selfSnap.mood,
+        selfModelWarningsCount: selfSnap.behavioralWarnings.length,
+        selfModelConvictionsCount: selfSnap.activeConvictions.length,
+        ...this.agenda.snapshot(),
       },
     };
   }

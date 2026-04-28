@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { InnerCursor } from "../../src/cursor/inner_cursor.js";
+import { InnerCursor } from "../../src/cursor/inner/cursor.js";
 import { StelleEventBus } from "../../src/utils/event_bus.js";
 
 describe("InnerCursor Full Logic Coverage", () => {
@@ -11,7 +11,7 @@ describe("InnerCursor Full Logic Coverage", () => {
     now = 1000000;
     context = {
       now: () => now,
-      config: { 
+      config: {
         models: { apiKey: "test-key" },
         core: { reflectionAccumulationThreshold: 10, reflectionIntervalHours: 6 }
       },
@@ -70,7 +70,7 @@ describe("InnerCursor Full Logic Coverage", () => {
 
     // 触发第二次
     innerCursor.recordDecision({ salience: "high" } as any);
-    
+
     // 验证 generateJson 只被调用了一次
     expect(context.llm.generateJson).toHaveBeenCalledTimes(1);
   });
@@ -97,7 +97,7 @@ describe("InnerCursor Full Logic Coverage", () => {
     expect(snapshot.state.convictionsCount).toBe(20);
     // 验证第一个是否被挤掉了 (T0 应该不在了)
     const convictions = (innerCursor as any).coreConvictions;
-    expect(convictions[0].topic).toBe("T1"); 
+    expect(convictions[0].topic).toBe("T1");
     expect(convictions[19].topic).toBe("T20");
   });
 
@@ -121,7 +121,7 @@ describe("InnerCursor Full Logic Coverage", () => {
       type: "cursor.reflection", source: "discord",
       payload: { intent: "chat", summary: "x", impactScore: 1, salience: "low" }
     });
-    
+
     now += 31 * 60 * 1000;
     await innerCursor.tick();
     expect(context.llm.generateJson).toHaveBeenCalled();
@@ -131,5 +131,141 @@ describe("InnerCursor Full Logic Coverage", () => {
     // 情况 B: 没积压，时间够 -> 不触发
     await innerCursor.tick();
     expect(context.llm.generateJson).not.toHaveBeenCalled();
+  });
+
+  it("high-salience reflection causes research log append and agenda snapshot", async () => {
+    await innerCursor.recordDecision({
+      id: "d1",
+      source: "discord",
+      type: "chat",
+      summary: "User asking about AI selfhood",
+      timestamp: now,
+      impactScore: 5,
+      salience: "high"
+    });
+
+    await new Promise(r => setTimeout(r, 50)); // wait for async synthesis
+
+    expect(context.memory.appendResearchLog).toHaveBeenCalledWith(expect.objectContaining({
+      conclusion: expect.stringContaining("New research agenda item")
+    }));
+
+    expect(context.tools.execute).toHaveBeenCalledWith("memory.write_long_term", expect.objectContaining({
+      key: "research_agenda"
+    }), expect.any(Object));
+    expect(context.tools.execute).toHaveBeenCalledWith("memory.write_long_term", expect.objectContaining({
+      key: "self_model"
+    }), expect.any(Object));
+    expect(context.tools.execute).toHaveBeenCalledWith("memory.write_long_term", expect.objectContaining({
+      key: "current_focus"
+    }), expect.any(Object));
+
+    const snapshot = innerCursor.snapshot();
+    expect(snapshot.state.activeResearchTopicsCount).toBe(1);
+    expect(snapshot.state.selfModelMood).toBeDefined();
+    expect(snapshot.state.selfModelConvictionsCount).toBeGreaterThanOrEqual(0);
+  });
+
+  it("should hydrate research agenda from memory during initialization", async () => {
+    const mockTopics = [{ id: "saved-topic", title: "Saved", status: "active", evidence: [] }];
+    context.memory.readLongTerm.mockImplementation(async (key: string) => {
+      if (key === "research_agenda") return JSON.stringify(mockTopics);
+      return null;
+    });
+
+    await innerCursor.initialize();
+    const snapshot = innerCursor.snapshot();
+    expect(snapshot.state.activeResearchTopicsCount).toBe(1);
+  });
+
+  it("should map sources correctly to CognitiveSignal", async () => {
+    await innerCursor.recordDecision({
+      id: "d1",
+      source: "android_device",
+      type: "chat",
+      summary: "Mobile user",
+      timestamp: now,
+      impactScore: 5,
+      salience: "high"
+    });
+
+    await new Promise(r => setTimeout(r, 50));
+
+    // Check signals passed to agenda.update
+    const agendaUpdateSpy = vi.spyOn((innerCursor as any).agenda, "update");
+
+    await innerCursor.recordDecision({
+      id: "d2",
+      source: "desktop_input",
+      type: "chat",
+      summary: "Desktop user",
+      timestamp: now,
+      impactScore: 5,
+      salience: "high"
+    });
+    await new Promise(r => setTimeout(r, 50));
+
+    const calls = agendaUpdateSpy.mock.calls;
+    const lastSignals = calls[calls.length - 1][0];
+    expect(lastSignals[0].source).toBe("system"); // android_device mapped to system
+  });
+
+  it("should append research log for updated topics", async () => {
+    // 1. Create a topic
+    await innerCursor.recordDecision({
+      id: "d1", source: "discord", type: "chat", summary: "Topic A", timestamp: now, impactScore: 5, salience: "high"
+    });
+    await new Promise(r => setTimeout(r, 50));
+    vi.clearAllMocks();
+
+    // 2. Update the topic (same type/summary usually leads to same key)
+    await innerCursor.recordDecision({
+      id: "d2", source: "discord", type: "chat", summary: "Topic A again", timestamp: now + 1, impactScore: 5, salience: "high"
+    });
+    await new Promise(r => setTimeout(r, 50));
+
+    expect(context.memory.appendResearchLog).toHaveBeenCalledWith(expect.objectContaining({
+      conclusion: expect.stringContaining("Updated research topic")
+    }));
+  });
+
+  it("should perform field sampling during cognitive synthesis and publish live directive", async () => {
+    // Mock agenda to return a topic
+    const mockTopics = [{ id: "t1", title: "Topic 1", status: "active", priority: 3, evidence: [] }];
+    (innerCursor as any).agenda.hydrate(mockTopics);
+
+    const publishSpy = vi.spyOn(context.eventBus, "publish");
+
+    await innerCursor.recordDecision({
+      id: "d1",
+      source: "live_danmaku",
+      type: "chat",
+      summary: "Live user chat",
+      timestamp: now,
+      impactScore: 5,
+      salience: "high"
+    });
+
+    await new Promise(r => setTimeout(r, 100)); // wait for async synthesis
+
+    expect(innerCursor.snapshot().state.fieldNotesCount).toBeGreaterThan(0);
+    expect(innerCursor.snapshot().state.recommendedLiveFocus).toBeDefined();
+
+    // Verify directive published for live_danmaku
+    expect(publishSpy).toHaveBeenCalledWith(expect.objectContaining({
+      type: "cursor.directive",
+      payload: expect.objectContaining({
+        target: "live_danmaku",
+        action: "apply_policy",
+        policy: expect.objectContaining({
+          vibeIntensity: 3,
+          focusTopic: expect.any(String)
+        })
+      })
+    }));
+
+    expect(context.tools.execute).toHaveBeenCalledWith("memory.write_long_term", expect.objectContaining({
+      key: "field_notes"
+    }), expect.any(Object));
   });
 });

@@ -63,3 +63,22 @@
 ```
 
 ---
+### moderation: moderation_break_silence_direct_mention @ 2026-04-28T10:40:13.005Z
+- **Title**: Ambient silence should break for direct mention without shaming users
+- **Model**: qwen-plus
+- **Latency**: 1838ms
+- **Passed**: true
+- **Score**: 1.00
+- **Failed Checks**: none
+
+#### Output
+```json
+{
+  "shouldBreak": true,
+  "reason": "Direct mention requires response",
+  "impactScore": 8,
+  "replyDraft": "Great question — both represent meaningful opportunities, and the 'value' depends on your goals, values, and context. Happy to explore that with you."
+}
+```
+
+---

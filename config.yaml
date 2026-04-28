@@ -14,6 +14,16 @@ cursors:
   live:
     ttsEnabled: true
     speechQueueLimit: 12
+  browser:
+    enabled: false
+    allowlist:
+      resources: ["default"]
+      risks: ["readonly", "safe_interaction", "text_input"]
+  desktop_input:
+    enabled: false
+    allowlist:
+      resources: ["desktop"]
+      risks: ["readonly", "safe_interaction", "text_input"]
 
 core:
   reflectionIntervalHours: 6

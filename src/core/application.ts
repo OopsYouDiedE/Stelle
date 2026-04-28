@@ -7,16 +7,25 @@ import { DiscordRuntime } from "../utils/discord.js";
 import { MemoryStore } from "../utils/memory.js";
 import { createDefaultToolRegistry, type ToolRegistry } from "../tool.js";
 import { RuntimeState } from "../runtime_state.js";
-import type { StelleCursor, StelleEvent } from "../cursor/types.js";
-import { cursorModules, isCursorEnabledByConfig } from "../cursor/registry.js";
+import type { CursorContext, StelleCursor } from "../cursor/types.js";
+import { selectCursorModules } from "../cursor/registry.js";
 import { StelleEventBus } from "../utils/event_bus.js";
 import { StelleScheduler } from "./scheduler.js";
+import { setupRendererControllers } from "./debug_controller.js";
 import { StageOutputArbiter } from "../stage/output_arbiter.js";
 import { StageOutputRenderer } from "../stage/output_renderer.js";
 import { DeviceActionArbiter } from "../device/action_arbiter.js";
 import { MockDeviceActionDriver } from "../device/drivers/mock_driver.js";
+import { buildDeviceActionAllowlist } from "../device/action_allowlist.js";
 
 export type StartMode = "runtime" | "discord" | "live";
+
+interface RuntimeServices {
+  live: LiveRuntime;
+  tools: ToolRegistry;
+  stageOutput: StageOutputArbiter;
+  deviceAction: DeviceActionArbiter;
+}
 
 export class StelleApplication {
   public readonly config: RuntimeConfig;
@@ -45,10 +54,11 @@ export class StelleApplication {
     });
     this.discord = new DiscordRuntime();
     this.eventBus = new StelleEventBus();
-    this.live = new LiveRuntime(new ObsWebSocketController({ enabled: this.config.live.obsControlEnabled }));
-    this.tools = createDefaultToolRegistry({ discord: this.discord, live: this.live, memory: this.memory, cwd: process.cwd() });
-    this.stageOutput = this.createStageOutput();
-    this.deviceAction = this.createDeviceAction();
+    const services = this.createRuntimeServices();
+    this.live = services.live;
+    this.tools = services.tools;
+    this.stageOutput = services.stageOutput;
+    this.deviceAction = services.deviceAction;
     this.scheduler = new StelleScheduler({
       liveEnabled: mode === "runtime" || mode === "live",
       innerEnabled: true,
@@ -79,11 +89,8 @@ export class StelleApplication {
       });
       const url = await this.renderer.start();
       process.env.LIVE_RENDERER_URL = url;
-      this.live = new LiveRuntime(new ObsWebSocketController({ enabled: this.config.live.obsControlEnabled }), new LocalLiveRendererBridge(this.renderer));
-      await this.live.start();
-      this.tools = createDefaultToolRegistry({ discord: this.discord, live: this.live, memory: this.memory, cwd: process.cwd() });
-      this.stageOutput = this.createStageOutput();
-      this.deviceAction = this.createDeviceAction();
+      const live = this.installRuntimeServices(this.renderer);
+      await live.start();
       this.state.updateRenderer({ connected: true });
       this.state.record("renderer_started", `Live renderer ready: ${url}/live`);
       console.log(`[Stelle] Live renderer ready: ${url}/live`);
@@ -123,35 +130,9 @@ export class StelleApplication {
     this.state.record("runtime_stopped", "Runtime stopped.");
   }
 
-  private async setupCursors() {
-    const context = {
-      llm: this.llm,
-      tools: this.tools,
-      config: this.config,
-      memory: this.memory,
-      eventBus: this.eventBus,
-      stageOutput: this.stageOutput,
-      deviceAction: this.deviceAction,
-      now: () => Date.now(),
-    };
-
-    this.cursors = cursorModules
-      .filter(module => module.enabledInModes.includes(this.mode))
-      .filter(module => {
-        // 1. Explicit Gating by Config
-        if (module.id === "browser") return this.config.browser.enabled;
-        return isCursorEnabledByConfig(module.id, this.config.rawYaml);
-      })
-      .filter(module => {
-        // 2. Runtime Dependency Check (requires)
-        if (!module.requires) return true;
-        return module.requires.every(req => {
-          if (req === "discord") return Boolean(this.config.discord.token);
-          if (req === "live") return true; // Add live runtime check if needed
-          if (req === "browser") return this.config.browser.enabled;
-          return false;
-        });
-      })
+  private async setupCursors(): Promise<void> {
+    const context = this.createCursorContext();
+    this.cursors = selectCursorModules({ mode: this.mode, config: this.config, liveAvailable: Boolean(this.live) })
       .map(module => module.create(context));
 
     // 并行初始化所有 Cursor
@@ -166,9 +147,22 @@ export class StelleApplication {
         payload: { message } // 携带完整摘要
       });
     });
-    }
+  }
 
-    private setupEventRouting() {
+  private createCursorContext(): CursorContext {
+    return {
+      llm: this.llm,
+      tools: this.tools,
+      config: this.config,
+      memory: this.memory,
+      eventBus: this.eventBus,
+      stageOutput: this.stageOutput,
+      deviceAction: this.deviceAction,
+      now: () => Date.now(),
+    };
+  }
+
+  private setupEventRouting(): void {
     // 路由内部调度事件到 EventBus
     this.scheduler.onTick((type, reason) => {
       this.eventBus.publish({ type: type as any, source: "scheduler", reason });
@@ -178,92 +172,55 @@ export class StelleApplication {
     this.eventBus.subscribe("cursor.reflection", (event) => {
       this.state.record("cursor_reflection", event.payload.summary, event.payload);
     });
-    }
+  }
 
-    private setupDebugController() {
+  private setupDebugController(): void {
     if (!this.renderer) return;
 
-    const liveController = {
-      sendLiveRequest: async (input: Record<string, unknown>) => {
-        return this.proposeSystemLiveOutput("system", input);
-      },
-      sendLiveEvent: (input: Record<string, unknown>) => {
-        const eventId = `live-event-${Date.now()}`;
-        this.eventBus.publish({
-          type: "live.danmaku.received",
-          source: "system",
-          id: eventId,
-          timestamp: Date.now(),
-          payload: { ...input }
-        } as any);
-        return { accepted: true, reason: "Forwarded to event bus", eventId };
-      },
-    };
-
-
-    this.renderer.setLiveController(liveController);
-
-    if (!this.config.debug.enabled) {
-      this.state.record("debug_disabled", "Debug controller is disabled by configuration.");
-      return;
-    }
-
-    this.renderer.setDebugController({
-      getSnapshot: async () => {
-        this.state.updateCursors(this.cursors.map(c => c.snapshot()));
-        const innerCursor = this.cursors.find(c => c.id === "inner");
-        if (innerCursor) {
-          const s = innerCursor.snapshot();
-          this.state.updateStelleCore({
-            lastReflectionAt: Number(s.state.lastCoreReflectionAt),
-            currentFocusSummary: String(s.state.currentFocusSummary),
-          });
-        }
-
-        const [discordStatus, liveStatus, memorySnapshot] = await Promise.all([
-          this.discord.getStatus(),
-          this.live?.getStatus(),
-          this.memory.snapshot(),
-        ]);
-        this.state.updateDiscord({ connected: discordStatus.connected });
-        if (this.renderer) this.state.updateRenderer({ connected: this.renderer.getStatus().connected });
-        this.state.updateMemory({
-          channelRecentCounts: (memorySnapshot.channelRecentCounts as Record<string, number> | undefined) ?? {},
-          researchLogCount: Number(memorySnapshot.researchLogCount ?? 0),
-        });
-        return {
-          runtime: this.state.snapshot(),
-          discord: discordStatus,
-          live: liveStatus,
-          renderer: this.renderer?.getStatus(),
-          stageOutput: this.stageOutput.snapshot(),
-          tools: this.tools.list().map(t => ({ name: t.name, authority: t.authority, title: t.title })),
-          audit: this.tools.audit.slice(-50),
-          memory: memorySnapshot,
-        };
-      },
-      useTool: (name, input) => {
-        const { _bypassStage, ...toolInput } = input as any;
-        return this.tools.execute(name, toolInput, {
-          caller: "debug",
-          cwd: process.cwd(),
-          debugBypassStageOutput: !!_bypassStage,
-          allowedAuthority: this.config.debug.allowExternalWrite
-            ? ["readonly", "safe_write", "network_read", "external_write"]
-            : ["readonly", "safe_write", "network_read"],
-        });
-      },
-      sendLiveRequest: async (input) => {
-        return this.proposeSystemLiveOutput("debug", input);
-      },
-      sendLiveEvent: liveController.sendLiveEvent,
+    setupRendererControllers({
+      renderer: this.renderer,
+      config: this.config,
+      state: this.state,
+      cursors: () => this.cursors,
+      discord: this.discord,
+      live: () => this.live,
+      memory: this.memory,
+      tools: this.tools,
+      stageOutput: this.stageOutput,
+      deviceAction: this.deviceAction,
+      eventBus: this.eventBus,
+      proposeSystemLiveOutput: (source, input) => this.proposeSystemLiveOutput(source, input),
+      now: () => Date.now(),
     });
   }
 
-  private createStageOutput(): StageOutputArbiter {
+  private installRuntimeServices(renderer?: LiveRendererServer): LiveRuntime {
+    const services = this.createRuntimeServices(renderer);
+    this.live = services.live;
+    this.tools = services.tools;
+    this.stageOutput = services.stageOutput;
+    this.deviceAction = services.deviceAction;
+    return services.live;
+  }
+
+  private createRuntimeServices(renderer?: LiveRendererServer): RuntimeServices {
+    const live = new LiveRuntime(
+      new ObsWebSocketController({ enabled: this.config.live.obsControlEnabled }),
+      renderer ? new LocalLiveRendererBridge(renderer) : undefined
+    );
+    const tools = createDefaultToolRegistry({ discord: this.discord, live, memory: this.memory, cwd: process.cwd() });
+    return {
+      live,
+      tools,
+      stageOutput: this.createStageOutput(tools),
+      deviceAction: this.createDeviceAction(),
+    };
+  }
+
+  private createStageOutput(tools: ToolRegistry): StageOutputArbiter {
     return new StageOutputArbiter({
       renderer: new StageOutputRenderer({
-        tools: this.tools,
+        tools,
         cwd: process.cwd(),
         ttsEnabled: Boolean(this.config.live.ttsEnabled),
       }),
@@ -276,12 +233,10 @@ export class StelleApplication {
 
   private createDeviceAction(): DeviceActionArbiter {
     return new DeviceActionArbiter({
-      drivers: [new MockDeviceActionDriver("browser")],
+      drivers: [new MockDeviceActionDriver("browser"), new MockDeviceActionDriver("desktop_input")],
       eventBus: this.eventBus,
       now: () => Date.now(),
-      // If browser is disabled, we pass no allowlist (Arbiter will default to deny all)
-      // If browser is enabled, we pass the allowlist object (even if empty, it'll restrict)
-      allowlist: this.config.browser.enabled ? (this.config.browser.allowlist as any) : undefined,
+      allowlist: buildDeviceActionAllowlist(this.config),
     });
   }
 

@@ -116,6 +116,12 @@ export class LiveRendererServer {
     if (command.type === "caption:set" || command.type === "caption:stream") {
       this.state = { ...this.state, caption: command.text, speaker: command.speaker };
     }
+    if (command.type === "caption:clear") {
+      this.state = { ...this.state, caption: undefined };
+    }
+    if (command.type === "audio:status") {
+      this.state = { ...this.state, audioStatus: command.status };
+    }
     
     // 统一通过 Socket.io 广播
     this.io.emit("command", command);

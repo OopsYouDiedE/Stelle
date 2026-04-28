@@ -1,8 +1,7 @@
-import { truncateText } from "../../../utils/text.js";
-import type { DeviceActionDecision } from "../../../device/action_types.js";
+import { DeviceObservationResponder } from "../device_observation_parts.js";
 
-export class BrowserResponder {
-  summarize(decision: DeviceActionDecision): string {
-    return `Browser action ${decision.status}: ${truncateText(decision.reason, 80)}`;
+export class BrowserResponder extends DeviceObservationResponder {
+  constructor() {
+    super("Browser action");
   }
 }

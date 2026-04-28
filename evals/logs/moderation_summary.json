@@ -1,0 +1,17 @@
+{
+  "runs": [
+    {
+      "timestamp": "2026-04-28T10:40:13.005Z",
+      "caseId": "moderation_break_silence_direct_mention",
+      "title": "Ambient silence should break for direct mention without shaming users",
+      "model": "qwen-plus",
+      "latencyMs": 1838,
+      "passed": true,
+      "score": 1,
+      "failedChecks": [],
+      "notes": [
+        "shouldBreak=true"
+      ]
+    }
+  ]
+}

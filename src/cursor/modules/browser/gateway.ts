@@ -1,14 +1,4 @@
+import { DeviceObservationGateway } from "../device_observation_parts.js";
 import type { BrowserObservation } from "./types.js";
 
-export class BrowserGateway {
-  private latest?: BrowserObservation;
-
-  receive(observation: BrowserObservation): BrowserObservation {
-    this.latest = observation;
-    return observation;
-  }
-
-  snapshot(): BrowserObservation | undefined {
-    return this.latest;
-  }
-}
+export class BrowserGateway extends DeviceObservationGateway<BrowserObservation> {}

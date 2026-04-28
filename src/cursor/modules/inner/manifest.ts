@@ -1,4 +1,4 @@
-import { InnerCursor } from "../../inner_cursor.js";
+import { InnerCursor } from "../../inner/cursor.js";
 import type { CursorModuleDefinition } from "../../manifest.js";
 
 export const innerCursorModule: CursorModuleDefinition = {
