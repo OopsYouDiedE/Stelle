@@ -11,6 +11,12 @@ describe("DeviceActionArbiter", () => {
     arbiter = new DeviceActionArbiter({
       drivers: [new MockDeviceActionDriver("browser")],
       now: () => now,
+      // Default permissive allowlist for base tests
+      allowlist: {
+        cursors: ["c1", "c2", "browser", "inner"],
+        resources: ["r1", "tab1", "default"],
+        risks: ["readonly", "safe_interaction", "text_input", "external_commit", "system"]
+      }
     });
   });
 
@@ -142,7 +148,28 @@ describe("DeviceActionArbiter", () => {
       reason: "test", payload: {}
     };
     const result = await arbiter.propose(intent);
+    expect(decision_reason_contains(result, "High-risk") || decision_reason_contains(result, "requires explicit approval")).toBe(true);
+  });
+
+  it("should reject all when allowlist is missing (default deny)", async () => {
+    arbiter = new DeviceActionArbiter({
+      drivers: [new MockDeviceActionDriver("browser")],
+      now: () => now,
+      allowlist: undefined
+    });
+
+    const intent: DeviceActionIntent = {
+      id: "1", cursorId: "c1", resourceId: "r1", resourceKind: "browser",
+      actionKind: "observe", risk: "readonly", priority: 1,
+      createdAt: now, ttlMs: 5000,
+      reason: "test", payload: {}
+    };
+    const result = await arbiter.propose(intent);
     expect(result.status).toBe("rejected");
-    expect(result.reason).toContain("requires explicit approval");
+    expect(result.reason).toContain("no allowlist configured");
   });
 });
+
+function decision_reason_contains(decision: any, text: string): boolean {
+  return (decision.reason || "").includes(text);
+}

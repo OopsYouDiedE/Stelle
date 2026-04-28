@@ -19,6 +19,7 @@ export class BrowserRouter {
       actionKind: requested.actionKind,
       risk: requested.risk ?? "readonly",
       priority: Number(requested.priority ?? 50),
+      createdAt: this.context.now(),
       ttlMs: Number(requested.ttlMs ?? 10_000),
       requiresApproval: requested.requiresApproval,
       reason: String(requested.reason ?? "Browser cursor proposed action from observation."),

@@ -173,6 +173,8 @@ export const StagePolicyOverlayEventSchema = EventMetadataSchema.extend({
   payload: z.record(z.any()),
 });
 
+import { DeviceActionIntentSchema } from "../device/action_types.js";
+
 const DeviceResourceKindSchema = z.enum(["browser", "desktop_input", "android_device"]);
 const DeviceActionKindSchema = z.enum([
   "observe",
@@ -186,20 +188,6 @@ const DeviceActionKindSchema = z.enum([
   "android_back",
 ]);
 const DeviceActionRiskSchema = z.enum(["readonly", "safe_interaction", "text_input", "external_commit", "system"]);
-const DeviceActionIntentSchema = z.object({
-  id: z.string(),
-  cursorId: z.string(),
-  resourceId: z.string(),
-  resourceKind: DeviceResourceKindSchema,
-  actionKind: DeviceActionKindSchema,
-  risk: DeviceActionRiskSchema,
-  priority: z.number(),
-  ttlMs: z.number().int(),
-  requiresApproval: z.boolean().optional(),
-  reason: z.string(),
-  payload: z.record(z.any()),
-  metadata: z.record(z.any()).optional(),
-});
 
 export const DeviceActionEventSchema = EventMetadataSchema.extend({
   type: z.enum([

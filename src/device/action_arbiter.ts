@@ -70,24 +70,28 @@ export class DeviceActionArbiter {
       return { status: "rejected", reason, intent };
     }
 
-    // 4. Allowlist Check
+    // 4. Allowlist Check (Default Deny)
     const allowlist = this.deps.allowlist;
-    if (allowlist) {
-      if (allowlist.cursors && !allowlist.cursors.includes(intent.cursorId)) {
-        const reason = `Cursor ${intent.cursorId} is not in the allowlist.`;
-        this.publish("device.action.rejected", intent, { reason });
-        return { status: "rejected", reason, intent };
-      }
-      if (allowlist.resources && !allowlist.resources.includes(intent.resourceId)) {
-        const reason = `Resource ${intent.resourceId} is not in the allowlist.`;
-        this.publish("device.action.rejected", intent, { reason });
-        return { status: "rejected", reason, intent };
-      }
-      if (allowlist.risks && !allowlist.risks.includes(intent.risk)) {
-        const reason = `Risk ${intent.risk} is not in the allowlist.`;
-        this.publish("device.action.rejected", intent, { reason });
-        return { status: "rejected", reason, intent };
-      }
+    if (!allowlist) {
+      const reason = "DeviceActionArbiter has no allowlist configured. Defaulting to deny all.";
+      this.publish("device.action.rejected", intent, { reason });
+      return { status: "rejected", reason, intent };
+    }
+
+    if (allowlist.cursors && !allowlist.cursors.includes(intent.cursorId)) {
+      const reason = `Cursor ${intent.cursorId} is not in the allowlist.`;
+      this.publish("device.action.rejected", intent, { reason });
+      return { status: "rejected", reason, intent };
+    }
+    if (allowlist.resources && !allowlist.resources.includes(intent.resourceId)) {
+      const reason = `Resource ${intent.resourceId} is not in the allowlist.`;
+      this.publish("device.action.rejected", intent, { reason });
+      return { status: "rejected", reason, intent };
+    }
+    if (allowlist.risks && !allowlist.risks.includes(intent.risk)) {
+      const reason = `Risk ${intent.risk} is not in the allowlist.`;
+      this.publish("device.action.rejected", intent, { reason });
+      return { status: "rejected", reason, intent };
     }
 
     // 5. Resource Lease / Focus Lock

@@ -275,7 +275,9 @@ export class StelleApplication {
       drivers: [new MockDeviceActionDriver("browser")],
       eventBus: this.eventBus,
       now: () => Date.now(),
-      allowlist: this.config.browser.enabled ? (this.config.browser.allowlist as any) : { cursors: [], resources: [], risks: [] },
+      // If browser is disabled, we pass no allowlist (Arbiter will default to deny all)
+      // If browser is enabled, we pass the allowlist object (even if empty, it'll restrict)
+      allowlist: this.config.browser.enabled ? (this.config.browser.allowlist as any) : undefined,
     });
   }
 

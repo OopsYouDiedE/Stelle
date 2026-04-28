@@ -78,6 +78,7 @@ describe("cursor modularization", () => {
       drivers: [new MockDeviceActionDriver("browser")],
       eventBus: new StelleEventBus(),
       now: () => 1000,
+      allowlist: { cursors: ["browser"], resources: ["default"], risks: ["system"] }
     });
 
     const decision = await arbiter.propose({
