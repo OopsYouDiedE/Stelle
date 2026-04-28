@@ -204,9 +204,15 @@ async function runAutoplaySample(sampleUrl: string): Promise<void> {
 
 async function postLiveEvent(event: BilibiliFixtureEvent): Promise<boolean> {
   try {
+    const token = params.get("controlToken") || params.get("token");
+    const headers: Record<string, string> = { "content-type": "application/json" };
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+
     const response = await fetch("/api/live/event", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers,
       body: JSON.stringify({ ...event, source: "fixture", captionOnly: false, debugVisible: true }),
     });
     if (!response.ok) {

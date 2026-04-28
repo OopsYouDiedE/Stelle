@@ -48,6 +48,11 @@ export interface DebugConfig {
   allowExternalWrite: boolean;
 }
 
+export interface ControlConfig {
+  requireToken: boolean;
+  token?: string;
+}
+
 export interface BrowserConfig {
   enabled: boolean;
   allowlist?: {
@@ -64,6 +69,7 @@ export interface RuntimeConfig {
   browser: BrowserConfig;
   core: CoreConfig;
   debug: DebugConfig;
+  control: ControlConfig;
   rawYaml: Record<string, unknown>;
 }
 
@@ -78,6 +84,7 @@ export function loadRuntimeConfig(): RuntimeConfig {
   
   const core = asRecord(rawYaml.core);
   const debug = asRecord(rawYaml.debug);
+  const control = asRecord(rawYaml.control);
 
   const geminiApiKey = process.env.GEMINI_API_KEY || "";
   const dashscopeApiKey = process.env.DASHSCOPE_API_KEY || "";
@@ -89,6 +96,8 @@ export function loadRuntimeConfig(): RuntimeConfig {
   
   const secondaryModel = process.env.STELLE_SECONDARY_MODEL || "qwen-plus";
   const secondaryProvider: LlmProviderType = secondaryModel.startsWith("gemini") ? "gemini" : "dashscope";
+
+  const debugToken = process.env.STELLE_DEBUG_TOKEN || asString(debug.token) || undefined;
 
   return {
     models: {
@@ -136,8 +145,12 @@ export function loadRuntimeConfig(): RuntimeConfig {
     debug: {
       enabled: process.env.STELLE_DEBUG_ENABLED === "true" || debug.enabled === true,
       requireToken: process.env.STELLE_DEBUG_REQUIRE_TOKEN !== "false" && debug.requireToken !== false,
-      token: process.env.STELLE_DEBUG_TOKEN || asString(debug.token) || undefined,
+      token: debugToken,
       allowExternalWrite: process.env.STELLE_DEBUG_ALLOW_EXTERNAL_WRITE === "true" || debug.allowExternalWrite === true,
+    },
+    control: {
+      requireToken: process.env.STELLE_CONTROL_REQUIRE_TOKEN !== "false" && control.requireToken !== false,
+      token: process.env.STELLE_CONTROL_TOKEN || asString(control.token) || debugToken,
     },
     rawYaml,
   };

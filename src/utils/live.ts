@@ -67,18 +67,27 @@ export class LocalLiveRendererBridge implements LiveRendererBridge {
 
 export class HttpLiveRendererBridge implements LiveRendererBridge {
   readonly url: string;
+  readonly controlToken: string;
   lastError?: string;
 
-  constructor(url = process.env.LIVE_RENDERER_URL ?? "") {
+  constructor(
+    url = process.env.LIVE_RENDERER_URL ?? "",
+    options: { controlToken?: string } = {}
+  ) {
     this.url = url.replace(/\/+$/, "");
+    this.controlToken = options.controlToken ?? process.env.STELLE_CONTROL_TOKEN ?? process.env.STELLE_DEBUG_TOKEN ?? "";
   }
 
   async publish(command: LiveRendererCommand): Promise<void> {
     if (!this.url) return;
     try {
+      const headers: Record<string, string> = { "content-type": "application/json" };
+      if (this.controlToken) {
+        headers["authorization"] = `Bearer ${this.controlToken}`;
+      }
       const response = await fetch(`${this.url}/command`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers,
         body: JSON.stringify(command),
       });
       if (!response.ok) throw new Error(`Renderer command failed: ${response.status} ${response.statusText}`);

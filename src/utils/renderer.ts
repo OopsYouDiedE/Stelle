@@ -22,6 +22,10 @@ export interface LiveRendererServerOptions {
     requireToken?: boolean;
     token?: string;
   };
+  control?: {
+    requireToken?: boolean;
+    token?: string;
+  };
   debugController?: LiveRendererDebugController;
   liveController?: LiveRendererLiveController;
 }
@@ -214,17 +218,20 @@ export class LiveRendererServer {
 
     // 旧版控制接口
     this.app.post("/command", (req, res) => {
+      if (!this.controlAllowed(req, res)) return;
       this.publish(req.body as LiveRendererCommand);
       res.json({ ok: true, state: this.state });
     });
 
     this.app.post("/api/live/event", async (req, res) => {
+      if (!this.controlAllowed(req, res)) return;
       if (!this.options.liveController?.sendLiveEvent) return res.status(503).json({ ok: false, error: "unavailable" });
       try { res.json({ ok: true, result: await this.options.liveController.sendLiveEvent(req.body) }); }
       catch(e) { res.status(500).json({ ok: false, error: String(e) }); }
     });
 
     this.app.post("/api/live/request", async (req, res) => {
+      if (!this.controlAllowed(req, res)) return;
       if (!this.options.liveController?.sendLiveRequest) return res.status(503).json({ ok: false, error: "unavailable" });
       try { res.json({ ok: true, result: await this.options.liveController.sendLiveRequest(req.body) }); }
       catch(e) { res.status(500).json({ ok: false, error: String(e) }); }
@@ -273,6 +280,20 @@ export class LiveRendererServer {
     const query = typeof req.query.token === "string" ? req.query.token : undefined;
     if (header === expected || query === expected) return true;
     res.status(401).json({ ok: false, error: "invalid debug token" });
+    return false;
+  }
+
+  private controlAllowed(req: express.Request, res: express.Response): boolean {
+    if (this.options.control?.requireToken === false) return true;
+    const expected = this.options.control?.token;
+    if (!expected) {
+      res.status(403).json({ ok: false, error: "control token is required but not configured" });
+      return false;
+    }
+    const header = req.header("authorization")?.replace(/^Bearer\s+/i, "");
+    const query = typeof req.query.token === "string" ? req.query.token : undefined;
+    if (header === expected || query === expected) return true;
+    res.status(401).json({ ok: false, error: "invalid control token" });
     return false;
   }
 }

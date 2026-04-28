@@ -72,6 +72,10 @@ export class StelleApplication {
           requireToken: this.config.debug.requireToken,
           token: this.config.debug.token,
         },
+        control: {
+          requireToken: this.config.control.requireToken,
+          token: this.config.control.token,
+        },
       });
       const url = await this.renderer.start();
       process.env.LIVE_RENDERER_URL = url;
