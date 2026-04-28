@@ -24,7 +24,7 @@ export const TickEventSchema = EventMetadataSchema.extend({
  */
 export const ReflectionEventSchema = EventMetadataSchema.extend({
   type: z.literal("cursor.reflection"),
-  source: z.enum(["discord", "live", "system"]),
+  source: z.enum(["discord", "discord_text_channel", "live", "live_danmaku", "browser", "desktop_input", "android_device", "system"]),
   payload: z.object({
     intent: z.string(),
     summary: z.string(),
@@ -62,7 +62,7 @@ export const DiscordMessageSummarySchema = z.object({
  * 3. 外部原始事件 (External Raw Events)
  */
 export const DiscordMessageEventSchema = EventMetadataSchema.extend({
-  type: z.literal("discord.message.received"),
+  type: z.enum(["discord.message.received", "discord.text.message.received"]),
   source: z.literal("discord"),
   payload: z.object({
     message: DiscordMessageSummarySchema,
@@ -70,9 +70,15 @@ export const DiscordMessageEventSchema = EventMetadataSchema.extend({
 });
 
 export const LiveEventReceivedSchema = EventMetadataSchema.extend({
-  type: z.literal("live.event.received"),
+  type: z.enum(["live.event.received", "live.danmaku.received"]),
   source: z.literal("system"),
   payload: z.record(z.any()).describe("原始直播事件载荷"),
+});
+
+export const BrowserObservationReceivedSchema = EventMetadataSchema.extend({
+  type: z.literal("browser.observation.received"),
+  source: z.enum(["browser", "system"]),
+  payload: z.record(z.any()).describe("浏览器观察快照"),
 });
 
 /**
@@ -167,6 +173,52 @@ export const StagePolicyOverlayEventSchema = EventMetadataSchema.extend({
   payload: z.record(z.any()),
 });
 
+const DeviceResourceKindSchema = z.enum(["browser", "desktop_input", "android_device"]);
+const DeviceActionKindSchema = z.enum([
+  "observe",
+  "navigate",
+  "click",
+  "type",
+  "hotkey",
+  "scroll",
+  "android_tap",
+  "android_text",
+  "android_back",
+]);
+const DeviceActionRiskSchema = z.enum(["readonly", "safe_interaction", "text_input", "external_commit", "system"]);
+const DeviceActionIntentSchema = z.object({
+  id: z.string(),
+  cursorId: z.string(),
+  resourceId: z.string(),
+  resourceKind: DeviceResourceKindSchema,
+  actionKind: DeviceActionKindSchema,
+  risk: DeviceActionRiskSchema,
+  priority: z.number(),
+  ttlMs: z.number().int(),
+  requiresApproval: z.boolean().optional(),
+  reason: z.string(),
+  payload: z.record(z.any()),
+  metadata: z.record(z.any()).optional(),
+});
+
+export const DeviceActionEventSchema = EventMetadataSchema.extend({
+  type: z.enum([
+    "device.action.proposed",
+    "device.action.accepted",
+    "device.action.rejected",
+    "device.action.started",
+    "device.action.completed",
+    "device.action.failed",
+  ]),
+  source: z.string(),
+  payload: z.object({
+    intent: DeviceActionIntentSchema,
+    reason: z.string().optional(),
+    result: z.record(z.any()).optional(),
+    error: z.string().optional(),
+  }),
+});
+
 /**
  * 4. 指令下发类事件 (Directive Events)
  */
@@ -182,7 +234,7 @@ export const DirectiveEventSchema = EventMetadataSchema.extend({
   type: z.literal("cursor.directive"),
   source: z.enum(["inner", "system"]),
   payload: z.object({
-    target: z.enum(["discord", "live", "global"]),
+    target: z.enum(["discord", "discord_text_channel", "live", "live_danmaku", "browser", "desktop_input", "android_device", "global"]),
     action: z.string(),
     policy: BehaviorPolicySchema.optional(), // 结构化策略
     parameters: z.record(z.any()).optional(),
@@ -208,11 +260,13 @@ export const StelleEventSchema = z.union([
   ReflectionEventSchema,
   DiscordMessageEventSchema,
   LiveEventReceivedSchema, // 新增
+  BrowserObservationReceivedSchema,
   LiveTopicRequestEventSchema,
   LiveDirectSayEventSchema,
   LiveRequestEventSchema,
   StageOutputEventSchema,
   StagePolicyOverlayEventSchema,
+  DeviceActionEventSchema,
   DirectiveEventSchema,
   SystemEventSchema,
 ]);

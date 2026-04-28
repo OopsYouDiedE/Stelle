@@ -1,7 +1,7 @@
 import { truncateText } from "../utils/text.js";
 import type { CursorContext, StelleEvent } from "./types.js";
 
-export type PolicyTarget = "discord" | "live" | "global";
+export type PolicyTarget = "discord" | "discord_text_channel" | "live" | "live_danmaku" | "browser" | "desktop_input" | "android_device" | "global";
 
 export interface PolicyOverlay {
   id: string;
@@ -31,20 +31,22 @@ export class PolicyOverlayStore {
     this.unsubscribe = undefined;
   }
 
-  activePolicies(target: "discord" | "live"): Record<string, unknown>[] {
+  activePolicies(target: Exclude<PolicyTarget, "global">): Record<string, unknown>[] {
     const now = this.context.now();
     this.overlays = this.overlays.filter((d) => d.expiresAt > now);
+    const aliases = targetAliases(target);
     return this.overlays
-      .filter((d) => d.target === "global" || d.target === target)
+      .filter((d) => d.target === "global" || aliases.includes(d.target))
       .sort((a, b) => b.priority - a.priority || a.expiresAt - b.expiresAt)
       .map((d) => d.policy);
   }
 
-  count(target?: "discord" | "live"): number {
+  count(target?: Exclude<PolicyTarget, "global">): number {
     const now = this.context.now();
     this.overlays = this.overlays.filter((d) => d.expiresAt > now);
+    const aliases = target ? targetAliases(target) : [];
     return target
-      ? this.overlays.filter((d) => d.target === "global" || d.target === target).length
+      ? this.overlays.filter((d) => d.target === "global" || aliases.includes(d.target)).length
       : this.overlays.length;
   }
 
@@ -63,4 +65,10 @@ export class PolicyOverlayStore {
       expiresAt,
     };
   }
+}
+
+function targetAliases(target: Exclude<PolicyTarget, "global">): PolicyTarget[] {
+  if (target === "discord" || target === "discord_text_channel") return ["discord", "discord_text_channel"];
+  if (target === "live" || target === "live_danmaku") return ["live", "live_danmaku"];
+  return [target];
 }

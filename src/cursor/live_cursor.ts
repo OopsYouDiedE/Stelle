@@ -17,10 +17,10 @@ You manage the vibe of the stream. You speak naturally, briefly, and with emotio
 Do not act like a robotic assistant. Acknowledge the crowd, play along with jokes, and keep the stream moving.
 `;
 
-export class LiveCursor implements StelleCursor {
-  readonly id = "live";
-  readonly kind = "live";
-  readonly displayName = "Live Cursor";
+export class LiveDanmakuCursor implements StelleCursor {
+  readonly id = "live_danmaku";
+  readonly kind = "live_danmaku";
+  readonly displayName = "Live Danmaku Cursor";
 
   private status: CursorSnapshot["status"] = "idle";
   private summary = "Live stream engine refactored.";
@@ -42,7 +42,7 @@ export class LiveCursor implements StelleCursor {
     this.gateway = new LiveGateway(context);
     this.router = new LiveRouter(context, LIVE_PERSONA);
     this.executor = new LiveExecutor(context, this.id);
-    this.responder = new LiveResponder(context);
+    this.responder = new LiveResponder(context, this.id);
     this.policyStore = new PolicyOverlayStore(context);
   }
 
@@ -63,8 +63,12 @@ export class LiveCursor implements StelleCursor {
       void this.receiveTopicRequest(event).catch(e => console.error("[LiveCursor] Legacy live request error:", e));
     }));
 
-    this.unsubscribes.push(this.context.eventBus.subscribe("live.event.received", (event: any) => {
+    this.unsubscribes.push(this.context.eventBus.subscribe("live.danmaku.received" as any, (event: any) => {
       void this.receiveLiveEvent(event.payload).catch(e => console.error("[LiveCursor] Live event error:", e));
+    }));
+
+    this.unsubscribes.push(this.context.eventBus.subscribe("live.event.received" as any, (event: any) => {
+      void this.receiveLiveEvent(event.payload).catch(e => console.error("[LiveCursor] Legacy live event error:", e));
     }));
 
     this.unsubscribes.push(this.context.eventBus.subscribe("stage.output.completed", (event: any) => {
@@ -134,7 +138,7 @@ export class LiveCursor implements StelleCursor {
     const now = this.context.now();
 
     try {
-      const activePolicies = this.policyStore.activePolicies("live");
+      const activePolicies = this.policyStore.activePolicies("live_danmaku");
 
       // 1. 决策 (Router)
       this.summary = "Designing live strategy...";
@@ -197,7 +201,7 @@ export class LiveCursor implements StelleCursor {
   private async handleIdleTopic() {
     this.isGenerating = true;
     try {
-      const activePolicies = this.policyStore.activePolicies("live");
+      const activePolicies = this.policyStore.activePolicies("live_danmaku");
       
       const text = await this.router.generateTopic(this.responder.getRecentSpeech(), this.currentEmotion, activePolicies);
       if (text) {
@@ -212,7 +216,7 @@ export class LiveCursor implements StelleCursor {
   private async reportReflection(intent: string, summary: string, impactScore: number, salience: any) {
     this.context.eventBus.publish({
       type: "cursor.reflection",
-      source: "live",
+      source: "live_danmaku",
       id: `refl-${Date.now()}`,
       timestamp: this.context.now(),
       payload: { intent, summary, impactScore, salience }
@@ -232,3 +236,5 @@ export class LiveCursor implements StelleCursor {
     };
   }
 }
+
+export { LiveDanmakuCursor as LiveCursor };

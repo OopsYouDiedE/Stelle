@@ -7,14 +7,14 @@ import { DiscordRuntime } from "../utils/discord.js";
 import { MemoryStore } from "../utils/memory.js";
 import { createDefaultToolRegistry, type ToolRegistry } from "../tool.js";
 import { RuntimeState } from "../runtime_state.js";
-import { InnerCursor } from "../cursor/inner_cursor.js";
-import { DiscordCursor } from "../cursor/discord_cursor.js";
-import { LiveCursor } from "../cursor/live_cursor.js";
 import type { StelleCursor, StelleEvent } from "../cursor/types.js";
+import { cursorModules, isCursorEnabledByConfig } from "../cursor/registry.js";
 import { StelleEventBus } from "../utils/event_bus.js";
 import { StelleScheduler } from "./scheduler.js";
 import { StageOutputArbiter } from "../stage/output_arbiter.js";
 import { StageOutputRenderer } from "../stage/output_renderer.js";
+import { DeviceActionArbiter } from "../device/action_arbiter.js";
+import { MockDeviceActionDriver } from "../device/drivers/mock_driver.js";
 
 export type StartMode = "runtime" | "discord" | "live";
 
@@ -28,6 +28,7 @@ export class StelleApplication {
   public tools: ToolRegistry;
   public readonly scheduler: StelleScheduler;
   public stageOutput: StageOutputArbiter;
+  public deviceAction: DeviceActionArbiter;
   
   public renderer?: LiveRendererServer;
   public live?: LiveRuntime;
@@ -47,6 +48,7 @@ export class StelleApplication {
     this.live = new LiveRuntime(new ObsWebSocketController({ enabled: this.config.live.obsControlEnabled }));
     this.tools = createDefaultToolRegistry({ discord: this.discord, live: this.live, memory: this.memory, cwd: process.cwd() });
     this.stageOutput = this.createStageOutput();
+    this.deviceAction = this.createDeviceAction();
     this.scheduler = new StelleScheduler({
       liveEnabled: mode === "runtime" || mode === "live",
       innerEnabled: true,
@@ -77,6 +79,7 @@ export class StelleApplication {
       await this.live.start();
       this.tools = createDefaultToolRegistry({ discord: this.discord, live: this.live, memory: this.memory, cwd: process.cwd() });
       this.stageOutput = this.createStageOutput();
+      this.deviceAction = this.createDeviceAction();
       this.state.updateRenderer({ connected: true });
       this.state.record("renderer_started", `Live renderer ready: ${url}/live`);
       console.log(`[Stelle] Live renderer ready: ${url}/live`);
@@ -88,7 +91,7 @@ export class StelleApplication {
 
     if (this.mode !== "live" && this.config.discord.token) {
       await this.discord.login(this.config.discord.token);
-      const discordCursor = this.cursors.find(c => c.id === "discord");
+      const discordCursor = this.cursors.find(c => c.id === "discord_text_channel" || c.id === "discord");
       await this.discord.setBotPresence({ window: discordCursor?.id ?? "unknown", detail: "runtime" }).catch(() => undefined);
       const status = await this.discord.getStatus();
       this.state.updateDiscord({ connected: status.connected });
@@ -124,26 +127,21 @@ export class StelleApplication {
       memory: this.memory,
       eventBus: this.eventBus,
       stageOutput: this.stageOutput,
+      deviceAction: this.deviceAction,
       now: () => Date.now(),
     };
 
-    const innerCursor = new InnerCursor(context);
-    const discordCursor = new DiscordCursor(context);
-    const cursors: StelleCursor[] = [innerCursor, discordCursor];
-
-    if (this.mode === "runtime" || this.mode === "live") {
-      const liveCursor = new LiveCursor(context);
-      cursors.push(liveCursor);
-    }
-
-    this.cursors = cursors;
+    this.cursors = cursorModules
+      .filter(module => module.enabledInModes.includes(this.mode))
+      .filter(module => isCursorEnabledByConfig(module.id, this.config.rawYaml))
+      .map(module => module.create(context));
 
     // 并行初始化所有 Cursor
     await Promise.all(this.cursors.map(c => c.initialize?.()));
 
     this.discord.onMessage((message) => {
       this.eventBus.publish({
-        type: "discord.message.received",
+        type: "discord.text.message.received",
         source: "discord",
         id: `evt-${message.id}`,
         timestamp: Date.now(),
@@ -174,7 +172,7 @@ export class StelleApplication {
       sendLiveEvent: (input: Record<string, unknown>) => {
         const eventId = `live-event-${Date.now()}`;
         this.eventBus.publish({
-          type: "live.event.received", // 使用正确的事件类型
+          type: "live.danmaku.received",
           source: "system",
           id: eventId,
           timestamp: Date.now(),
@@ -255,6 +253,14 @@ export class StelleApplication {
       now: () => Date.now(),
       debugEnabled: Boolean(this.config.debug.enabled),
       maxQueueLength: this.config.live.speechQueueLimit || 5,
+    });
+  }
+
+  private createDeviceAction(): DeviceActionArbiter {
+    return new DeviceActionArbiter({
+      drivers: [new MockDeviceActionDriver("browser")],
+      eventBus: this.eventBus,
+      now: () => Date.now(),
     });
   }
 

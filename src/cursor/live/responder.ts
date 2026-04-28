@@ -9,7 +9,7 @@ import type { OutputLane, OutputSalience } from "../../stage/output_types.js";
 export class LiveResponder {
   private readonly recentSpeech: string[] = [];
 
-  constructor(private readonly context: CursorContext) {}
+  constructor(private readonly context: CursorContext, private readonly cursorId = "live_danmaku") {}
 
   /**
    * 将文本切割并发送到 StageOutputArbiter。
@@ -29,7 +29,7 @@ export class LiveResponder {
     
     const decision = await this.context.stageOutput.propose({
       id: `live-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      cursorId: "live",
+      cursorId: this.cursorId,
       lane,
       priority: target === "response" ? 60 : 45,
       salience,

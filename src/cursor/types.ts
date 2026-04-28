@@ -17,6 +17,7 @@ import type { MemoryStore } from "../utils/memory.js";
 import type { StelleEventBus } from "../utils/event_bus.js";
 import type { StelleEvent } from "../utils/event_schema.js";
 import type { StageOutputArbiter } from "../stage/output_arbiter.js";
+import type { DeviceActionArbiter } from "../device/action_arbiter.js";
 
 export type { StelleEvent };
 
@@ -29,6 +30,7 @@ export interface CursorContext {
   memory?: MemoryStore;
   eventBus: StelleEventBus;
   stageOutput: StageOutputArbiter;
+  deviceAction?: DeviceActionArbiter;
   now: () => number;
 }
 

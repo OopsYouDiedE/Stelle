@@ -8,7 +8,7 @@ import type { CursorContext, CursorSnapshot, StelleEvent, StelleCursor } from ".
 
 export interface RuntimeDecision {
   id: string;
-  source: "discord" | "live" | "system";
+  source: "discord" | "discord_text_channel" | "live" | "live_danmaku" | "browser" | "desktop_input" | "android_device" | "system";
   type: string;
   summary: string;
   timestamp: number;
@@ -17,7 +17,7 @@ export interface RuntimeDecision {
 }
 
 export interface CursorDirective {
-  target: "discord" | "live" | "global";
+  target: "discord" | "discord_text_channel" | "live" | "live_danmaku" | "browser" | "desktop_input" | "android_device" | "global";
   instruction: string;
   expiresAt: number;
 }
@@ -169,7 +169,7 @@ export class InnerCursor implements StelleCursor {
     }
   }
 
-  async consult(source: "discord" | "live", query: string, contextPayload: string): Promise<string> {
+  async consult(source: "discord" | "discord_text_channel" | "live" | "live_danmaku", query: string, contextPayload: string): Promise<string> {
     if (!this.context.config.models.apiKey) return "跟随你的直觉。";
 
     const convictionBlock = this.coreConvictions.map(c => `- On ${c.topic}: ${c.stance}`).join("\n");
@@ -223,7 +223,7 @@ export class InnerCursor implements StelleCursor {
         "Your goal is to guide the interaction cursors (Discord/Live) using structural bias and specific instructions.",
         `RECENT RAW OBSERVATIONS:\n${rawBackground || "(None)"}`,
         `RECENT STRUCTURED DECISIONS:\n${decisionLog}`,
-        'Schema: {"insight":"...","globalMood":"...","newConviction":{"topic":"...","stance":"..."},"directives":[{"target":"discord|live|global","policy":{"replyBias":"aggressive|normal|selective|silent","vibeIntensity":1-5,"focusTopic":"...","instruction":"..."},"lifespanMinutes":30}]}',
+        'Schema: {"insight":"...","globalMood":"...","newConviction":{"topic":"...","stance":"..."},"directives":[{"target":"discord_text_channel|live_danmaku|browser|desktop_input|android_device|global","policy":{"replyBias":"aggressive|normal|selective|silent","vibeIntensity":1-5,"focusTopic":"...","instruction":"..."},"lifespanMinutes":30}]}',
       ].join("\n\n");
 
       const result = await this.context.llm.generateJson(
@@ -240,8 +240,10 @@ export class InnerCursor implements StelleCursor {
               const pol = asRecord(rec.policy);
               let target = String(rec.target || "global");
               if (target === "all") target = "global";
+              if (target === "discord") target = "discord_text_channel";
+              if (target === "live") target = "live_danmaku";
               return {
-                target: target as "discord" | "live" | "global",
+                target: target as CursorDirective["target"],
                 policy: {
                   replyBias: pol.replyBias as any,
                   vibeIntensity: typeof pol.vibeIntensity === "number" ? pol.vibeIntensity : undefined,
@@ -305,7 +307,7 @@ export class InnerCursor implements StelleCursor {
     while (this.reflections.length > 50) this.reflections.shift();
   }
 
-  buildContextBlock(callerSource?: "discord" | "live"): string {
+  buildContextBlock(callerSource?: "discord" | "discord_text_channel" | "live" | "live_danmaku"): string {
     const relevantDirectives = this.activeDirectives
       .filter(d => d.target === "global" || (callerSource && d.target === callerSource))
       .map(d => `[URGENT DIRECTIVE]: ${d.instruction}`);
