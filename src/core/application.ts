@@ -133,7 +133,21 @@ export class StelleApplication {
 
     this.cursors = cursorModules
       .filter(module => module.enabledInModes.includes(this.mode))
-      .filter(module => isCursorEnabledByConfig(module.id, this.config.rawYaml))
+      .filter(module => {
+        // 1. Explicit Gating by Config
+        if (module.id === "browser") return this.config.browser.enabled;
+        return isCursorEnabledByConfig(module.id, this.config.rawYaml);
+      })
+      .filter(module => {
+        // 2. Runtime Dependency Check (requires)
+        if (!module.requires) return true;
+        return module.requires.every(req => {
+          if (req === "discord") return Boolean(this.config.discord.token);
+          if (req === "live") return true; // Add live runtime check if needed
+          if (req === "browser") return this.config.browser.enabled;
+          return false;
+        });
+      })
       .map(module => module.create(context));
 
     // 并行初始化所有 Cursor
@@ -257,12 +271,11 @@ export class StelleApplication {
   }
 
   private createDeviceAction(): DeviceActionArbiter {
-    const config = loadRuntimeConfig();
     return new DeviceActionArbiter({
       drivers: [new MockDeviceActionDriver("browser")],
       eventBus: this.eventBus,
       now: () => Date.now(),
-      allowlist: config.browser.enabled ? (config.browser.allowlist as any) : { cursors: [], resources: [], risks: [] },
+      allowlist: this.config.browser.enabled ? (this.config.browser.allowlist as any) : { cursors: [], resources: [], risks: [] },
     });
   }
 

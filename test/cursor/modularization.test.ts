@@ -86,9 +86,10 @@ describe("cursor modularization", () => {
       resourceId: "default",
       resourceKind: "browser",
       actionKind: "navigate",
-      risk: "external_commit",
+      risk: "system", // 'system' risk triggers high-risk rejection
       priority: 50,
-      ttlMs: 1000,
+      createdAt: 1000,
+      ttlMs: 5000,
       reason: "test",
       payload: { url: "https://example.com" },
     });

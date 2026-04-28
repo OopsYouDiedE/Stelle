@@ -35,6 +35,7 @@ export class DeviceActionArbiter {
   }
 
   async propose(input: unknown): Promise<DeviceActionDecision> {
+    const now = this.deps.now();
     // 1. Zod Validation
     const validation = DeviceActionIntentSchema.safeParse(input);
     if (!validation.success) {
@@ -49,17 +50,22 @@ export class DeviceActionArbiter {
 
     this.publish("device.action.proposed", intent, { reason: "proposed" });
 
-    // 2. TTL Check
-    if (intent.ttlMs <= 0) {
-      const reason = "Intent expired (TTL <= 0).";
+    // 2. Real Expiration Check
+    const expiresAt = intent.createdAt + intent.ttlMs;
+    if (expiresAt < now) {
+      const reason = `Intent expired (expiresAt: ${expiresAt}, now: ${now}).`;
       this.publish("device.action.rejected", intent, { reason });
       return { status: "rejected", reason, intent };
     }
 
-    // 3. Consistency Check (actionKind/risk)
-    const allowedRisks = KIND_RISK_MAP[intent.actionKind];
-    if (!allowedRisks || !allowedRisks.includes(intent.risk)) {
-      const reason = `Risk mismatch: ${intent.actionKind} does not support risk level ${intent.risk}.`;
+    // 3. Consistency Check (actionKind -> minimum risk)
+    const riskLevels: DeviceActionRisk[] = ["readonly", "safe_interaction", "text_input", "external_commit", "system"];
+    const minRequiredRisk = KIND_RISK_MAP[intent.actionKind][0]; // Using first element as min required
+    const intentRiskIndex = riskLevels.indexOf(intent.risk);
+    const minRiskIndex = riskLevels.indexOf(minRequiredRisk);
+
+    if (intentRiskIndex < minRiskIndex) {
+      const reason = `Risk level too low: ${intent.actionKind} requires at least ${minRequiredRisk}, but intent has ${intent.risk}.`;
       this.publish("device.action.rejected", intent, { reason });
       return { status: "rejected", reason, intent };
     }
@@ -85,7 +91,6 @@ export class DeviceActionArbiter {
     }
 
     // 5. Resource Lease / Focus Lock
-    const now = this.deps.now();
     const currentLease = this.leases.get(intent.resourceId);
     if (currentLease && currentLease.expiresAt > now && currentLease.cursorId !== intent.cursorId) {
       const reason = `Resource ${intent.resourceId} is currently locked by ${currentLease.cursorId}.`;
@@ -103,7 +108,7 @@ export class DeviceActionArbiter {
     // Accept and acquire lease
     this.leases.set(intent.resourceId, {
       cursorId: intent.cursorId,
-      expiresAt: now + intent.ttlMs
+      expiresAt: expiresAt
     });
 
     this.publish("device.action.accepted", intent, { reason: "accepted" });

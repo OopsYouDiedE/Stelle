@@ -34,6 +34,7 @@ export const DeviceActionIntentSchema = z.object({
   ]),
   risk: z.enum(["readonly", "safe_interaction", "text_input", "external_commit", "system"]),
   priority: z.number(),
+  createdAt: z.number(),
   ttlMs: z.number().int(),
   requiresApproval: z.boolean().optional(),
   reason: z.string(),
