@@ -59,6 +59,7 @@ All live-stage output MUST go through:
 
 `EventBus` routes events.  
 `StageOutputArbiter` schedules scarce live output resources.  
+`DeviceActionArbiter` secures and leases device-level resources (browser, desktop, etc.).
 `ToolRegistry` validates authority and input schemas.  
 `StageOutputArbiter` validates timing, priority, interruption, TTL, and attention budget.
 

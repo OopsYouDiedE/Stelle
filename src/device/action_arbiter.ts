@@ -1,21 +1,110 @@
 import { DeviceActionRenderer } from "./action_renderer.js";
-import type { DeviceActionArbiterDeps, DeviceActionDecision, DeviceActionIntent } from "./action_types.js";
+import { DeviceActionIntentSchema } from "./action_types.js";
+import type { 
+  DeviceActionArbiterDeps, 
+  DeviceActionDecision, 
+  DeviceActionIntent, 
+  DeviceResourceKind,
+  DeviceActionRisk,
+  DeviceActionKind
+} from "./action_types.js";
+
+interface ResourceLease {
+  cursorId: string;
+  expiresAt: number;
+}
+
+const KIND_RISK_MAP: Record<DeviceActionKind, DeviceActionRisk[]> = {
+  "observe": ["readonly"],
+  "navigate": ["safe_interaction"],
+  "click": ["safe_interaction"],
+  "scroll": ["safe_interaction"],
+  "type": ["text_input"],
+  "hotkey": ["safe_interaction", "system"],
+  "android_tap": ["safe_interaction"],
+  "android_text": ["text_input"],
+  "android_back": ["safe_interaction"],
+};
 
 export class DeviceActionArbiter {
   private readonly renderer: DeviceActionRenderer;
+  private readonly leases = new Map<string, ResourceLease>(); // resourceId -> lease
 
   constructor(private readonly deps: DeviceActionArbiterDeps) {
     this.renderer = new DeviceActionRenderer(deps.drivers ?? []);
   }
 
-  async propose(intent: DeviceActionIntent): Promise<DeviceActionDecision> {
+  async propose(input: unknown): Promise<DeviceActionDecision> {
+    // 1. Zod Validation
+    const validation = DeviceActionIntentSchema.safeParse(input);
+    if (!validation.success) {
+      const reason = `Invalid intent structure: ${validation.error.message}`;
+      return { 
+        status: "rejected", 
+        reason, 
+        intent: input as any 
+      };
+    }
+    const intent = validation.data;
+
     this.publish("device.action.proposed", intent, { reason: "proposed" });
 
+    // 2. TTL Check
+    if (intent.ttlMs <= 0) {
+      const reason = "Intent expired (TTL <= 0).";
+      this.publish("device.action.rejected", intent, { reason });
+      return { status: "rejected", reason, intent };
+    }
+
+    // 3. Consistency Check (actionKind/risk)
+    const allowedRisks = KIND_RISK_MAP[intent.actionKind];
+    if (!allowedRisks || !allowedRisks.includes(intent.risk)) {
+      const reason = `Risk mismatch: ${intent.actionKind} does not support risk level ${intent.risk}.`;
+      this.publish("device.action.rejected", intent, { reason });
+      return { status: "rejected", reason, intent };
+    }
+
+    // 4. Allowlist Check
+    const allowlist = this.deps.allowlist;
+    if (allowlist) {
+      if (allowlist.cursors && !allowlist.cursors.includes(intent.cursorId)) {
+        const reason = `Cursor ${intent.cursorId} is not in the allowlist.`;
+        this.publish("device.action.rejected", intent, { reason });
+        return { status: "rejected", reason, intent };
+      }
+      if (allowlist.resources && !allowlist.resources.includes(intent.resourceId)) {
+        const reason = `Resource ${intent.resourceId} is not in the allowlist.`;
+        this.publish("device.action.rejected", intent, { reason });
+        return { status: "rejected", reason, intent };
+      }
+      if (allowlist.risks && !allowlist.risks.includes(intent.risk)) {
+        const reason = `Risk ${intent.risk} is not in the allowlist.`;
+        this.publish("device.action.rejected", intent, { reason });
+        return { status: "rejected", reason, intent };
+      }
+    }
+
+    // 5. Resource Lease / Focus Lock
+    const now = this.deps.now();
+    const currentLease = this.leases.get(intent.resourceId);
+    if (currentLease && currentLease.expiresAt > now && currentLease.cursorId !== intent.cursorId) {
+      const reason = `Resource ${intent.resourceId} is currently locked by ${currentLease.cursorId}.`;
+      this.publish("device.action.rejected", intent, { reason });
+      return { status: "rejected", reason, intent };
+    }
+
+    // 6. Security Approval Check (Existing logic)
     const riskDecision = this.checkRisk(intent);
     if (!riskDecision.allowed) {
       this.publish("device.action.rejected", intent, { reason: riskDecision.reason });
       return { status: "rejected", reason: riskDecision.reason, intent };
     }
+
+    // Accept and acquire lease
+    this.leases.set(intent.resourceId, {
+      cursorId: intent.cursorId,
+      expiresAt: now + intent.ttlMs
+    });
 
     this.publish("device.action.accepted", intent, { reason: "accepted" });
     this.publish("device.action.started", intent, { reason: "started" });

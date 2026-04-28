@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { StelleEventBus } from "../utils/event_bus.js";
 
 export type DeviceResourceKind = "browser" | "desktop_input" | "android_device";
@@ -15,20 +16,32 @@ export type DeviceActionKind =
 
 export type DeviceActionRisk = "readonly" | "safe_interaction" | "text_input" | "external_commit" | "system";
 
-export interface DeviceActionIntent {
-  id: string;
-  cursorId: string;
-  resourceId: string;
-  resourceKind: DeviceResourceKind;
-  actionKind: DeviceActionKind;
-  risk: DeviceActionRisk;
-  priority: number;
-  ttlMs: number;
-  requiresApproval?: boolean;
-  reason: string;
-  payload: Record<string, unknown>;
-  metadata?: Record<string, unknown>;
-}
+export const DeviceActionIntentSchema = z.object({
+  id: z.string(),
+  cursorId: z.string(),
+  resourceId: z.string(),
+  resourceKind: z.enum(["browser", "desktop_input", "android_device"]),
+  actionKind: z.enum([
+    "observe",
+    "navigate",
+    "click",
+    "type",
+    "hotkey",
+    "scroll",
+    "android_tap",
+    "android_text",
+    "android_back",
+  ]),
+  risk: z.enum(["readonly", "safe_interaction", "text_input", "external_commit", "system"]),
+  priority: z.number(),
+  ttlMs: z.number().int(),
+  requiresApproval: z.boolean().optional(),
+  reason: z.string(),
+  payload: z.record(z.any()),
+  metadata: z.record(z.any()).optional(),
+});
+
+export type DeviceActionIntent = z.infer<typeof DeviceActionIntentSchema>;
 
 export interface DeviceActionResult {
   ok: boolean;
@@ -50,8 +63,15 @@ export interface DeviceActionDriver {
   execute(intent: DeviceActionIntent): Promise<DeviceActionResult>;
 }
 
+export interface DeviceActionAllowlist {
+  cursors?: string[];
+  resources?: string[];
+  risks?: DeviceActionRisk[];
+}
+
 export interface DeviceActionArbiterDeps {
   drivers?: DeviceActionDriver[];
   eventBus?: StelleEventBus;
   now: () => number;
+  allowlist?: DeviceActionAllowlist;
 }

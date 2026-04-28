@@ -48,10 +48,20 @@ export interface DebugConfig {
   allowExternalWrite: boolean;
 }
 
+export interface BrowserConfig {
+  enabled: boolean;
+  allowlist?: {
+    cursors?: string[];
+    resources?: string[];
+    risks?: string[];
+  };
+}
+
 export interface RuntimeConfig {
   models: ModelConfig;
   discord: DiscordConfig;
   live: LiveConfig;
+  browser: BrowserConfig;
   core: CoreConfig;
   debug: DebugConfig;
   rawYaml: Record<string, unknown>;
@@ -60,8 +70,12 @@ export interface RuntimeConfig {
 export function loadRuntimeConfig(): RuntimeConfig {
   const rawYaml = loadYamlConfig();
   const cursors = asRecord(rawYaml.cursors);
-  const discordCursor = asRecord(cursors.discord);
-  const liveCursor = asRecord(cursors.live);
+  
+  // Aliases for cursors
+  const discordCursor = asRecord(cursors.discord_text_channel || cursors.discord);
+  const liveCursor = asRecord(cursors.live_danmaku || cursors.live);
+  const browserCursor = asRecord(cursors.browser);
+  
   const core = asRecord(rawYaml.core);
   const debug = asRecord(rawYaml.debug);
 
@@ -110,6 +124,10 @@ export function loadRuntimeConfig(): RuntimeConfig {
       ttsEnabled: (liveCursor.ttsEnabled ?? process.env.LIVE_TTS_ENABLED) !== false && process.env.LIVE_TTS_ENABLED !== "false",
       obsControlEnabled: liveCursor.obsControlEnabled === true || process.env.OBS_CONTROL_ENABLED === "true",
       speechQueueLimit: clamp(liveCursor.speechQueueLimit, 1, 100, 12),
+    },
+    browser: {
+      enabled: browserCursor.enabled === true || process.env.BROWSER_ENABLED === "true",
+      allowlist: asRecord(browserCursor.allowlist) as any,
     },
     core: {
       reflectionIntervalHours: clamp(core.reflectionIntervalHours, 1, 168, 6),

@@ -257,10 +257,12 @@ export class StelleApplication {
   }
 
   private createDeviceAction(): DeviceActionArbiter {
+    const config = loadRuntimeConfig();
     return new DeviceActionArbiter({
       drivers: [new MockDeviceActionDriver("browser")],
       eventBus: this.eventBus,
       now: () => Date.now(),
+      allowlist: config.browser.enabled ? (config.browser.allowlist as any) : { cursors: [], resources: [], risks: [] },
     });
   }
 
