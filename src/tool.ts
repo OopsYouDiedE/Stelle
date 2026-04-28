@@ -95,6 +95,7 @@ const STAGE_OWNED_LIVE_TOOLS = new Set([
   "live.stream_tts_caption",
   "live.trigger_motion",
   "live.set_expression",
+  "live.stop_output",
 ]);
 
 export function ok(summary: string, data?: Record<string, unknown>): ToolResult {

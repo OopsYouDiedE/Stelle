@@ -117,9 +117,13 @@ describe("StageOutputArbiter", () => {
     expect(mockRenderer.render).toHaveBeenLastCalledWith(expect.objectContaining({ id: "2" }), expect.any(AbortSignal));
   });
 
-  it("should return queued for soft interrupt when busy", async () => {
-    // First one hangs
-    mockRenderer.render = vi.fn().mockReturnValue(new Promise(() => {})); 
+  it("should return queued for soft interrupt when busy (and not abort current)", async () => {
+    let resolveFirst: (v: void) => void;
+    let signalCaptured: AbortSignal | undefined;
+    mockRenderer.render = vi.fn().mockImplementation((intent, signal) => {
+      signalCaptured = signal;
+      return new Promise((r) => { resolveFirst = r; });
+    });
 
     const intent1: OutputIntent = {
       id: "1", cursorId: "test", lane: "ambient", priority: 50, salience: "medium",
@@ -130,10 +134,9 @@ describe("StageOutputArbiter", () => {
       text: "Soft Interrupt", ttlMs: 5000, interrupt: "soft", output: { caption: true },
     };
 
-    // Use a wrapper to not block the test on intent1
     const p1 = arbiter.propose(intent1);
     
-    // Wait for it to actually start
+    // Wait for it to start
     let attempts = 0;
     while (!arbiter.snapshot().speaking && attempts < 50) {
       await new Promise(r => setTimeout(r, 10));
@@ -143,5 +146,51 @@ describe("StageOutputArbiter", () => {
 
     const d2 = await arbiter.propose(intent2);
     expect(d2.status).toBe("queued");
+    
+    // Signal should NOT be aborted
+    expect(signalCaptured?.aborted).toBe(false);
+
+    resolveFirst!(undefined);
+    await p1;
+  });
+
+  it("should record interrupted status when hard interrupted", async () => {
+    let resolveFirst: (v: void) => void;
+    mockRenderer.render = vi.fn().mockImplementation((intent) => {
+      if (intent.id === "1") {
+        return new Promise((r) => { resolveFirst = r; });
+      }
+      return Promise.resolve();
+    });
+
+    const intent1: OutputIntent = {
+      id: "1", cursorId: "test", lane: "ambient", priority: 50, salience: "medium",
+      text: "First", ttlMs: 5000, interrupt: "none", output: { caption: true },
+    };
+    const intent2: OutputIntent = {
+      id: "2", cursorId: "test", lane: "emergency", priority: 100, salience: "critical",
+      text: "Hard", ttlMs: 5000, interrupt: "hard", output: { caption: true },
+    };
+
+    await arbiter.propose(intent1);
+    await new Promise(r => setTimeout(r, 10)); // Ensure it started
+    
+    await arbiter.propose(intent2);
+    
+    // Resolve first (it was aborted)
+    resolveFirst!(undefined);
+    
+    // Wait for the async finally blocks to settle
+    await new Promise(r => setTimeout(r, 20));
+
+    const snapshot = arbiter.snapshot();
+    const records = snapshot.recentOutputs.filter(r => r.id === "1");
+    // Should have at least one record for ID 1, and its status should eventually be interrupted
+    const interruptedRecord = records.find(r => r.status === "interrupted");
+    expect(interruptedRecord).toBeDefined();
+    
+    // Total records for ID 1 should be 1 if updated, or more if not. 
+    // In our current implementation, record() updates existing by ID.
+    expect(records.length).toBe(1);
   });
 });

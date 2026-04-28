@@ -52,28 +52,18 @@ export class StageOutputArbiter {
 
     if (policy.action === "interrupt") {
       const isHard = intent.interrupt === "hard";
-      if (this.state.currentOutputId) {
-        // Real cancellation
-        this.currentAbortController?.abort();
-        
-        this.record({
-          id: this.state.currentOutputId,
-          cursorId: this.state.currentOwner ?? "unknown",
-          lane: this.state.currentLane ?? "debug",
-          text: "",
-          status: "interrupted",
-          reason: policy.reason,
-        });
-        this.publish("stage.output.interrupted", intent, { reason: policy.reason });
-      }
-
-      if (isHard || !this.processing) {
-        await this.start(intent);
+      
+      if (isHard) {
+        if (this.state.currentOutputId) {
+          // Just trigger abort. The previous start() finally/catch will handle recording.
+          this.currentAbortController?.abort();
+          this.publish("stage.output.interrupted", intent, { reason: policy.reason });
+        }
+        void this.start(intent);
         return { status: "interrupted", outputId: intent.id, reason: policy.reason, intent };
       } else {
-        // Soft interrupt when busy and not hard: just queue but we already aborted the previous one?
-        // Wait, if it's a soft interrupt and we are busy, should we abort?
-        // Requirement 4 says: soft interrupt 如果没有真的停止当前输出，不能返回 status: "interrupted"，应返回 "queued"。
+        // Soft interrupt: just queue because we don't have graceful cross-fade yet.
+        // Never abort the current output for a soft interrupt if we are busy.
         this.queue.enqueue(intent);
         this.syncQueueLength();
         this.publish("stage.output.queued", intent, { reason: policy.reason });
@@ -82,7 +72,7 @@ export class StageOutputArbiter {
     }
 
     this.publish("stage.output.accepted", intent, { reason: policy.reason });
-    await this.start(intent);
+    void this.start(intent);
     return { status: "accepted", outputId: intent.id, reason: policy.reason, intent };
   }
 
@@ -139,6 +129,7 @@ export class StageOutputArbiter {
     this.publish("stage.output.started", intent, { reason: "started" });
 
     try {
+      if (signal.aborted) throw new Error("interrupted");
       await this.deps.renderer.render(intent, signal);
       if (signal.aborted) throw new Error("interrupted");
 
@@ -146,10 +137,9 @@ export class StageOutputArbiter {
       this.record({ id: intent.id, cursorId: intent.cursorId, lane: intent.lane, text: intent.text, status: "completed", completedAt });
       this.publish("stage.output.completed", intent, { reason: "completed" });
     } catch (error) {
-      const isAbort = error instanceof Error && (error.message === "interrupted" || error.name === "AbortError");
+      const isAbort = signal.aborted || (error instanceof Error && (error.message === "interrupted" || error.name === "AbortError" || error.name === "CanceledError"));
       const reason = isAbort ? "interrupted" : (error instanceof Error ? error.message : String(error));
       
-      // Only record/publish if this is still the active one or if it was specifically aborted
       this.record({ id: intent.id, cursorId: intent.cursorId, lane: intent.lane, text: intent.text, status: isAbort ? "interrupted" : "dropped", reason });
       this.publish(isAbort ? "stage.output.interrupted" : "stage.output.dropped", intent, { reason });
     } finally {
@@ -183,8 +173,13 @@ export class StageOutputArbiter {
   }
 
   private record(record: StageOutputRecord): void {
-    this.recentOutputs.push(record);
-    if (this.recentOutputs.length > 20) this.recentOutputs.shift();
+    const existingIndex = this.recentOutputs.findIndex(r => r.id === record.id);
+    if (existingIndex >= 0) {
+      this.recentOutputs[existingIndex] = { ...this.recentOutputs[existingIndex], ...record };
+    } else {
+      this.recentOutputs.push(record);
+      if (this.recentOutputs.length > 20) this.recentOutputs.shift();
+    }
     this.state = { ...this.state, recentOutputs: [...this.recentOutputs] };
   }
 

@@ -12,24 +12,18 @@ export class LiveResponder {
   constructor(private readonly context: CursorContext) {}
 
   /**
-   * 将文本切割并发送到 StageOutputArbiter
+   * 将文本切割并发送到 StageOutputArbiter。
+   * 采用并发发射策略，让 Arbiter 集中处理排队，避免 Responder 被长渲染阻塞。
    */
   public async enqueue(target: "topic" | "response", text: string, emotion: string): Promise<void> {
     const chunks = splitSentences(text).filter(s => s.trim().length > 0);
     
-    for (const chunk of chunks) {
-      await this.proposeChunk(target, chunk, emotion);
-    }
+    // 并发提交所有 chunk，让 Arbiter 的统一队列发挥作用
+    await Promise.all(chunks.map(chunk => this.proposeChunk(target, chunk, emotion)));
   }
 
   private async proposeChunk(target: "topic" | "response", text: string, emotion: string): Promise<void> {
-    // 调整 Lane 优先级：live_chat (响应) 应该高于 topic_hosting (主线)
-    // 根据 src/stage/output_policy.ts: 
-    // topic_hosting: 500, live_chat: 400. 
-    // Wait, LANE_RANK says topic_hosting is higher.
-    // If I want to prefer responses, I should maybe use direct_response or adjust topic_hosting.
-    // Actually, LiveResponder's target="response" is for danmaku responses.
-    
+    // 响应弹幕使用 direct_response，以便在舞台繁忙时能排在话题托管前面
     const lane: OutputLane = target === "response" ? "direct_response" : "topic_hosting";
     const salience: OutputSalience = target === "response" ? "medium" : "low";
     
@@ -53,7 +47,7 @@ export class LiveResponder {
       },
     });
 
-    if (decision.status === "accepted" || decision.status === "interrupted") {
+    if (decision.status === "accepted" || decision.status === "interrupted" || decision.status === "queued") {
       this.recentSpeech.push(text);
       if (this.recentSpeech.length > 5) this.recentSpeech.shift();
     }

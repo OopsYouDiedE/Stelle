@@ -156,7 +156,11 @@ export class DiscordCursor implements StelleCursor {
   private async handleLiveDispatch(message: DiscordMessageSummary, policy: DiscordReplyPolicy) {
     const authorName = message.author.displayName || message.author.username;
     const cleanContent = message.cleanContent || message.content;
-    const stageText = `[Discord] ${authorName}: ${cleanContent}`;
+    
+    // 转换为更自然的直播表达方式
+    const stageText = message.author.trustLevel === "owner"
+      ? `Discord 那边提了一个话题：${cleanContent}`
+      : `Discord 的 ${authorName} 提到：${cleanContent}`;
     
     const decision = await this.context.stageOutput.propose({
       id: `discord-live-${message.id}`,
@@ -177,6 +181,7 @@ export class DiscordCursor implements StelleCursor {
         channelId: message.channelId,
         authorId: message.author.id,
         origin: "discord",
+        authorName,
       },
     });
     const text = decision.status === "dropped"

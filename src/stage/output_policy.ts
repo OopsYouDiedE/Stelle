@@ -32,9 +32,9 @@ export function compareIntentPriority(a: OutputIntent, b: OutputIntent): number 
 
 export function decideOutputPolicy(input: OutputPolicyInput): OutputPolicyDecision {
   const { intent, state, now, debugEnabled, quietIntervalMs } = input;
-  const expiresAt = now + intent.ttlMs;
+  
   if (!intent.text.trim()) return { action: "drop", reason: "empty_text" };
-  if (expiresAt <= now) return { action: "drop", reason: "expired" };
+  if (intent.ttlMs <= 0) return { action: "drop", reason: "invalid_ttl" };
   if (intent.lane === "debug" && !debugEnabled) return { action: "drop", reason: "debug_disabled" };
   if (intent.lane === "inner_reaction") return { action: "drop", reason: "inner_reaction_not_stage_output" };
 
@@ -46,11 +46,16 @@ export function decideOutputPolicy(input: OutputPolicyInput): OutputPolicyDecisi
     return { action: "accept_now", reason: "stage_free" };
   }
 
+  // Interrupt logic: Only allow actual 'interrupt' action if it's a hard interrupt or outranks current ambient
+  if (intent.interrupt === "hard" && LANE_RANK[intent.lane] > (LANE_RANK[state.currentLane ?? "ambient"] || 0)) {
+    return { action: "interrupt", reason: "hard_interrupt_priority" };
+  }
+
   if (intent.lane === "emergency" && intent.interrupt === "hard") {
     return { action: "interrupt", reason: "emergency_interrupt" };
   }
 
-  if (intent.lane === "direct_response" && state.currentLane === "ambient" && intent.interrupt !== "none") {
+  if (intent.lane === "direct_response" && state.currentLane === "ambient" && intent.interrupt === "hard") {
     return { action: "interrupt", reason: "direct_response_interrupts_ambient" };
   }
 
