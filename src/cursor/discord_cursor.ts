@@ -154,6 +154,10 @@ export class DiscordCursor implements StelleCursor {
   }
 
   private async handleLiveDispatch(message: DiscordMessageSummary, policy: DiscordReplyPolicy) {
+    const authorName = message.author.displayName || message.author.username;
+    const cleanContent = message.cleanContent || message.content;
+    const stageText = `[Discord] ${authorName}: ${cleanContent}`;
+    
     const decision = await this.context.stageOutput.propose({
       id: `discord-live-${message.id}`,
       cursorId: "discord",
@@ -161,8 +165,8 @@ export class DiscordCursor implements StelleCursor {
       lane: "topic_hosting",
       priority: message.author.trustLevel === "owner" ? 75 : 55,
       salience: message.author.trustLevel === "owner" ? "high" : "medium",
-      text: message.cleanContent || message.content,
-      topic: message.cleanContent || message.content,
+      text: stageText,
+      topic: cleanContent,
       ttlMs: 15_000,
       interrupt: "none",
       output: {

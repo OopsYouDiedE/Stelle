@@ -227,9 +227,11 @@ export class StelleApplication {
         };
       },
       useTool: (name, input) => {
-        return this.tools.execute(name, input, {
+        const { _bypassStage, ...toolInput } = input as any;
+        return this.tools.execute(name, toolInput, {
           caller: "debug",
           cwd: process.cwd(),
+          debugBypassStageOutput: !!_bypassStage,
           allowedAuthority: this.config.debug.allowExternalWrite
             ? ["readonly", "safe_write", "network_read", "external_write"]
             : ["readonly", "safe_write", "network_read"],

@@ -60,7 +60,7 @@ describe("Live tool chain integration", () => {
     expect(generateJson).toHaveBeenCalledTimes(2);
     expect(stageOutput.propose).toHaveBeenCalledWith(expect.objectContaining({
       cursorId: "live",
-      lane: "live_chat",
+      lane: "direct_response",
       text: "final with tool result",
       output: expect.objectContaining({ caption: true, tts: false }),
     }));

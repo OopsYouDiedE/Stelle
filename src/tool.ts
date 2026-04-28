@@ -40,6 +40,7 @@ export interface ToolContext {
   allowedTools?: string[];
   cwd: string;
   signal?: AbortSignal;
+  debugBypassStageOutput?: boolean;
 }
 
 export interface ToolError {
@@ -180,9 +181,14 @@ export class ToolRegistry {
   }
 
   private checkToolWhitelist(tool: ToolDefinition, context: ToolContext): ToolResult | undefined {
-    if (context.caller === "cursor" && STAGE_OWNED_LIVE_TOOLS.has(tool.name)) {
-      return fail("stage_output_required", `Cursor must submit OutputIntent instead of calling ${tool.name} directly.`);
+    if (context.caller !== "stage_renderer" && STAGE_OWNED_LIVE_TOOLS.has(tool.name)) {
+      if (context.caller === "debug" && context.debugBypassStageOutput) {
+        // Allow debug bypass
+      } else {
+        return fail("stage_output_required", `Caller ${context.caller} must submit OutputIntent to StageOutputArbiter instead of calling ${tool.name} directly.`);
+      }
     }
+
     if (!context.allowedTools || context.allowedTools.length === 0) {
       return context.caller === "cursor" || context.caller === "core"
         ? fail("tool_not_whitelisted", `Caller ${context.caller} must provide a tool whitelist for ${tool.name}.`)
@@ -563,6 +569,19 @@ function createLiveTools(deps: ToolRegistryDeps): ToolDefinition[] {
     liveActionTool("live.push_event", "Push Event", z.object({ event_id: z.string().optional(), lane: z.enum(["incoming", "response", "topic", "system"]), text: z.string().min(1), user_name: z.string().optional(), priority: z.enum(["low", "medium", "high"]).optional() }), async (live, input) => live.pushEvent(input)),
     liveActionTool("live.trigger_motion", "Trigger Motion", z.object({ group: z.string().min(1), priority: z.enum(["normal", "force"]).optional().default("normal") }), async (live, input) => live.triggerMotion(input.group, input.priority as any)),
     liveActionTool("live.set_expression", "Set Expression", z.object({ expression: z.string().min(1) }), async (live, input) => live.setExpression(input.expression)),
+    {
+      name: "live.stop_output",
+      title: "Stop Output",
+      description: "Stop all current live stage output (audio, TTS, caption).",
+      authority: "external_write",
+      inputSchema: z.object({}),
+      sideEffects: sideEffects({ externalVisible: true, affectsUserState: true }),
+      async execute() {
+        const live = liveRequired();
+        await Promise.all([live.clearCaption(), live.stopAudio()]);
+        return ok("Stopped all stage output.");
+      },
+    },
     {
       name: "live.stream_tts_caption",
       title: "Stream TTS",

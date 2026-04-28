@@ -8,6 +8,7 @@ export class StageOutputArbiter {
   private readonly recentOutputs: StageOutputRecord[] = [];
   private state: StageOutputState;
   private processing = false;
+  private currentAbortController?: AbortController;
 
   constructor(private readonly deps: StageOutputArbiterDeps) {
     this.queue = new StageOutputQueue(deps.maxQueueLength ?? 5, deps.now);
@@ -25,7 +26,7 @@ export class StageOutputArbiter {
 
   async propose(input: OutputIntent): Promise<StageOutputDecision> {
     const intent = applyOutputBudget(input);
-    this.publish("cursor.output.propose", intent, { reason: "proposed" });
+    this.publish("stage.output.received", intent, { reason: "proposed" });
 
     const now = this.deps.now();
     const policy = decideOutputPolicy({
@@ -50,7 +51,11 @@ export class StageOutputArbiter {
     }
 
     if (policy.action === "interrupt") {
+      const isHard = intent.interrupt === "hard";
       if (this.state.currentOutputId) {
+        // Real cancellation
+        this.currentAbortController?.abort();
+        
         this.record({
           id: this.state.currentOutputId,
           cursorId: this.state.currentOwner ?? "unknown",
@@ -61,8 +66,19 @@ export class StageOutputArbiter {
         });
         this.publish("stage.output.interrupted", intent, { reason: policy.reason });
       }
-      await this.start(intent);
-      return { status: "interrupted", outputId: intent.id, reason: policy.reason, intent };
+
+      if (isHard || !this.processing) {
+        await this.start(intent);
+        return { status: "interrupted", outputId: intent.id, reason: policy.reason, intent };
+      } else {
+        // Soft interrupt when busy and not hard: just queue but we already aborted the previous one?
+        // Wait, if it's a soft interrupt and we are busy, should we abort?
+        // Requirement 4 says: soft interrupt 如果没有真的停止当前输出，不能返回 status: "interrupted"，应返回 "queued"。
+        this.queue.enqueue(intent);
+        this.syncQueueLength();
+        this.publish("stage.output.queued", intent, { reason: policy.reason });
+        return { status: "queued", outputId: intent.id, reason: policy.reason, intent, queueLength: this.queue.length() };
+      }
     }
 
     this.publish("stage.output.accepted", intent, { reason: policy.reason });
@@ -73,6 +89,9 @@ export class StageOutputArbiter {
   cancelByCursor(cursorId: string, reason: string): { cancelled: number; reason: string } {
     const cancelled = this.queue.cancelByCursor(cursorId);
     this.syncQueueLength();
+    if (this.state.currentOwner === cursorId) {
+      this.currentAbortController?.abort();
+    }
     return { cancelled, reason };
   }
 
@@ -91,7 +110,16 @@ export class StageOutputArbiter {
       return;
     }
 
+    // Cancel previous if any (should already be handled in propose for interrupt, but for safety)
+    if (this.processing && intent.interrupt === "hard") {
+      this.currentAbortController?.abort();
+    }
+
     this.processing = true;
+    const abortController = new AbortController();
+    this.currentAbortController = abortController;
+    const signal = abortController.signal;
+
     const now = this.deps.now();
     this.state = {
       ...this.state,
@@ -111,27 +139,35 @@ export class StageOutputArbiter {
     this.publish("stage.output.started", intent, { reason: "started" });
 
     try {
-      await this.deps.renderer.render(intent);
+      await this.deps.renderer.render(intent, signal);
+      if (signal.aborted) throw new Error("interrupted");
+
       const completedAt = this.deps.now();
       this.record({ id: intent.id, cursorId: intent.cursorId, lane: intent.lane, text: intent.text, status: "completed", completedAt });
       this.publish("stage.output.completed", intent, { reason: "completed" });
     } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
-      this.record({ id: intent.id, cursorId: intent.cursorId, lane: intent.lane, text: intent.text, status: "dropped", reason });
-      this.publish("stage.output.dropped", intent, { reason });
+      const isAbort = error instanceof Error && (error.message === "interrupted" || error.name === "AbortError");
+      const reason = isAbort ? "interrupted" : (error instanceof Error ? error.message : String(error));
+      
+      // Only record/publish if this is still the active one or if it was specifically aborted
+      this.record({ id: intent.id, cursorId: intent.cursorId, lane: intent.lane, text: intent.text, status: isAbort ? "interrupted" : "dropped", reason });
+      this.publish(isAbort ? "stage.output.interrupted" : "stage.output.dropped", intent, { reason });
     } finally {
-      this.state = {
-        ...this.state,
-        status: this.queue.length() > 0 ? "queued" : "idle",
-        speaking: false,
-        currentOutputId: undefined,
-        currentOwner: undefined,
-        currentLane: undefined,
-        currentTopic: undefined,
-        queueLength: this.queue.length(),
-      };
-      this.processing = false;
-      this.drain();
+      if (this.currentAbortController === abortController) {
+        this.currentAbortController = undefined;
+        this.state = {
+          ...this.state,
+          status: this.queue.length() > 0 ? "queued" : "idle",
+          speaking: false,
+          currentOutputId: undefined,
+          currentOwner: undefined,
+          currentLane: undefined,
+          currentTopic: undefined,
+          queueLength: this.queue.length(),
+        };
+        this.processing = false;
+        this.drain();
+      }
     }
   }
 

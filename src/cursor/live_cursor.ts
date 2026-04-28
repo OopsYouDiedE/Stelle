@@ -84,7 +84,7 @@ export class LiveCursor implements StelleCursor {
     
     const { text, forceTopic } = event.payload;
     if (text) {
-      this.responder.enqueue(forceTopic ? "topic" : "response", text, "neutral");
+      await this.responder.enqueue(forceTopic ? "topic" : "response", text, "neutral");
       this.summary = `[Live:Dispatch] ${truncateText(text, 50)}`;
       await this.reportReflection("dispatch", text, 8, "high");
     }
@@ -154,7 +154,7 @@ export class LiveCursor implements StelleCursor {
       if (decision.action !== "drop_noise" && decision.script.trim()) {
         this.status = "active";
         this.currentEmotion = decision.emotion;
-        this.responder.enqueue("response", decision.script, decision.emotion);
+        await this.responder.enqueue("response", decision.script, decision.emotion);
         this.summary = `[Live:${decision.action}] ${truncateText(decision.script, 50)}`;
         await this.reportReflection(decision.action, decision.script, 4, "medium");
         this.nextThemeAt = this.context.now() + 5000;
@@ -174,19 +174,14 @@ export class LiveCursor implements StelleCursor {
     const now = this.context.now();
 
     try {
-      // 1. 冷场话题生成
+      // 1. 冷场话题生成 (Arbiter handles queuing, so we just propose)
       if (now >= this.nextThemeAt && !this.isGenerating) {
-        void this.handleIdleTopic();
         this.nextThemeAt = now + 20000; // 预锁
+        void this.handleIdleTopic();
       }
 
-      // 2. 出队播放
-      const next = this.responder.dequeue();
-      if (!next) return;
-
-      await this.responder.play(next);
-      const durationMs = Math.max(2500, next.text.length * 200);
-      this.nextThemeAt = now + durationMs + 1000;
+      // 2. 出队播放逻辑已移至 StageOutputArbiter。
+      // LiveCursor 只需要负责生成内容并 push 给 Responder。
 
     } finally {
       this.tickInFlight = false;
@@ -195,13 +190,12 @@ export class LiveCursor implements StelleCursor {
 
   private async handleIdleTopic() {
     this.isGenerating = true;
-    const now = this.context.now();
     try {
       const activePolicies = this.policyStore.activePolicies("live");
       
       const text = await this.router.generateTopic(this.responder.getRecentSpeech(), this.currentEmotion, activePolicies);
       if (text) {
-        this.responder.enqueue("topic", text, this.currentEmotion);
+        await this.responder.enqueue("topic", text, this.currentEmotion);
         await this.reportReflection("idle_topic", text, 1, "low");
       }
     } finally {

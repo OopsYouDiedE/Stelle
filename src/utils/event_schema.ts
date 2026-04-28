@@ -143,7 +143,7 @@ const OutputIntentSchema = z.object({
 });
 
 const StageOutputEventTypes = z.enum([
-  "cursor.output.propose",
+  "stage.output.received",
   "stage.output.accepted",
   "stage.output.queued",
   "stage.output.dropped",

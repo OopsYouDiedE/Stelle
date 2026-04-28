@@ -14,31 +14,50 @@ const LIVE_STAGE_TOOLS = [
 export class StageOutputRenderer implements StageOutputRendererContract {
   constructor(private readonly deps: StageOutputRendererDeps) {}
 
-  async render(intent: OutputIntent): Promise<void> {
+  async render(intent: OutputIntent, signal?: AbortSignal): Promise<void> {
     const toolContext = {
       caller: "stage_renderer" as const,
       cwd: this.deps.cwd,
       allowedAuthority: ["external_write" as const],
-      allowedTools: [...LIVE_STAGE_TOOLS],
+      allowedTools: [...LIVE_STAGE_TOOLS, "live.stop_output"],
+      signal,
     };
 
-    if (intent.output.expression) {
-      await this.deps.tools.execute("live.set_expression", { expression: intent.output.expression }, toolContext).catch(() => undefined);
-    }
+    if (signal?.aborted) return;
 
-    if (intent.output.motion) {
-      await this.deps.tools.execute("live.trigger_motion", { group: intent.output.motion }, toolContext).catch(() => undefined);
-    }
+    // If signal aborts, we should try to stop the output
+    const onAbort = () => {
+      void this.deps.tools.execute("live.stop_output", {}, { ...toolContext, signal: undefined });
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
 
-    if (!intent.output.caption && !intent.output.tts) return;
+    try {
+      if (intent.output.expression) {
+        await this.deps.tools.execute("live.set_expression", { expression: intent.output.expression }, toolContext).catch(() => undefined);
+      }
 
-    if (intent.output.tts && this.deps.ttsEnabled) {
-      await this.deps.tools.execute("live.stream_tts_caption", { text: intent.text }, toolContext);
-      return;
-    }
+      if (signal?.aborted) return;
 
-    if (intent.output.caption) {
-      await this.deps.tools.execute("live.stream_caption", { text: intent.text, speaker: "Stelle" }, toolContext);
+      if (intent.output.motion) {
+        await this.deps.tools.execute("live.trigger_motion", { group: intent.output.motion }, toolContext).catch(() => undefined);
+      }
+
+      if (signal?.aborted) return;
+
+      if (!intent.output.caption && !intent.output.tts) return;
+
+      if (intent.output.tts && this.deps.ttsEnabled) {
+        await this.deps.tools.execute("live.stream_tts_caption", { text: intent.text }, toolContext);
+        return;
+      }
+
+      if (signal?.aborted) return;
+
+      if (intent.output.caption) {
+        await this.deps.tools.execute("live.stream_caption", { text: intent.text, speaker: "Stelle" }, toolContext);
+      }
+    } finally {
+      signal?.removeEventListener("abort", onAbort);
     }
   }
 }

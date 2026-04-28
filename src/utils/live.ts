@@ -187,6 +187,11 @@ export class LiveRuntime {
     await this.renderer?.publish({ type: "audio:stream", url, provider: "kokoro", request, text: sanitizeExternalText(text) });
     return liveOk(`Queued live Kokoro stream playback: ${url}.`, this.stage);
   }
+
+  async stopAudio(): Promise<LiveActionResult> {
+    await this.renderer?.publish({ type: "audio:stop" });
+    return liveOk("Stopped live audio.", this.stage);
+  }
 }
 
 export interface ObsController {
