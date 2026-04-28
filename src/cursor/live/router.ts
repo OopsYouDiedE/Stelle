@@ -3,6 +3,7 @@ import { sanitizeExternalText, truncateText } from "../../utils/text.js";
 import type { NormalizedLiveEvent } from "../../utils/live_event.js";
 import type { CursorContext } from "../types.js";
 import type { LiveBatchDecision, LiveComposeInput, LiveEmotion } from "./types.js";
+import type { BehaviorPolicyOverlay } from "../policy_overlay_store.js";
 
 /**
  * 模块：Live Router (决策与思维)
@@ -13,7 +14,7 @@ export class LiveRouter {
   /**
    * 决策：分析弹幕批次并生成回复策略
    */
-  public async decide(batch: NormalizedLiveEvent[], recentSpeech: string[], currentEmotion: string, activePolicies: any[]): Promise<LiveBatchDecision> {
+  public async decide(batch: NormalizedLiveEvent[], recentSpeech: string[], currentEmotion: string, activePolicies: BehaviorPolicyOverlay[]): Promise<LiveBatchDecision> {
     const batchLog = batch.map(e => `[${e.priority}] ${e.user?.name ?? "观众"}: ${e.text}`).join("\n");
     const focus = await this.context.memory?.readLongTerm("current_focus", "self_state").catch(() => null);
     const subconscious = await this.context.memory?.readLongTerm("global_subconscious", "self_state").catch(() => null);
@@ -79,7 +80,7 @@ export class LiveRouter {
   /**
    * 话题：在冷场时生成一个新话题
    */
-  public async generateTopic(recentSpeech: string[], currentEmotion: string, activePolicies: any[]): Promise<string> {
+  public async generateTopic(recentSpeech: string[], currentEmotion: string, activePolicies: BehaviorPolicyOverlay[]): Promise<string> {
     const focus = await this.context.memory?.readLongTerm("current_focus", "self_state").catch(() => null);
     const subconscious = await this.context.memory?.readLongTerm("global_subconscious", "self_state").catch(() => null);
 
@@ -153,7 +154,7 @@ export class LiveRouter {
   }
 }
 
-function formatPolicy(p: any): string {
+function formatPolicy(p: BehaviorPolicyOverlay): string {
   const parts = [];
   if (p.replyBias) parts.push(`Reply Bias: ${p.replyBias}`);
   if (p.vibeIntensity) parts.push(`Vibe Intensity: ${p.vibeIntensity}/5`);

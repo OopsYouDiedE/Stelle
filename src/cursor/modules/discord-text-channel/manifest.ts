@@ -1,4 +1,4 @@
-import { DiscordTextChannelCursor } from "../../discord_cursor.js";
+import { DiscordTextChannelCursor } from "../../discord/cursor.js";
 import type { CursorModuleDefinition } from "../../manifest.js";
 
 export const discordTextChannelCursorModule: CursorModuleDefinition = {

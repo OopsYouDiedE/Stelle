@@ -43,7 +43,7 @@ export class DiscordToolExecutor {
    * 核心逻辑：参数自动补全
    * 防止 LLM 遗漏或填错底层的 scope、channelId 等字段
    */
-  private refineParameters(name: string, params: Record<string, any>, ctx: { channelId: string; guildId?: string | null; authorId: string }): Record<string, any> {
+  private refineParameters(name: string, params: Record<string, unknown>, ctx: { channelId: string; guildId?: string | null; authorId: string }): Record<string, unknown> {
     const refined = { ...params };
 
     // 1. 为记忆读取工具注入当前频道 Scope
@@ -63,17 +63,16 @@ export class DiscordToolExecutor {
     return refined;
   }
 
-  private async executeSingle(name: string, input: Record<string, any>, authority: ToolContext["allowedAuthority"]): Promise<DiscordToolResultView[]> {
+  private async executeSingle(name: string, input: Record<string, unknown>, authority: ToolContext["allowedAuthority"]): Promise<DiscordToolResultView[]> {
     try {
       const result = await this.context.tools.execute(name, input, this.toolContext(authority));
-      const view: DiscordToolResultView = { 
-        name, 
-        ok: result.ok, 
-        summary: result.summary, 
-        data: result.data as any,
+      const view: DiscordToolResultView = {
+        name,
+        ok: result.ok,
+        summary: result.summary,
+        data: result.data,
         error: result.error // 保留错误详情
       };
-
       // 特殊处理：Search 级联读取
       if (name === "search.web_search" && result.ok) {
         const url = this.firstSearchResultUrl(view);

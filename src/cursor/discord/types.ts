@@ -1,4 +1,5 @@
 import type { DiscordMessageSummary } from "../../utils/discord.js";
+import type { BehaviorPolicy } from "../types.js";
 
 export type RouterMode = "reply" | "silent" | "wait_intent" | "deactivate";
 export type DiscordIntent = "local_chat" | "live_request" | "memory_query" | "memory_write" | "factual_query" | "system_status";
@@ -11,14 +12,6 @@ export interface DiscordToolCall {
 export interface DiscordToolPlan {
   calls: DiscordToolCall[];
   parallel: boolean;
-}
-
-export interface BehaviorPolicy {
-  replyBias?: "aggressive" | "normal" | "selective" | "silent";
-  vibeIntensity?: number;
-  focusTopic?: string;
-  forbiddenTopics?: string[];
-  instruction?: string;
 }
 
 export interface DiscordReplyPolicy {

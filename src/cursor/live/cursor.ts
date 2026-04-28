@@ -2,14 +2,15 @@
  * Module: Live Cursor (V2 - Modular Refactored Architecture)
  */
 
-import { truncateText } from "../utils/text.js";
-import type { CursorContext, CursorSnapshot, StelleEvent, StelleCursor } from "./types.js";
-import { LiveGateway } from "./live/gateway.js";
-import { LiveRouter } from "./live/router.js";
-import { LiveExecutor } from "./live/executor.js";
-import { LiveResponder } from "./live/responder.js";
-import { PolicyOverlayStore } from "./policy_overlay_store.js";
-import type { LiveAction, LiveEmotion } from "./live/types.js";
+import { truncateText } from "../../utils/text.js";
+import type { CursorContext, CursorSnapshot, StelleEvent, StelleCursor } from "../types.js";
+import { LiveGateway } from "./gateway.js";
+import { LiveRouter } from "./router.js";
+import { LiveExecutor } from "./executor.js";
+import { LiveResponder } from "./responder.js";
+import { PolicyOverlayStore } from "../policy_overlay_store.js";
+import type { LiveEmotion, LiveToolResultView } from "./types.js";
+import type { NormalizedLiveEvent } from "../../utils/live_event.js";
 
 export const LIVE_PERSONA = `
 You are Stelle's Live Cursor (VTuber/Streamer AI).
@@ -51,27 +52,27 @@ export class LiveDanmakuCursor implements StelleCursor {
       void this.tick().catch(e => console.error("[LiveCursor] Tick error:", e));
     }));
 
-    this.unsubscribes.push(this.context.eventBus.subscribe("live.topic_request", (event: Extract<StelleEvent, { type: "live.topic_request" }>) => {
+    this.unsubscribes.push(this.context.eventBus.subscribe("live.topic_request", (event) => {
       void this.receiveTopicRequest(event).catch(e => console.error("[LiveCursor] Topic request error:", e));
     }));
 
-    this.unsubscribes.push(this.context.eventBus.subscribe("live.direct_say", (event: Extract<StelleEvent, { type: "live.direct_say" }>) => {
+    this.unsubscribes.push(this.context.eventBus.subscribe("live.direct_say", (event) => {
       void this.receiveDirectSay(event).catch(e => console.error("[LiveCursor] Direct say error:", e));
     }));
 
-    this.unsubscribes.push(this.context.eventBus.subscribe("live.request", (event: Extract<StelleEvent, { type: "live.request" }>) => {
+    this.unsubscribes.push(this.context.eventBus.subscribe("live.request", (event) => {
       void this.receiveTopicRequest(event).catch(e => console.error("[LiveCursor] Legacy live request error:", e));
     }));
 
-    this.unsubscribes.push(this.context.eventBus.subscribe("live.danmaku.received" as any, (event: any) => {
+    this.unsubscribes.push(this.context.eventBus.subscribe("live.danmaku.received", (event) => {
       void this.receiveLiveEvent(event.payload).catch(e => console.error("[LiveCursor] Live event error:", e));
     }));
 
-    this.unsubscribes.push(this.context.eventBus.subscribe("live.event.received" as any, (event: any) => {
+    this.unsubscribes.push(this.context.eventBus.subscribe("live.event.received", (event) => {
       void this.receiveLiveEvent(event.payload).catch(e => console.error("[LiveCursor] Legacy live event error:", e));
     }));
 
-    this.unsubscribes.push(this.context.eventBus.subscribe("stage.output.completed", (event: any) => {
+    this.unsubscribes.push(this.context.eventBus.subscribe("stage.output.completed", (event) => {
       if (event.payload.intent.cursorId === this.id) {
         this.responder.recordCompleted(event.payload.intent.text);
       }
@@ -131,7 +132,7 @@ export class LiveDanmakuCursor implements StelleCursor {
   /**
    * 编排：处理缓冲完成的弹幕批次
    */
-  private async processBatch(batch: any[]) {
+  private async processBatch(batch: NormalizedLiveEvent[]) {
     if (this.isGenerating || batch.length === 0) return;
     this.isGenerating = true;
     this.status = "active";
@@ -145,7 +146,7 @@ export class LiveDanmakuCursor implements StelleCursor {
       let decision = await this.router.decide(batch, this.responder.getRecentSpeech(), this.currentEmotion, activePolicies);
       
       // 2. 执行工具 (Executor)
-      let toolResults: any[] = [];
+      let toolResults: LiveToolResultView[] = [];
       if (decision.toolPlan) {
         this.status = "waiting";
         this.summary = `Executing tools: ${decision.toolPlan.calls.map(c => c.tool).join(", ")}`;
@@ -213,7 +214,7 @@ export class LiveDanmakuCursor implements StelleCursor {
     }
   }
 
-  private async reportReflection(intent: string, summary: string, impactScore: number, salience: any) {
+  private async reportReflection(intent: string, summary: string, impactScore: number, salience: "low" | "medium" | "high") {
     this.context.eventBus.publish({
       type: "cursor.reflection",
       source: "live_danmaku",

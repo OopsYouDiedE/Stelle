@@ -13,11 +13,12 @@ export const EventMetadataSchema = z.object({
 /**
  * 1. 调度类事件 (Tick Events)
  */
-const TickTypes = z.enum(["inner.tick", "live.tick", "core.tick", "presence.tick"]);
-export const TickEventSchema = EventMetadataSchema.extend({
-  type: TickTypes,
-  reason: z.string(),
-});
+export const TickEventSchema = z.union([
+  EventMetadataSchema.extend({ type: z.literal("inner.tick"), reason: z.string() }),
+  EventMetadataSchema.extend({ type: z.literal("live.tick"), reason: z.string() }),
+  EventMetadataSchema.extend({ type: z.literal("core.tick"), reason: z.string() }),
+  EventMetadataSchema.extend({ type: z.literal("presence.tick"), reason: z.string() }),
+]);
 
 /**
  * 2. 认知反思类事件 (Reflection Events)
@@ -61,19 +62,27 @@ export const DiscordMessageSummarySchema = z.object({
 /**
  * 3. 外部原始事件 (External Raw Events)
  */
-export const DiscordMessageEventSchema = EventMetadataSchema.extend({
-  type: z.enum(["discord.message.received", "discord.text.message.received"]),
+const DiscordMessageBaseSchema = EventMetadataSchema.extend({
   source: z.literal("discord"),
   payload: z.object({
     message: DiscordMessageSummarySchema,
   }),
 });
 
-export const LiveEventReceivedSchema = EventMetadataSchema.extend({
-  type: z.enum(["live.event.received", "live.danmaku.received"]),
+export const DiscordMessageEventSchema = z.union([
+  DiscordMessageBaseSchema.extend({ type: z.literal("discord.message.received") }),
+  DiscordMessageBaseSchema.extend({ type: z.literal("discord.text.message.received") }),
+]);
+
+const LiveEventReceivedBaseSchema = EventMetadataSchema.extend({
   source: z.literal("system"),
   payload: z.record(z.any()).describe("原始直播事件载荷"),
 });
+
+export const LiveEventReceivedSchema = z.union([
+  LiveEventReceivedBaseSchema.extend({ type: z.literal("live.event.received") }),
+  LiveEventReceivedBaseSchema.extend({ type: z.literal("live.danmaku.received") }),
+]);
 
 export const BrowserObservationReceivedSchema = EventMetadataSchema.extend({
   type: z.literal("browser.observation.received"),
@@ -148,24 +157,23 @@ const OutputIntentSchema = z.object({
   metadata: z.record(z.any()).optional(),
 });
 
-const StageOutputEventTypes = z.enum([
-  "stage.output.received",
-  "stage.output.accepted",
-  "stage.output.queued",
-  "stage.output.dropped",
-  "stage.output.started",
-  "stage.output.completed",
-  "stage.output.interrupted",
-]);
-
-export const StageOutputEventSchema = EventMetadataSchema.extend({
-  type: StageOutputEventTypes,
+const StageOutputEventBaseSchema = EventMetadataSchema.extend({
   source: z.string(),
   payload: z.object({
     intent: OutputIntentSchema,
     reason: z.string().optional(),
   }),
 });
+
+export const StageOutputEventSchema = z.union([
+  StageOutputEventBaseSchema.extend({ type: z.literal("stage.output.received") }),
+  StageOutputEventBaseSchema.extend({ type: z.literal("stage.output.accepted") }),
+  StageOutputEventBaseSchema.extend({ type: z.literal("stage.output.queued") }),
+  StageOutputEventBaseSchema.extend({ type: z.literal("stage.output.dropped") }),
+  StageOutputEventBaseSchema.extend({ type: z.literal("stage.output.started") }),
+  StageOutputEventBaseSchema.extend({ type: z.literal("stage.output.completed") }),
+  StageOutputEventBaseSchema.extend({ type: z.literal("stage.output.interrupted") }),
+]);
 
 export const StagePolicyOverlayEventSchema = EventMetadataSchema.extend({
   type: z.literal("stage.policy.overlay"),
@@ -189,15 +197,7 @@ const DeviceActionKindSchema = z.enum([
 ]);
 const DeviceActionRiskSchema = z.enum(["readonly", "safe_interaction", "text_input", "external_commit", "system"]);
 
-export const DeviceActionEventSchema = EventMetadataSchema.extend({
-  type: z.enum([
-    "device.action.proposed",
-    "device.action.accepted",
-    "device.action.rejected",
-    "device.action.started",
-    "device.action.completed",
-    "device.action.failed",
-  ]),
+const DeviceActionEventBaseSchema = EventMetadataSchema.extend({
   source: z.string(),
   payload: z.object({
     intent: DeviceActionIntentSchema,
@@ -206,6 +206,15 @@ export const DeviceActionEventSchema = EventMetadataSchema.extend({
     error: z.string().optional(),
   }),
 });
+
+export const DeviceActionEventSchema = z.union([
+  DeviceActionEventBaseSchema.extend({ type: z.literal("device.action.proposed") }),
+  DeviceActionEventBaseSchema.extend({ type: z.literal("device.action.accepted") }),
+  DeviceActionEventBaseSchema.extend({ type: z.literal("device.action.rejected") }),
+  DeviceActionEventBaseSchema.extend({ type: z.literal("device.action.started") }),
+  DeviceActionEventBaseSchema.extend({ type: z.literal("device.action.completed") }),
+  DeviceActionEventBaseSchema.extend({ type: z.literal("device.action.failed") }),
+]);
 
 /**
  * 4. 指令下发类事件 (Directive Events)
@@ -234,11 +243,15 @@ export const DirectiveEventSchema = EventMetadataSchema.extend({
 /**
  * 5. 系统通知类事件
  */
-const SystemTypes = z.enum(["system.ready", "system.error", "system.shutdown"]);
-export const SystemEventSchema = EventMetadataSchema.extend({
-  type: SystemTypes,
+const SystemEventBaseSchema = EventMetadataSchema.extend({
   payload: z.record(z.any()).optional(),
 });
+
+export const SystemEventSchema = z.union([
+  SystemEventBaseSchema.extend({ type: z.literal("system.ready") }),
+  SystemEventBaseSchema.extend({ type: z.literal("system.error") }),
+  SystemEventBaseSchema.extend({ type: z.literal("system.shutdown") }),
+]);
 
 /**
  * 统一事件联合类型

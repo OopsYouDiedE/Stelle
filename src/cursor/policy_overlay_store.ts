@@ -1,12 +1,13 @@
 import { truncateText } from "../utils/text.js";
-import type { CursorContext, StelleEvent } from "./types.js";
+import type { CursorContext, StelleEvent, BehaviorPolicy } from "./types.js";
 
+export type BehaviorPolicyOverlay = BehaviorPolicy;
 export type PolicyTarget = "discord" | "discord_text_channel" | "live" | "live_danmaku" | "browser" | "desktop_input" | "android_device" | "global";
 
 export interface PolicyOverlay {
   id: string;
   target: PolicyTarget;
-  policy: Record<string, unknown>;
+  policy: BehaviorPolicy;
   priority: number;
   expiresAt: number;
 }
@@ -31,7 +32,7 @@ export class PolicyOverlayStore {
     this.unsubscribe = undefined;
   }
 
-  activePolicies(target: Exclude<PolicyTarget, "global">): Record<string, unknown>[] {
+  activePolicies(target: Exclude<PolicyTarget, "global">): BehaviorPolicy[] {
     const now = this.context.now();
     this.overlays = this.overlays.filter((d) => d.expiresAt > now);
     const aliases = targetAliases(target);
@@ -60,7 +61,7 @@ export class PolicyOverlayStore {
     return {
       id: event.id,
       target: event.payload.target,
-      policy: event.payload.policy || { instruction: String(event.payload.parameters?.instruction || "") },
+      policy: (event.payload.policy as BehaviorPolicy) || { instruction: String(event.payload.parameters?.instruction || "") },
       priority: event.payload.priority || 1,
       expiresAt,
     };

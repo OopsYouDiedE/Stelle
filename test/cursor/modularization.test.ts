@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { DeviceActionArbiter } from "../../src/device/action_arbiter.js";
 import { MockDeviceActionDriver } from "../../src/device/drivers/mock_driver.js";
-import { DiscordTextChannelCursor } from "../../src/cursor/discord_cursor.js";
-import { LiveDanmakuCursor } from "../../src/cursor/live_cursor.js";
+import { DiscordTextChannelCursor } from "../../src/cursor/discord/cursor.js";
+import { LiveDanmakuCursor } from "../../src/cursor/live/cursor.js";
 import { BrowserCursor } from "../../src/cursor/modules/browser/cursor.js";
 import { cursorModules } from "../../src/cursor/registry.js";
 import { StelleEventBus } from "../../src/utils/event_bus.js";

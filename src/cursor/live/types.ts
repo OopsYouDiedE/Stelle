@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { NormalizedLiveEvent } from "../../utils/live_event.js";
+import type { BehaviorPolicyOverlay } from "../policy_overlay_store.js";
 
 export type LiveAction = "respond_to_crowd" | "respond_to_specific" | "drop_noise" | "generate_topic";
 export type LiveEmotion = "neutral" | "happy" | "laughing" | "sad" | "surprised" | "thinking" | "teasing";
@@ -14,7 +15,7 @@ export interface LiveBatchDecision {
   script: string;
   reason: string;
   toolPlan?: {
-    calls: Array<{ tool: string; parameters: Record<string, any> }>;
+    calls: Array<{ tool: string; parameters: Record<string, unknown> }>;
   };
 }
 
@@ -24,7 +25,7 @@ export interface LiveComposeInput {
   toolResults: LiveToolResultView[];
   recentSpeech: string[];
   currentEmotion: string;
-  activePolicies: any[];
+  activePolicies: BehaviorPolicyOverlay[];
 }
 
 /**
@@ -34,7 +35,7 @@ export interface LiveToolResultView {
   name: string;
   ok: boolean;
   summary: string;
-  data?: any;
+  data?: Record<string, unknown>;
 }
 
 /**

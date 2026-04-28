@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { DiscordCursor } from "../../src/cursor/discord_cursor.js";
+import { DiscordCursor } from "../../src/cursor/discord/cursor.js";
 import { StelleEventBus } from "../../src/utils/event_bus.js";
 
 describe("Discord Integration Flow", () => {

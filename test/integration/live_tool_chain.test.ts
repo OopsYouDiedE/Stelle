@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { LiveCursor } from "../../src/cursor/live_cursor.js";
+import { LiveCursor } from "../../src/cursor/live/cursor.js";
 import { StelleEventBus } from "../../src/utils/event_bus.js";
 
 describe("Live tool chain integration", () => {

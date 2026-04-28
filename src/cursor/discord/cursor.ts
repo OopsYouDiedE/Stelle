@@ -7,17 +7,17 @@
  * 3. 实时闭环: 实现了 policyOverlay 动态注入，响应来自 InnerMind 的运行时指令。
  */
 
-import { truncateText } from "../utils/text.js";
-import type { DiscordMessageSummary } from "../utils/discord.js";
-import type { CursorContext, CursorSnapshot, StelleCursor, StelleEvent } from "./types.js";
-import { PolicyOverlayStore } from "./policy_overlay_store.js";
+import { truncateText } from "../../utils/text.js";
+import type { DiscordMessageSummary } from "../../utils/discord.js";
+import type { CursorContext, CursorSnapshot, StelleCursor, StelleEvent } from "../types.js";
+import { PolicyOverlayStore } from "../policy_overlay_store.js";
 
 // 子模块导入
-import { DiscordGateway } from "./discord/gateway.js";
-import { DiscordRouter } from "./discord/router.js";
-import { DiscordToolExecutor } from "./discord/executor.js";
-import { DiscordResponder } from "./discord/responder.js";
-import type { DiscordReplyPolicy, DiscordChannelSession } from "./discord/types.js";
+import { DiscordGateway } from "./gateway.js";
+import { DiscordRouter } from "./router.js";
+import { DiscordToolExecutor } from "./executor.js";
+import { DiscordResponder } from "./responder.js";
+import type { DiscordReplyPolicy, DiscordChannelSession } from "./types.js";
 
 export const DISCORD_PERSONA = `
 You are Stelle's Discord Cursor.
@@ -53,13 +53,13 @@ export class DiscordTextChannelCursor implements StelleCursor {
   async initialize(): Promise<void> {
     // 1. 订阅原始消息事件 (Event-Driven Input)
     this.unsubscribes.push(
-      this.context.eventBus.subscribe("discord.text.message.received" as any, (event: any) => {
+      this.context.eventBus.subscribe("discord.text.message.received", (event) => {
         // 直接透传完整摘要，不再降维
         void this.receiveMessage(event.payload.message).catch(e => console.error("[DiscordCursor] Message handling failed:", e));
       })
     );
     this.unsubscribes.push(
-      this.context.eventBus.subscribe("discord.message.received" as any, (event: any) => {
+      this.context.eventBus.subscribe("discord.message.received", (event) => {
         void this.receiveMessage(event.payload.message).catch(e => console.error("[DiscordCursor] Legacy message handling failed:", e));
       })
     );

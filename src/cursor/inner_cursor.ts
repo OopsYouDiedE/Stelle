@@ -2,7 +2,7 @@
  * Module: Inner Cursor (Ego & Cognitive Synthesis Engine)
  */
 
-import { asRecord } from "../utils/json.js";
+import { asRecord, enumValue } from "../utils/json.js";
 import { truncateText } from "../utils/text.js";
 import type { CursorContext, CursorSnapshot, StelleEvent, StelleCursor } from "./types.js";
 
@@ -245,7 +245,7 @@ export class InnerCursor implements StelleCursor {
               return {
                 target: target as CursorDirective["target"],
                 policy: {
-                  replyBias: pol.replyBias as any,
+                  replyBias: pol.replyBias ? enumValue(pol.replyBias, ["aggressive", "normal", "selective", "silent"] as const, "normal") : undefined,
                   vibeIntensity: typeof pol.vibeIntensity === "number" ? pol.vibeIntensity : undefined,
                   focusTopic: pol.focusTopic ? String(pol.focusTopic) : undefined,
                   instruction: pol.instruction ? String(pol.instruction) : undefined,

@@ -23,6 +23,14 @@ export type { StelleEvent };
 
 export type CursorStatus = "idle" | "active" | "waiting" | "cooldown" | "error";
 
+export interface BehaviorPolicy {
+  replyBias?: "aggressive" | "normal" | "selective" | "silent";
+  vibeIntensity?: number;
+  focusTopic?: string;
+  forbiddenTopics?: string[];
+  instruction?: string;
+}
+
 export interface CursorContext {
   llm: LlmClient;
   tools: ToolRegistry;

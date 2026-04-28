@@ -35,7 +35,7 @@ export class LiveExecutor {
   /**
    * 参数补全：注入直播相关的 Scope
    */
-  private refineParameters(name: string, params: Record<string, any>): Record<string, any> {
+  private refineParameters(name: string, params: Record<string, unknown>): Record<string, unknown> {
     const refined = { ...params };
     if ((name === "memory.read_recent" || name === "memory.search") && !refined.scope) {
       refined.scope = { kind: "live" };

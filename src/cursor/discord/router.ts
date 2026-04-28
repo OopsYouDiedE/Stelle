@@ -3,6 +3,7 @@ import { capabilitySet, CURSOR_CAPABILITIES } from "../capabilities.js";
 import type { DiscordMessageSummary } from "../../utils/discord.js";
 import type { CursorContext } from "../types.js";
 import type { DiscordChannelSession, DiscordReplyPolicy, DiscordToolPlan } from "./types.js";
+import type { BehaviorPolicyOverlay } from "../policy_overlay_store.js";
 
 const ALLOWED_POLICY_TOOLS = capabilitySet(CURSOR_CAPABILITIES.discord.planTools);
 
@@ -17,7 +18,7 @@ export class DiscordRouter {
     session: DiscordChannelSession,
     batch: DiscordMessageSummary[],
     isMentioned: boolean,
-    activePolicies: any[] = []
+    activePolicies: BehaviorPolicyOverlay[] = []
   ): Promise<DiscordReplyPolicy> {
     // 默认回退逻辑：没被提到则保持沉默，被提到则简单回复
     const fallback: DiscordReplyPolicy = { 

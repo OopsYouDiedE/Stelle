@@ -1,4 +1,4 @@
-import { LiveDanmakuCursor } from "../../live_cursor.js";
+import { LiveDanmakuCursor } from "../../live/cursor.js";
 import type { CursorModuleDefinition } from "../../manifest.js";
 
 export const liveDanmakuCursorModule: CursorModuleDefinition = {
