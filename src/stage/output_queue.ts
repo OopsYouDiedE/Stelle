@@ -6,13 +6,19 @@ export class StageOutputQueue {
 
   constructor(private readonly maxLength: number, private readonly now: () => number) {}
 
-  enqueue(intent: OutputIntent): { status: "accepted" | "merged" | "dropped"; reason?: string } {
+  enqueue(intent: OutputIntent): { 
+    status: "accepted" | "merged" | "dropped"; 
+    mergedIntent?: OutputIntent;
+    droppedIntents: Array<{ intent: OutputIntent; reason: string }>;
+  } {
+    const droppedIntents: Array<{ intent: OutputIntent; reason: string }> = [];
+    let mergedIntent: OutputIntent | undefined;
     let status: "accepted" | "merged" | "dropped" = "accepted";
     
     if (intent.mergeKey) {
-      const existing = this.items.findIndex(item => item.intent.mergeKey === intent.mergeKey);
-      if (existing >= 0) {
-        this.items.splice(existing, 1);
+      const existingIdx = this.items.findIndex(item => item.intent.mergeKey === intent.mergeKey);
+      if (existingIdx >= 0) {
+        mergedIntent = this.items.splice(existingIdx, 1)[0].intent;
         status = "merged";
       }
     }
@@ -21,13 +27,16 @@ export class StageOutputQueue {
     this.items.sort((a, b) => compareIntentPriority(a.intent, b.intent));
 
     if (this.items.length > this.maxLength) {
-      const dropped = this.items.splice(this.maxLength);
-      if (dropped.some(d => d.intent.id === intent.id)) {
-        return { status: "dropped", reason: "queue_overflow_priority" };
+      const removed = this.items.splice(this.maxLength);
+      for (const item of removed) {
+        droppedIntents.push({ intent: item.intent, reason: "queue_overflow_priority" });
+        if (item.intent.id === intent.id) {
+          status = "dropped";
+        }
       }
     }
 
-    return { status };
+    return { status, mergedIntent, droppedIntents };
   }
 
   dequeueReady(): OutputIntent | undefined {

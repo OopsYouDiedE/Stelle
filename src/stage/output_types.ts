@@ -98,4 +98,5 @@ export interface StageOutputArbiterDeps {
 
 export interface StageOutputRenderer {
   render(intent: OutputIntent, signal?: AbortSignal): Promise<void>;
+  stopCurrentOutput(): Promise<void>;
 }

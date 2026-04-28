@@ -46,17 +46,12 @@ export class StageOutputArbiter {
     if (policy.action === "queue") {
       const qRes = this.queue.enqueue(intent);
       this.syncQueueLength();
+      this.processQueueResults(qRes);
+
       if (qRes.status === "dropped") {
-        this.record({ id: intent.id, cursorId: intent.cursorId, lane: intent.lane, text: intent.text, status: "dropped", reason: qRes.reason });
-        this.publish("stage.output.dropped", intent, { reason: qRes.reason || "queue_overflow" });
-        return { status: "dropped", outputId: intent.id, reason: qRes.reason || "queue_overflow", intent };
+        return { status: "dropped", outputId: intent.id, reason: "queue_overflow", intent };
       }
-      if (qRes.status === "merged") {
-        this.publish("stage.output.queued", intent, { reason: "merged" });
-        return { status: "queued", outputId: intent.id, reason: "merged", intent, queueLength: this.queue.length() };
-      }
-      this.publish("stage.output.queued", intent, { reason: policy.reason });
-      return { status: "queued", outputId: intent.id, reason: policy.reason, intent, queueLength: this.queue.length() };
+      return { status: "queued", outputId: intent.id, reason: qRes.status === "merged" ? "merged" : policy.reason, intent, queueLength: this.queue.length() };
     }
 
     if (policy.action === "interrupt") {
@@ -67,23 +62,21 @@ export class StageOutputArbiter {
           this.currentAbortController?.abort();
           this.publish("stage.output.interrupted", intent, { reason: policy.reason });
           
-          // Requirement: must await stop_output BEFORE starting new output
-          const stopTool = this.deps.toolRegistry?.get("live.stop_output");
-          if (stopTool) {
-            await stopTool.execute({}, { caller: "stage_renderer", cwd: ".", allowedAuthority: ["external_write"] });
-          }
+          // Requirement: must await renderer stop_output BEFORE starting new output
+          await this.deps.renderer.stopCurrentOutput().catch(err => {
+             console.error("[StageOutputArbiter] renderer.stopCurrentOutput failed:", err);
+          });
         }
         void this.start(intent);
         return { status: "interrupted", outputId: intent.id, reason: policy.reason, intent };
       } else {
         const qRes = this.queue.enqueue(intent);
         this.syncQueueLength();
+        this.processQueueResults(qRes);
+
         if (qRes.status === "dropped") {
-          this.record({ id: intent.id, cursorId: intent.cursorId, lane: intent.lane, text: intent.text, status: "dropped", reason: qRes.reason });
-          this.publish("stage.output.dropped", intent, { reason: qRes.reason || "queue_overflow" });
-          return { status: "dropped", outputId: intent.id, reason: qRes.reason || "queue_overflow", intent };
+          return { status: "dropped", outputId: intent.id, reason: "queue_overflow", intent };
         }
-        this.publish("stage.output.queued", intent, { reason: policy.reason });
         return { status: "queued", outputId: intent.id, reason: policy.reason, intent, queueLength: this.queue.length() };
       }
     }
@@ -91,6 +84,17 @@ export class StageOutputArbiter {
     this.publish("stage.output.accepted", intent, { reason: policy.reason });
     void this.start(intent);
     return { status: "accepted", outputId: intent.id, reason: policy.reason, intent };
+  }
+
+  private processQueueResults(qRes: ReturnType<StageOutputQueue["enqueue"]>): void {
+    if (qRes.mergedIntent) {
+      this.record({ id: qRes.mergedIntent.id, cursorId: qRes.mergedIntent.cursorId, lane: qRes.mergedIntent.lane, text: qRes.mergedIntent.text, status: "dropped", reason: "merged" });
+      this.publish("stage.output.dropped", qRes.mergedIntent, { reason: "merged" });
+    }
+    for (const dropped of qRes.droppedIntents) {
+      this.record({ id: dropped.intent.id, cursorId: dropped.intent.cursorId, lane: dropped.intent.lane, text: dropped.intent.text, status: "dropped", reason: dropped.reason });
+      this.publish("stage.output.dropped", dropped.intent, { reason: dropped.reason });
+    }
   }
 
   cancelByCursor(cursorId: string, reason: string): { cancelled: number; reason: string } {
@@ -112,12 +116,13 @@ export class StageOutputArbiter {
 
   private async start(intent: OutputIntent): Promise<void> {
     if (this.processing && intent.interrupt !== "hard") {
-      this.queue.enqueue(intent);
+      const qRes = this.queue.enqueue(intent);
       this.syncQueueLength();
+      this.processQueueResults(qRes);
       return;
     }
 
-    // Cancel previous if any (should already be handled in propose for interrupt, but for safety)
+    // Cancel previous if any
     if (this.processing && intent.interrupt === "hard") {
       this.currentAbortController?.abort();
     }
@@ -153,19 +158,19 @@ export class StageOutputArbiter {
       
       if (signal.aborted) throw new Error("interrupted");
 
-      // Requirement: Hold speaking/processing until estimatedDuration is reached
-      if (intent.estimatedDuration > 0) {
-        const elapsed = this.deps.now() - startTime;
-        const remaining = intent.estimatedDuration - elapsed;
-        if (remaining > 0) {
-          await new Promise((resolve, reject) => {
-            const timer = setTimeout(resolve, remaining);
-            signal.addEventListener("abort", () => {
-              clearTimeout(timer);
-              reject(new Error("interrupted"));
-            });
-          });
-        }
+      // Requirement: Hold speaking/processing until estimatedDurationMs is reached
+      const holdMs = intent.estimatedDurationMs ?? 2500;
+      const elapsed = this.deps.now() - startTime;
+      const remaining = holdMs - elapsed;
+      if (remaining > 0) {
+        await new Promise((resolve, reject) => {
+          const timer = setTimeout(resolve, remaining);
+          const onAbort = () => {
+            clearTimeout(timer);
+            reject(new Error("interrupted"));
+          };
+          signal.addEventListener("abort", onAbort, { once: true });
+        });
       }
 
       if (signal.aborted) throw new Error("interrupted");

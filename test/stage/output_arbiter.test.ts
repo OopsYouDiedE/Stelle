@@ -10,6 +10,7 @@ describe("StageOutputArbiter", () => {
   beforeEach(() => {
     mockRenderer = {
       render: vi.fn().mockResolvedValue(undefined),
+      stopCurrentOutput: vi.fn().mockResolvedValue(undefined),
     };
     arbiter = new StageOutputArbiter({
       renderer: mockRenderer,
@@ -45,10 +46,12 @@ describe("StageOutputArbiter", () => {
     const intent1: OutputIntent = {
       id: "1", cursorId: "test", lane: "live_chat", priority: 50, salience: "medium",
       text: "First", ttlMs: 5000, interrupt: "none", output: { caption: true },
+      estimatedDurationMs: 0,
     };
     const intent2: OutputIntent = {
       id: "2", cursorId: "test", lane: "live_chat", priority: 50, salience: "medium",
       text: "Second", ttlMs: 5000, interrupt: "none", output: { caption: true },
+      estimatedDurationMs: 0,
     };
 
     // Propose 1 (will block until resolveFirst)
@@ -115,6 +118,7 @@ describe("StageOutputArbiter", () => {
 
     expect(mockRenderer.render).toHaveBeenCalledTimes(2);
     expect(mockRenderer.render).toHaveBeenLastCalledWith(expect.objectContaining({ id: "2" }), expect.any(AbortSignal));
+    expect(mockRenderer.stopCurrentOutput).toHaveBeenCalled();
   });
 
   it("should return queued for soft interrupt when busy (and not abort current)", async () => {
@@ -194,13 +198,13 @@ describe("StageOutputArbiter", () => {
     expect(records.length).toBe(1);
   });
 
-  it("should hold speaking state for estimatedDuration", async () => {
+  it("should hold speaking state for estimatedDurationMs", async () => {
     mockRenderer.render = vi.fn().mockResolvedValue(undefined);
 
     const intent: OutputIntent = {
       id: "dur-test", cursorId: "test", lane: "live_chat", priority: 50, salience: "medium",
       text: "Hold me", ttlMs: 5000, interrupt: "none", output: { caption: true },
-      estimatedDuration: 100, // 100ms
+      estimatedDurationMs: 100, // 100ms
     };
 
     const p = arbiter.propose(intent);

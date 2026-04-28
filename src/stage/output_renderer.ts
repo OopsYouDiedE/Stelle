@@ -14,6 +14,15 @@ const LIVE_STAGE_TOOLS = [
 export class StageOutputRenderer implements StageOutputRendererContract {
   constructor(private readonly deps: StageOutputRendererDeps) {}
 
+  async stopCurrentOutput(): Promise<void> {
+    await this.deps.tools.execute("live.stop_output", {}, {
+      caller: "stage_renderer" as const,
+      cwd: this.deps.cwd,
+      allowedAuthority: ["external_write" as const],
+      allowedTools: ["live.stop_output"],
+    });
+  }
+
   async render(intent: OutputIntent, signal?: AbortSignal): Promise<void> {
     const toolContext = {
       caller: "stage_renderer" as const,
@@ -24,12 +33,6 @@ export class StageOutputRenderer implements StageOutputRendererContract {
     };
 
     if (signal?.aborted) return;
-
-    // If signal aborts, we should try to stop the output
-    const onAbort = () => {
-      void this.deps.tools.execute("live.stop_output", {}, { ...toolContext, signal: undefined });
-    };
-    signal?.addEventListener("abort", onAbort, { once: true });
 
     try {
       if (intent.output.expression) {
@@ -57,7 +60,7 @@ export class StageOutputRenderer implements StageOutputRendererContract {
         await this.deps.tools.execute("live.stream_caption", { text: intent.text, speaker: "Stelle" }, toolContext);
       }
     } finally {
-      signal?.removeEventListener("abort", onAbort);
+      // No more fire-and-forget abort listener here.
     }
   }
 }
