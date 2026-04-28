@@ -46,11 +46,11 @@ export class LiveResponder {
         source: target,
       },
     });
+  }
 
-    if (decision.status === "accepted" || decision.status === "interrupted" || decision.status === "queued") {
-      this.recentSpeech.push(text);
-      if (this.recentSpeech.length > 5) this.recentSpeech.shift();
-    }
+  public recordCompleted(text: string): void {
+    this.recentSpeech.push(text);
+    if (this.recentSpeech.length > 5) this.recentSpeech.shift();
   }
 
   public getRecentSpeech(): string[] {

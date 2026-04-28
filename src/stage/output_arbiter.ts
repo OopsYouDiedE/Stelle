@@ -44,8 +44,17 @@ export class StageOutputArbiter {
     }
 
     if (policy.action === "queue") {
-      this.queue.enqueue(intent);
+      const qRes = this.queue.enqueue(intent);
       this.syncQueueLength();
+      if (qRes.status === "dropped") {
+        this.record({ id: intent.id, cursorId: intent.cursorId, lane: intent.lane, text: intent.text, status: "dropped", reason: qRes.reason });
+        this.publish("stage.output.dropped", intent, { reason: qRes.reason || "queue_overflow" });
+        return { status: "dropped", outputId: intent.id, reason: qRes.reason || "queue_overflow", intent };
+      }
+      if (qRes.status === "merged") {
+        this.publish("stage.output.queued", intent, { reason: "merged" });
+        return { status: "queued", outputId: intent.id, reason: "merged", intent, queueLength: this.queue.length() };
+      }
       this.publish("stage.output.queued", intent, { reason: policy.reason });
       return { status: "queued", outputId: intent.id, reason: policy.reason, intent, queueLength: this.queue.length() };
     }
@@ -55,17 +64,25 @@ export class StageOutputArbiter {
       
       if (isHard) {
         if (this.state.currentOutputId) {
-          // Just trigger abort. The previous start() finally/catch will handle recording.
           this.currentAbortController?.abort();
           this.publish("stage.output.interrupted", intent, { reason: policy.reason });
+          
+          // Requirement: must await stop_output BEFORE starting new output
+          const stopTool = this.deps.toolRegistry?.get("live.stop_output");
+          if (stopTool) {
+            await stopTool.execute({}, { caller: "stage_renderer", cwd: ".", allowedAuthority: ["external_write"] });
+          }
         }
         void this.start(intent);
         return { status: "interrupted", outputId: intent.id, reason: policy.reason, intent };
       } else {
-        // Soft interrupt: just queue because we don't have graceful cross-fade yet.
-        // Never abort the current output for a soft interrupt if we are busy.
-        this.queue.enqueue(intent);
+        const qRes = this.queue.enqueue(intent);
         this.syncQueueLength();
+        if (qRes.status === "dropped") {
+          this.record({ id: intent.id, cursorId: intent.cursorId, lane: intent.lane, text: intent.text, status: "dropped", reason: qRes.reason });
+          this.publish("stage.output.dropped", intent, { reason: qRes.reason || "queue_overflow" });
+          return { status: "dropped", outputId: intent.id, reason: qRes.reason || "queue_overflow", intent };
+        }
         this.publish("stage.output.queued", intent, { reason: policy.reason });
         return { status: "queued", outputId: intent.id, reason: policy.reason, intent, queueLength: this.queue.length() };
       }
@@ -130,7 +147,27 @@ export class StageOutputArbiter {
 
     try {
       if (signal.aborted) throw new Error("interrupted");
+      
+      const startTime = this.deps.now();
       await this.deps.renderer.render(intent, signal);
+      
+      if (signal.aborted) throw new Error("interrupted");
+
+      // Requirement: Hold speaking/processing until estimatedDuration is reached
+      if (intent.estimatedDuration > 0) {
+        const elapsed = this.deps.now() - startTime;
+        const remaining = intent.estimatedDuration - elapsed;
+        if (remaining > 0) {
+          await new Promise((resolve, reject) => {
+            const timer = setTimeout(resolve, remaining);
+            signal.addEventListener("abort", () => {
+              clearTimeout(timer);
+              reject(new Error("interrupted"));
+            });
+          });
+        }
+      }
+
       if (signal.aborted) throw new Error("interrupted");
 
       const completedAt = this.deps.now();

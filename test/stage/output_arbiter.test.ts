@@ -193,4 +193,25 @@ describe("StageOutputArbiter", () => {
     // In our current implementation, record() updates existing by ID.
     expect(records.length).toBe(1);
   });
+
+  it("should hold speaking state for estimatedDuration", async () => {
+    mockRenderer.render = vi.fn().mockResolvedValue(undefined);
+
+    const intent: OutputIntent = {
+      id: "dur-test", cursorId: "test", lane: "live_chat", priority: 50, salience: "medium",
+      text: "Hold me", ttlMs: 5000, interrupt: "none", output: { caption: true },
+      estimatedDuration: 100, // 100ms
+    };
+
+    const p = arbiter.propose(intent);
+    await new Promise(r => setTimeout(r, 10));
+    
+    expect(arbiter.snapshot().speaking).toBe(true);
+    
+    // Wait for > 100ms
+    await new Promise(r => setTimeout(r, 150));
+    expect(arbiter.snapshot().speaking).toBe(false);
+    
+    await p;
+  });
 });

@@ -6,18 +6,28 @@ export class StageOutputQueue {
 
   constructor(private readonly maxLength: number, private readonly now: () => number) {}
 
-  enqueue(intent: OutputIntent): void {
+  enqueue(intent: OutputIntent): { status: "accepted" | "merged" | "dropped"; reason?: string } {
+    let status: "accepted" | "merged" | "dropped" = "accepted";
+    
     if (intent.mergeKey) {
       const existing = this.items.findIndex(item => item.intent.mergeKey === intent.mergeKey);
-      if (existing >= 0) this.items.splice(existing, 1);
+      if (existing >= 0) {
+        this.items.splice(existing, 1);
+        status = "merged";
+      }
     }
 
     this.items.push({ intent, enqueuedAt: this.now() });
     this.items.sort((a, b) => compareIntentPriority(a.intent, b.intent));
 
     if (this.items.length > this.maxLength) {
-      this.items.splice(this.maxLength);
+      const dropped = this.items.splice(this.maxLength);
+      if (dropped.some(d => d.intent.id === intent.id)) {
+        return { status: "dropped", reason: "queue_overflow_priority" };
+      }
     }
+
+    return { status };
   }
 
   dequeueReady(): OutputIntent | undefined {

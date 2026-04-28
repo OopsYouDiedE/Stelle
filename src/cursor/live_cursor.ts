@@ -67,6 +67,12 @@ export class LiveCursor implements StelleCursor {
       void this.receiveLiveEvent(event.payload).catch(e => console.error("[LiveCursor] Live event error:", e));
     }));
 
+    this.unsubscribes.push(this.context.eventBus.subscribe("stage.output.completed", (event: any) => {
+      if (event.payload.intent.cursorId === this.id) {
+        this.responder.recordCompleted(event.payload.intent.text);
+      }
+    }));
+
     this.unsubscribes.push(this.policyStore.subscribe((summary) => { this.summary = summary; }));
   }
 
