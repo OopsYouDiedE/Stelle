@@ -1,6 +1,5 @@
 import { splitSentences } from "../../utils/text.js";
 import type { CursorContext } from "../types.js";
-import type { LiveSpeechQueueItem } from "./types.js";
 import type { OutputLane, OutputSalience } from "../../stage/output_types.js";
 
 /**
@@ -27,7 +26,7 @@ export class LiveResponder {
     const lane: OutputLane = target === "response" ? "direct_response" : "topic_hosting";
     const salience: OutputSalience = target === "response" ? "medium" : "low";
     
-    const decision = await this.context.stageOutput.propose({
+    await this.context.stageOutput.propose({
       id: `live-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       cursorId: this.cursorId,
       lane,

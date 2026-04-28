@@ -232,7 +232,7 @@ export class InnerCursor implements StelleCursor {
     }
   }
 
-  async consult(source: "discord" | "discord_text_channel" | "live" | "live_danmaku", query: string, contextPayload: string): Promise<string> {
+  async consult(_source: "discord" | "discord_text_channel" | "live" | "live_danmaku", query: string, _contextPayload: string): Promise<string> {
     if (!this.context.config.models.apiKey) return "跟随你的直觉。";
 
     const convictionBlock = this.coreConvictions.map(c => `- On ${c.topic}: ${c.stance}`).join("\n");

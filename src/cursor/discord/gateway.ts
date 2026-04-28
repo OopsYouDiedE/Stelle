@@ -1,7 +1,7 @@
 import { asRecord } from "../../utils/json.js";
 import type { DiscordMessageSummary } from "../../utils/discord.js";
 import type { CursorContext } from "../types.js";
-import type { DiscordChannelSession, DiscordReplyPolicy } from "./types.js";
+import type { DiscordChannelSession } from "./types.js";
 
 /**
  * 模块：DiscordGateway (物理感知层)

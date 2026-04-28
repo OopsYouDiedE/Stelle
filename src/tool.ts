@@ -15,8 +15,8 @@ import { isIP } from "node:net";
 import path from "node:path";
 import { safeErrorMessage } from "./utils/json.js";
 import type { DiscordRuntime } from "./utils/discord.js";
-import type { LiveRuntime, LiveMotionPriority } from "./utils/live.js";
-import type { MemoryScope, MemoryStore } from "./utils/memory.js";
+import type { LiveRuntime } from "./utils/live.js";
+import type { MemoryStore } from "./utils/memory.js";
 import { KokoroTtsProvider, type StreamingTtsProvider } from "./utils/tts.js";
 import { sanitizeExternalText } from "./utils/text.js";
 

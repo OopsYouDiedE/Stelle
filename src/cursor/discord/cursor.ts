@@ -9,7 +9,7 @@
 
 import { truncateText } from "../../utils/text.js";
 import type { DiscordMessageSummary } from "../../utils/discord.js";
-import type { CursorContext, CursorSnapshot, StelleCursor, StelleEvent } from "../types.js";
+import type { CursorContext, CursorSnapshot, StelleCursor } from "../types.js";
 import { PolicyOverlayStore } from "../policy_overlay_store.js";
 
 // 子模块导入
@@ -93,7 +93,6 @@ export class DiscordTextChannelCursor implements StelleCursor {
    */
   private async executeBatch(session: DiscordChannelSession, batch: DiscordMessageSummary[], isDirectMention: boolean) {
     const latestMessage = batch[batch.length - 1];
-    const now = this.context.now();
     this.status = "active";
 
     const activePolicies = this.policyStore.activePolicies("discord_text_channel");

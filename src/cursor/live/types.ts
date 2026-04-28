@@ -1,4 +1,3 @@
-import { z } from "zod";
 import type { NormalizedLiveEvent } from "../../utils/live_event.js";
 import type { BehaviorPolicyOverlay } from "../policy_overlay_store.js";
 

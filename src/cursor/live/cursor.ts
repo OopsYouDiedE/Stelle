@@ -136,8 +136,6 @@ export class LiveDanmakuCursor implements StelleCursor {
     if (this.isGenerating || batch.length === 0) return;
     this.isGenerating = true;
     this.status = "active";
-    const now = this.context.now();
-
     try {
       const activePolicies = this.policyStore.activePolicies("live_danmaku");
 

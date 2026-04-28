@@ -80,7 +80,7 @@ export class LiveRouter {
   /**
    * 话题：在冷场时生成一个新话题
    */
-  public async generateTopic(recentSpeech: string[], currentEmotion: string, activePolicies: BehaviorPolicyOverlay[]): Promise<string> {
+  public async generateTopic(recentSpeech: string[], _currentEmotion: string, activePolicies: BehaviorPolicyOverlay[]): Promise<string> {
     const focus = await this.context.memory?.readLongTerm("current_focus", "self_state").catch(() => null);
     const subconscious = await this.context.memory?.readLongTerm("global_subconscious", "self_state").catch(() => null);
 

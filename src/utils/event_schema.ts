@@ -189,26 +189,6 @@ export const StagePolicyOverlayEventSchema = EventMetadataSchema.extend({
 
 import { DeviceActionIntentSchema } from "../device/action_types.js";
 
-const DeviceResourceKindSchema = z.enum(["browser", "desktop_input", "android_device"]);
-const DeviceActionKindSchema = z.enum([
-  "observe",
-  "navigate",
-  "move_mouse",
-  "click",
-  "mouse_down",
-  "mouse_up",
-  "drag",
-  "type",
-  "hotkey",
-  "key_down",
-  "key_up",
-  "scroll",
-  "android_tap",
-  "android_text",
-  "android_back",
-]);
-const DeviceActionRiskSchema = z.enum(["readonly", "safe_interaction", "text_input", "external_commit", "system"]);
-
 const DeviceActionEventBaseSchema = EventMetadataSchema.extend({
   source: z.string(),
   payload: z.object({

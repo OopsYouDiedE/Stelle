@@ -7,7 +7,6 @@
  * - 提供 debug API，读取 runtime snapshot 或手动调用工具/live request。
  */
 import http from "node:http";
-import { EventEmitter } from "node:events";
 import type { AddressInfo } from "node:net";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -48,7 +47,6 @@ export interface LiveRendererCommand {
 }
 
 export class LiveRendererServer {
-  private readonly events = new EventEmitter();
   private readonly app = express();
   private readonly server = http.createServer(this.app);
   private readonly io = new SocketIOServer(this.server, {
@@ -172,7 +170,7 @@ export class LiveRendererServer {
     this.app.use("/vendor", express.static(path.resolve("assets/renderer/vendor")));
 
     // 页面路由
-    const serveIndex = async (req: express.Request, res: express.Response) => {
+    const serveIndex = async (_req: express.Request, res: express.Response) => {
       const indexPath = path.resolve("dist/live-renderer/index.html");
       const fallback = "<!doctype html><html><body><main id=\"app\">Stelle renderer ready.</main><script type=\"module\" src=\"/assets/index.js\"></script></body></html>";
       try {
@@ -186,7 +184,7 @@ export class LiveRendererServer {
     this.app.get("/live", serveIndex);
 
     // 状态接口
-    this.app.get("/state", (req, res) => res.json({ ok: true, state: this.state }));
+    this.app.get("/state", (_req, res) => res.json({ ok: true, state: this.state }));
 
     // Debug 页面与 API
     this.app.get("/_debug", (req, res) => {
