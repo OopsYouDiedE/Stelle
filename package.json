@@ -10,6 +10,8 @@
     "start:live": "node scripts/start_all.js live --built",
     "start:runtime": "node scripts/start_all.js runtime --built",
     "start:kokoro": ".venv\\Scripts\\python.exe scripts\\kokoro_tts_server.py",
+    "live:preflight": "tsx scripts/live_preflight.ts",
+    "live:bilibili": "tsx scripts/bilibili_danmaku_bridge.ts",
     "dev:live": "node scripts/start_all.js live --watch",
     "dev:discord": "tsx watch src/start.ts discord",
     "dev": "node scripts/start_all.js runtime --watch",

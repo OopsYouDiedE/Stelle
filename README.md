@@ -96,6 +96,10 @@ Stelle 支持多种启动模式，通常建议运行完整运行时：
 - **只运行 Discord**: `npm run start:discord`
 - **只运行直播渲染**: `npm run start:live`
 - **TTS 服务 (Python)**: `npm run start:kokoro`
+- **B 站正式直播前检查**: `npm run live:preflight`
+- **B 站弹幕桥接**: `npm run live:bilibili`
+
+正式直播流程见 [`docs/BILIBILI_LIVE_RUNBOOK.md`](docs/BILIBILI_LIVE_RUNBOOK.md)。
 
 ## 测试与评估体系 (Testing & Evals)
 

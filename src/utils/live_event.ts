@@ -89,6 +89,7 @@ export function normalizeLiveEvent(input: Record<string, unknown>): NormalizedLi
       input.text ??
         normalized.text ??
         extractBilibiliDanmakuText(rawRecord) ??
+        extractBilibiliDataText(rawRecord) ??
         rawRecord.text ??
         rawRecord.message ??
         ""
@@ -176,6 +177,11 @@ function normalizeUser(input: Record<string, unknown>, normalized: Record<string
 function extractBilibiliDanmakuText(raw: Record<string, unknown>): string | undefined {
   const info = raw.info;
   return Array.isArray(info) && typeof info[1] === "string" ? info[1] : undefined;
+}
+
+function extractBilibiliDataText(raw: Record<string, unknown>): string | undefined {
+  const data = asRecord(raw.data);
+  return stringOrUndefined(data.message ?? data.giftName ?? data.gift_name);
 }
 
 function containsPoliticalContent(text: string): boolean {
