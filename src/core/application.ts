@@ -13,6 +13,8 @@ import { LiveCursor } from "../cursor/live_cursor.js";
 import type { StelleCursor, StelleEvent } from "../cursor/types.js";
 import { StelleEventBus } from "../utils/event_bus.js";
 import { StelleScheduler } from "./scheduler.js";
+import { StageOutputArbiter } from "../stage/output_arbiter.js";
+import { StageOutputRenderer } from "../stage/output_renderer.js";
 
 export type StartMode = "runtime" | "discord" | "live";
 
@@ -25,6 +27,7 @@ export class StelleApplication {
   public readonly eventBus: StelleEventBus;
   public tools: ToolRegistry;
   public readonly scheduler: StelleScheduler;
+  public stageOutput: StageOutputArbiter;
   
   public renderer?: LiveRendererServer;
   public live?: LiveRuntime;
@@ -43,6 +46,7 @@ export class StelleApplication {
     this.eventBus = new StelleEventBus();
     this.live = new LiveRuntime(new ObsWebSocketController({ enabled: this.config.live.obsControlEnabled }));
     this.tools = createDefaultToolRegistry({ discord: this.discord, live: this.live, memory: this.memory, cwd: process.cwd() });
+    this.stageOutput = this.createStageOutput();
     this.scheduler = new StelleScheduler({
       liveEnabled: mode === "runtime" || mode === "live",
       innerEnabled: true,
@@ -72,6 +76,7 @@ export class StelleApplication {
       this.live = new LiveRuntime(new ObsWebSocketController({ enabled: this.config.live.obsControlEnabled }), new LocalLiveRendererBridge(this.renderer));
       await this.live.start();
       this.tools = createDefaultToolRegistry({ discord: this.discord, live: this.live, memory: this.memory, cwd: process.cwd() });
+      this.stageOutput = this.createStageOutput();
       this.state.updateRenderer({ connected: true });
       this.state.record("renderer_started", `Live renderer ready: ${url}/live`);
       console.log(`[Stelle] Live renderer ready: ${url}/live`);
@@ -118,6 +123,7 @@ export class StelleApplication {
       config: this.config,
       memory: this.memory,
       eventBus: this.eventBus,
+      stageOutput: this.stageOutput,
       now: () => Date.now(),
     };
 
@@ -162,22 +168,8 @@ export class StelleApplication {
     if (!this.renderer) return;
 
     const liveController = {
-      sendLiveRequest: (input: Record<string, unknown>) => {
-        const eventId = `live-request-${Date.now()}`;
-        this.eventBus.publish({
-          type: Boolean(input.directSay ?? input.forceTopic) ? "live.direct_say" : "live.topic_request",
-          source: "system",
-          id: eventId,
-          timestamp: Date.now(),
-          payload: {
-            text: String(input.text ?? ""),
-            originMessageId: input.originMessageId ? String(input.originMessageId) : undefined,
-            channelId: input.channelId ? String(input.channelId) : undefined,
-            authorId: input.authorId ? String(input.authorId) : undefined,
-            forceTopic: Boolean(input.forceTopic),
-          }
-        });
-        return { accepted: true, reason: "Published to event bus", eventId };
+      sendLiveRequest: async (input: Record<string, unknown>) => {
+        return this.proposeSystemLiveOutput("system", input);
       },
       sendLiveEvent: (input: Record<string, unknown>) => {
         const eventId = `live-event-${Date.now()}`;
@@ -228,6 +220,7 @@ export class StelleApplication {
           discord: discordStatus,
           live: liveStatus,
           renderer: this.renderer?.getStatus(),
+          stageOutput: this.stageOutput.snapshot(),
           tools: this.tools.list().map(t => ({ name: t.name, authority: t.authority, title: t.title })),
           audit: this.tools.audit.slice(-50),
           memory: memorySnapshot,
@@ -242,24 +235,61 @@ export class StelleApplication {
             : ["readonly", "safe_write", "network_read"],
         });
       },
-      sendLiveRequest: (input) => {
-        const eventId = `debug-live-${Date.now()}`;
-        this.eventBus.publish({
-          type: Boolean(input.directSay ?? input.forceTopic) ? "live.direct_say" : "live.topic_request",
-          source: "debug",
-          id: eventId,
-          timestamp: Date.now(),
-          payload: {
-            text: String(input.text ?? ""),
-            originMessageId: input.originMessageId ? String(input.originMessageId) : undefined,
-            channelId: input.channelId ? String(input.channelId) : undefined,
-            authorId: input.authorId ? String(input.authorId) : undefined,
-            forceTopic: Boolean(input.forceTopic),
-          }
-        });
-        return { accepted: true, reason: "Published to event bus", eventId };
+      sendLiveRequest: async (input) => {
+        return this.proposeSystemLiveOutput("debug", input);
       },
       sendLiveEvent: liveController.sendLiveEvent,
     });
+  }
+
+  private createStageOutput(): StageOutputArbiter {
+    return new StageOutputArbiter({
+      renderer: new StageOutputRenderer({
+        tools: this.tools,
+        cwd: process.cwd(),
+        ttsEnabled: Boolean(this.config.live.ttsEnabled),
+      }),
+      eventBus: this.eventBus,
+      now: () => Date.now(),
+      debugEnabled: Boolean(this.config.debug.enabled),
+      maxQueueLength: this.config.live.speechQueueLimit || 5,
+    });
+  }
+
+  private async proposeSystemLiveOutput(source: "debug" | "system", input: Record<string, unknown>) {
+    const text = String(input.text ?? "").trim();
+    const eventId = `${source}-live-${Date.now()}`;
+    const forceTopic = Boolean(input.forceTopic);
+    const directSay = Boolean(input.directSay);
+    const lane = source === "debug" ? "debug" : directSay ? "direct_response" : forceTopic ? "topic_hosting" : "live_chat";
+    const decision = await this.stageOutput.propose({
+      id: eventId,
+      cursorId: source,
+      sourceEventId: input.originMessageId ? String(input.originMessageId) : undefined,
+      lane,
+      priority: source === "debug" ? 80 : directSay ? 70 : 55,
+      salience: directSay ? "high" : "medium",
+      text,
+      topic: forceTopic ? text : undefined,
+      ttlMs: directSay ? 20_000 : 12_000,
+      interrupt: directSay ? "soft" : "none",
+      output: {
+        caption: true,
+        tts: Boolean(this.config.live.ttsEnabled),
+      },
+      metadata: {
+        channelId: input.channelId ? String(input.channelId) : undefined,
+        authorId: input.authorId ? String(input.authorId) : undefined,
+        forceTopic,
+        directSay,
+      },
+    });
+
+    return {
+      accepted: decision.status === "accepted" || decision.status === "interrupted",
+      status: decision.status,
+      reason: decision.reason,
+      eventId,
+    };
   }
 }

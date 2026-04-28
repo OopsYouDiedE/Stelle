@@ -154,22 +154,32 @@ export class DiscordCursor implements StelleCursor {
   }
 
   private async handleLiveDispatch(message: DiscordMessageSummary, policy: DiscordReplyPolicy) {
-    this.context.eventBus.publish({
-      type: "live.topic_request",
-      source: "discord",
-      id: `live-req-${message.id}`,
-      timestamp: this.context.now(),
-      payload: { 
-        originMessageId: message.id, 
-        channelId: message.channelId, 
-        text: message.content, 
-        authorId: message.author.id, 
-        forceTopic: true 
-      }
+    const decision = await this.context.stageOutput.propose({
+      id: `discord-live-${message.id}`,
+      cursorId: "discord",
+      sourceEventId: message.id,
+      lane: "topic_hosting",
+      priority: message.author.trustLevel === "owner" ? 75 : 55,
+      salience: message.author.trustLevel === "owner" ? "high" : "medium",
+      text: message.cleanContent || message.content,
+      topic: message.cleanContent || message.content,
+      ttlMs: 15_000,
+      interrupt: "none",
+      output: {
+        caption: true,
+        tts: Boolean(this.context.config.live.ttsEnabled),
+      },
+      metadata: {
+        channelId: message.channelId,
+        authorId: message.author.id,
+        origin: "discord",
+      },
     });
-    const text = policy.needsThinking ? "请求已安全发送至舞台侧。" : "收到，已经抛给舞台了！";
+    const text = decision.status === "dropped"
+      ? "舞台现在有点忙，我先记下这条。"
+      : policy.needsThinking ? "请求已安全发送至舞台侧。" : "收到，已经抛给舞台了！";
     await this.responder.sendAndArchive(message, text, policy);
-    this.reportReflection("live_dispatch", `Dispatched Discord request to Live: ${truncateText(message.content, 100)}`, 8, "high");
+    this.reportReflection("live_dispatch", `Stage output ${decision.status}: ${truncateText(message.content, 100)}`, 8, "high");
   }
 
   private reportReflection(intent: string, summary: string, impactScore: number, salience: "low" | "medium" | "high" = "low") {

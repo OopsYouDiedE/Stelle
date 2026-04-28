@@ -21,7 +21,7 @@ import { KokoroTtsProvider, type StreamingTtsProvider } from "./utils/tts.js";
 import { sanitizeExternalText } from "./utils/text.js";
 
 export type ToolAuthority = "readonly" | "safe_write" | "network_read" | "external_write" | "system";
-export type ToolCaller = "cursor" | "runtime" | "debug" | "system" | "core";
+export type ToolCaller = "cursor" | "runtime" | "debug" | "system" | "core" | "stage_renderer";
 
 export interface ToolSideEffectProfile {
   externalVisible: boolean;
@@ -88,6 +88,13 @@ export interface ToolAuditRecord {
 }
 
 const SAFE_EXPR = /^[0-9+\-*/().,%\s]+$/;
+const STAGE_OWNED_LIVE_TOOLS = new Set([
+  "live.set_caption",
+  "live.stream_caption",
+  "live.stream_tts_caption",
+  "live.trigger_motion",
+  "live.set_expression",
+]);
 
 export function ok(summary: string, data?: Record<string, unknown>): ToolResult {
   return { ok: true, summary, data };
@@ -173,6 +180,9 @@ export class ToolRegistry {
   }
 
   private checkToolWhitelist(tool: ToolDefinition, context: ToolContext): ToolResult | undefined {
+    if (context.caller === "cursor" && STAGE_OWNED_LIVE_TOOLS.has(tool.name)) {
+      return fail("stage_output_required", `Cursor must submit OutputIntent instead of calling ${tool.name} directly.`);
+    }
     if (!context.allowedTools || context.allowedTools.length === 0) {
       return context.caller === "cursor" || context.caller === "core"
         ? fail("tool_not_whitelisted", `Caller ${context.caller} must provide a tool whitelist for ${tool.name}.`)

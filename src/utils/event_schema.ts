@@ -114,6 +114,59 @@ export const LiveRequestEventSchema = EventMetadataSchema.extend({
   }),
 });
 
+const OutputLaneSchema = z.enum(["emergency", "direct_response", "topic_hosting", "live_chat", "ambient", "inner_reaction", "debug"]);
+const OutputIntentSchema = z.object({
+  id: z.string(),
+  cursorId: z.string(),
+  sourceEventId: z.string().optional(),
+  lane: OutputLaneSchema,
+  priority: z.number(),
+  salience: z.enum(["low", "medium", "high", "critical"]),
+  text: z.string(),
+  summary: z.string().optional(),
+  topic: z.string().optional(),
+  mergeKey: z.string().optional(),
+  ttlMs: z.number().int(),
+  interrupt: z.enum(["none", "soft", "hard"]),
+  estimatedDurationMs: z.number().optional(),
+  output: z.object({
+    caption: z.boolean().optional(),
+    tts: z.boolean().optional(),
+    motion: z.string().optional(),
+    expression: z.string().optional(),
+    discordReply: z.object({
+      channelId: z.string(),
+      messageId: z.string().optional(),
+    }).optional(),
+  }),
+  metadata: z.record(z.any()).optional(),
+});
+
+const StageOutputEventTypes = z.enum([
+  "cursor.output.propose",
+  "stage.output.accepted",
+  "stage.output.queued",
+  "stage.output.dropped",
+  "stage.output.started",
+  "stage.output.completed",
+  "stage.output.interrupted",
+]);
+
+export const StageOutputEventSchema = EventMetadataSchema.extend({
+  type: StageOutputEventTypes,
+  source: z.string(),
+  payload: z.object({
+    intent: OutputIntentSchema,
+    reason: z.string().optional(),
+  }),
+});
+
+export const StagePolicyOverlayEventSchema = EventMetadataSchema.extend({
+  type: z.literal("stage.policy.overlay"),
+  source: z.string(),
+  payload: z.record(z.any()),
+});
+
 /**
  * 4. 指令下发类事件 (Directive Events)
  */
@@ -158,6 +211,8 @@ export const StelleEventSchema = z.union([
   LiveTopicRequestEventSchema,
   LiveDirectSayEventSchema,
   LiveRequestEventSchema,
+  StageOutputEventSchema,
+  StagePolicyOverlayEventSchema,
   DirectiveEventSchema,
   SystemEventSchema,
 ]);

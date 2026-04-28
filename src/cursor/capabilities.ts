@@ -21,8 +21,7 @@ export const CURSOR_CAPABILITIES = {
     stageTools: [
       "basic.datetime", "memory.read_long_term", "memory.write_recent", "memory.search",
       "memory.propose_write", "search.web_search", "search.web_read", "live.status",
-      "live.set_caption", "live.stream_caption", "live.push_event", "live.stream_tts_caption",
-      "live.trigger_motion", "live.set_expression", "obs.status", "tts.kokoro_speech",
+      "live.push_event", "obs.status", "tts.kokoro_speech",
     ],
     executeTools: [
       "memory.read_recent", "memory.search", "memory.read_long_term",

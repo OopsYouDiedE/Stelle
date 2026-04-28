@@ -16,6 +16,7 @@ import type { ToolRegistry } from "../tool.js";
 import type { MemoryStore } from "../utils/memory.js";
 import type { StelleEventBus } from "../utils/event_bus.js";
 import type { StelleEvent } from "../utils/event_schema.js";
+import type { StageOutputArbiter } from "../stage/output_arbiter.js";
 
 export type { StelleEvent };
 
@@ -27,6 +28,7 @@ export interface CursorContext {
   config: RuntimeConfig;
   memory?: MemoryStore;
   eventBus: StelleEventBus;
+  stageOutput: StageOutputArbiter;
   now: () => number;
 }
 

@@ -1,6 +1,7 @@
-import { splitSentences, sanitizeExternalText } from "../../utils/text.js";
+import { splitSentences } from "../../utils/text.js";
 import type { CursorContext } from "../types.js";
 import type { LiveSpeechQueueItem } from "./types.js";
+import type { OutputLane, OutputSalience } from "../../stage/output_types.js";
 
 /**
  * 模块：Live Responder (队列与播放)
@@ -10,7 +11,7 @@ export class LiveResponder {
   private readonly responseQueue: LiveSpeechQueueItem[] = [];
   private readonly recentSpeech: string[] = [];
 
-  constructor(private readonly context: CursorContext, private readonly tools: string[]) {}
+  constructor(private readonly context: CursorContext) {}
 
   /**
    * 将文本切割并压入相应的队列
@@ -53,22 +54,33 @@ export class LiveResponder {
    * 执行实际的舞台动作 (TTS/Caption/Expression)
    */
   public async play(item: LiveSpeechQueueItem): Promise<void> {
-    const toolContext = { caller: "cursor" as const, cursorId: "live", cwd: process.cwd(), allowedAuthority: ["external_write" as const], allowedTools: this.tools };
+    const lane: OutputLane = item.source === "topic" ? "topic_hosting" : "live_chat";
+    const salience: OutputSalience = item.source === "topic" ? "low" : "medium";
+    const decision = await this.context.stageOutput.propose({
+      id: item.id,
+      cursorId: "live",
+      lane,
+      priority: item.source === "topic" ? 45 : 60,
+      salience,
+      text: item.text,
+      summary: item.text,
+      ttlMs: item.source === "topic" ? 30_000 : 12_000,
+      interrupt: "none",
+      output: {
+        caption: true,
+        tts: Boolean(this.context.config.live.ttsEnabled),
+        expression: item.emotion !== "neutral" ? item.emotion : undefined,
+      },
+      metadata: {
+        source: item.source,
+        enqueuedAt: item.enqueuedAt,
+      },
+    });
 
-    // 1. 同步情绪
-    if (item.emotion !== "neutral") {
-      await this.context.tools.execute("live.set_expression", { expression: item.emotion }, toolContext).catch(() => {});
+    if (decision.status === "accepted" || decision.status === "interrupted") {
+      this.recentSpeech.push(item.text);
+      if (this.recentSpeech.length > 5) this.recentSpeech.shift();
     }
-
-    // 2. 播报
-    if (this.context.config.live.ttsEnabled) {
-      await this.context.tools.execute("live.stream_tts_caption", { text: item.text, emotion: item.emotion }, toolContext);
-    } else {
-      await this.context.tools.execute("live.stream_caption", { text: item.text, speaker: "Stelle" }, toolContext);
-    }
-
-    this.recentSpeech.push(item.text);
-    if (this.recentSpeech.length > 5) this.recentSpeech.shift();
   }
 
   public getRecentSpeech(): string[] {

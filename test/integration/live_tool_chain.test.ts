@@ -7,9 +7,13 @@ describe("Live tool chain integration", () => {
     const eventBus = new StelleEventBus();
     const toolExecute = vi.fn().mockImplementation(async (name: string) => {
       if (name === "memory.search") return { ok: true, summary: "tool hit", data: { results: [{ excerpt: "remembered detail" }] } };
-      if (name === "live.stream_caption") return { ok: true, summary: "captioned", data: {} };
       return { ok: true, summary: "ok", data: {} };
     });
+    const stageOutput = {
+      propose: vi.fn().mockResolvedValue({ status: "accepted", outputId: "out1", reason: "stage_free" }),
+      cancelByCursor: vi.fn(),
+      snapshot: vi.fn(),
+    };
     const generateJson = vi.fn()
       .mockImplementationOnce(async (_prompt, _schema, normalize) => normalize({
         action: "respond_to_specific",
@@ -40,6 +44,7 @@ describe("Live tool chain integration", () => {
       },
       llm: { generateJson, generateText: vi.fn() },
       tools: { execute: toolExecute },
+      stageOutput,
       eventBus
     } as any);
 
@@ -53,10 +58,11 @@ describe("Live tool chain integration", () => {
     await cursor.tick();
 
     expect(generateJson).toHaveBeenCalledTimes(2);
-    expect(toolExecute).toHaveBeenCalledWith(
-      "live.stream_caption",
-      expect.objectContaining({ text: "final with tool result" }),
-      expect.any(Object)
-    );
+    expect(stageOutput.propose).toHaveBeenCalledWith(expect.objectContaining({
+      cursorId: "live",
+      lane: "live_chat",
+      text: "final with tool result",
+      output: expect.objectContaining({ caption: true, tts: false }),
+    }));
   });
 });

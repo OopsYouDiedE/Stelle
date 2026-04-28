@@ -8,7 +8,6 @@ import { LiveGateway } from "./live/gateway.js";
 import { LiveRouter } from "./live/router.js";
 import { LiveExecutor } from "./live/executor.js";
 import { LiveResponder } from "./live/responder.js";
-import { CURSOR_CAPABILITIES } from "./capabilities.js";
 import { PolicyOverlayStore } from "./policy_overlay_store.js";
 import type { LiveAction, LiveEmotion } from "./live/types.js";
 
@@ -43,7 +42,7 @@ export class LiveCursor implements StelleCursor {
     this.gateway = new LiveGateway(context);
     this.router = new LiveRouter(context, LIVE_PERSONA);
     this.executor = new LiveExecutor(context, this.id);
-    this.responder = new LiveResponder(context, [...CURSOR_CAPABILITIES.live.stageTools]);
+    this.responder = new LiveResponder(context);
     this.policyStore = new PolicyOverlayStore(context);
   }
 
