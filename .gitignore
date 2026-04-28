@@ -210,6 +210,12 @@ __marimo__/
 node_modules/
 dist/
 artifacts/
+coverage/
+.vite/
+.vite-temp/
+.turbo/
+.tsbuildinfo
+*.tsbuildinfo
 .codex-chrome-live/
 .codex-logs/
 scripts/__pycache__/
@@ -219,3 +225,16 @@ memory/discord/
 memory/live/
 memory/long_term/
 docs/personality_prompt/*-summary.md
+
+# Stelle local runtime / generated outputs
+evals/logs/
+memory_rag_test/
+*.local.json
+*.local.yaml
+*.local.yml
+*.wav
+*.mp3
+*.ogg
+*.flac
+*.tmp
+*.bak
