@@ -15,7 +15,7 @@ interface AvatarOptions {
   modelUrl?: string | null;
 }
 
-const DEFAULT_MODEL_URL = "/models/mao/Mao.model3.json";
+const DEFAULT_MODEL_URL = "/models/白-免费版/白-免费版.model3.json";
 const LOCAL_CUBISM_CORE = "/vendor/live2dcubismcore.min.js";
 const REMOTE_CUBISM_CORE = "https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js";
 const MOUTH_PARAMETER_CANDIDATES = ["ParamA", "ParamMouthOpenY", "PARAM_MOUTH_OPEN_Y"];
@@ -57,7 +57,7 @@ export class Live2DAvatar {
       });
 
       this.setStatus("loading Live2D model");
-      this.model = await this.live2d.Live2DModel.from(this.modelUrl, { autoInteract: true });
+      this.model = await this.live2d.Live2DModel.from(this.modelUrl, { autoInteract: true, autoUpdate: false });
       this.model.anchor.set(0.5, 0.56);
       this.model.interactive = true;
       this.model.on("hit", (hitAreas: string[]) => {
@@ -68,6 +68,7 @@ export class Live2DAvatar {
       });
       this.app.stage.addChild(this.model);
       this.app.ticker.add(() => {
+        this.model?.update(this.app?.ticker.deltaMS ?? 16.67);
         this.fitModel();
         this.updateLipSync();
       });

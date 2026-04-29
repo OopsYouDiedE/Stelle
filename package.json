@@ -35,7 +35,7 @@
     "http-proxy-middleware": "^3.0.5",
     "mime": "^4.1.0",
     "pixi-live2d-display": "^0.4.0",
-    "pixi.js": "^8.18.1",
+    "pixi.js": "^6.5.10",
     "socket.io": "^4.8.3",
     "socket.io-client": "^4.8.3",
     "vite": "^8.0.9",

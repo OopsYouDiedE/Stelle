@@ -63,6 +63,22 @@ http://127.0.0.1:8787/live?autoplay=1
 
 `/live` is the real stage path. It does not generate sample danmaku; content enters through the live bridge and is arbitrated by `StageOutputArbiter`. Add `?panel=1` only for the local simulator/debug panel.
 
+## Renderer Avatar Model
+
+The Live2D renderer currently uses the bundled `白-免费版` model:
+
+```text
+assets/renderer/models/白-免费版/白-免费版.model3.json
+```
+
+At runtime the browser loads it through:
+
+```text
+/models/白-免费版/白-免费版.model3.json
+```
+
+To switch avatars, put the model folder under `assets/renderer/models/` and update `DEFAULT_MODEL_URL` in `assets/renderer/client/src/live2d.ts`. Rebuild with `npm run build` before starting the live renderer.
+
 Then start the Bilibili danmaku bridge:
 
 ```bash
