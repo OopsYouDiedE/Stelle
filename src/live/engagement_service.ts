@@ -24,11 +24,8 @@ export class LiveEngagementService {
   }
 
   start(): void {
-    this.unsubscribes.push(this.deps.eventBus.subscribe("live.danmaku.received", (event) => {
-      void this.handleLiveEvent(event.payload).catch(error => console.error("[LiveEngagement] event failed:", error));
-    }));
     this.unsubscribes.push(this.deps.eventBus.subscribe("live.event.received", (event) => {
-      void this.handleLiveEvent(event.payload).catch(error => console.error("[LiveEngagement] legacy event failed:", error));
+      void this.handleLiveEvent(event.payload).catch(error => console.error("[LiveEngagement] event failed:", error));
     }));
     this.unsubscribes.push(this.deps.eventBus.subscribe("live.tick", () => {
       void this.handleTick().catch(error => console.error("[LiveEngagement] tick failed:", error));

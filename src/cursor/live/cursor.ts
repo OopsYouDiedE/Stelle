@@ -70,11 +70,11 @@ export class LiveDanmakuCursor implements StelleCursor {
       void this.receiveTopicRequest(event).catch(e => console.error("[LiveCursor] Legacy live request error:", e));
     }));
 
-    this.unsubscribes.push(this.context.eventBus.subscribe("live.danmaku.received", (event) => {
+    this.unsubscribes.push(this.context.eventBus.subscribe("live.event.danmaku", (event) => {
       void this.receiveLiveEvent(event.payload).catch(e => console.error("[LiveCursor] Live event error:", e));
     }));
 
-    this.unsubscribes.push(this.context.eventBus.subscribe("live.event.received", (event) => {
+    this.unsubscribes.push(this.context.eventBus.subscribe("live.danmaku.received", (event) => {
       void this.receiveLiveEvent(event.payload).catch(e => console.error("[LiveCursor] Legacy live event error:", e));
     }));
 

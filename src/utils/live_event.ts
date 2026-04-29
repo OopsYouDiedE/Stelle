@@ -25,6 +25,8 @@ export type LiveEventPriority = "low" | "medium" | "high";
 
 export interface NormalizedLiveEvent {
   id: string;
+  platformEventId?: string;
+  fingerprint?: string;
   source: LiveEventSource;
   kind: LiveEventKind;
   priority: LiveEventPriority;
@@ -103,6 +105,8 @@ export function normalizeLiveEvent(input: Record<string, unknown>): NormalizedLi
 
   return {
     id: String(input.id ?? rawRecord.id ?? `live-event-${Date.now()}-${Math.random().toString(36).slice(2)}`),
+    platformEventId: stringOrUndefined(input.platformEventId ?? normalized.platformEventId),
+    fingerprint: stringOrUndefined(input.fingerprint ?? normalized.fingerprint),
     source: enumValue(input.source, ["bilibili", "twitch", "youtube", "tiktok", "fixture", "debug"] as const, "debug"),
     kind,
     priority: normalizePriority(input.priority, trustedPayment, kind),

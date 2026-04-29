@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { normalizeBilibiliCommand } from "../../src/live/platforms/bilibili.js";
+import { LivePlatformManager } from "../../src/live/platforms/manager.js";
 import { normalizeTikTokPayload } from "../../src/live/platforms/tiktok.js";
 import { normalizeTwitchIrcLine } from "../../src/live/platforms/twitch.js";
 import { normalizeYoutubeMessage } from "../../src/live/platforms/youtube.js";
+import { StelleEventBus } from "../../src/utils/event_bus.js";
+import type { NormalizedLiveEvent } from "../../src/utils/live_event.js";
 
 describe("live platform normalization", () => {
   it("normalizes Twitch IRC PRIVMSG tags", () => {
@@ -83,5 +86,57 @@ describe("live platform normalization", () => {
       user: { id: "u1", name: "Mina" },
     });
   });
+
+  it("publishes typed live events and keeps legacy danmaku compatibility", () => {
+    const eventBus = new StelleEventBus();
+    const manager = new LivePlatformManager(disabledConfig(), eventBus);
+
+    (manager as any).publish(event("gift-1", "gift"));
+    (manager as any).publish(event("danmaku-1", "danmaku"));
+
+    const types = eventBus.getHistory().map(event => event.type);
+    expect(types).toContain("live.event.received");
+    expect(types).toContain("live.event.gift");
+    expect(types).toContain("live.event.danmaku");
+    expect(types.filter(type => type === "live.danmaku.received")).toHaveLength(1);
+  });
+
+  it("drops duplicate live events by fingerprint", () => {
+    const eventBus = new StelleEventBus();
+    const manager = new LivePlatformManager(disabledConfig(), eventBus);
+    const duplicate = event("same-platform-id", "danmaku");
+
+    (manager as any).publish(duplicate);
+    (manager as any).publish({ ...duplicate });
+
+    const types = eventBus.getHistory().map(event => event.type);
+    expect(types.filter(type => type === "live.event.danmaku")).toHaveLength(1);
+    expect(types).toContain("live.ingress.dropped");
+  });
 });
 
+function event(id: string, kind: NormalizedLiveEvent["kind"]): NormalizedLiveEvent {
+  return {
+    id,
+    source: "twitch",
+    kind,
+    priority: kind === "gift" ? "medium" : "low",
+    receivedAt: 1_700_000_000_000,
+    roomId: "room-1",
+    user: { id: "user-1", name: "Alice" },
+    text: kind,
+  };
+}
+
+function disabledConfig(): any {
+  return {
+    live: {
+      platforms: {
+        bilibili: { enabled: false },
+        twitch: { enabled: false },
+        youtube: { enabled: false },
+        tiktok: { enabled: false },
+      },
+    },
+  };
+}
