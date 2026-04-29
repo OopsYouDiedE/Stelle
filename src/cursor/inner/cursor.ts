@@ -11,7 +11,7 @@ import { DefaultSelfModel } from "./self_model.js";
 import { DefaultInnerObserver } from "./observer.js";
 import { DefaultPressureValve } from "./pressure.js";
 import { DefaultDirectivePlanner } from "./directive_planner.js";
-import type { CognitiveSignal, SelfModelSnapshot, FieldNote, CursorDirectiveEnvelope } from "./types.js";
+import type { CognitiveSignal, SelfModelSnapshot, FieldNote, CursorDirectiveEnvelope, ResearchAgendaUpdate } from "./types.js";
 
 export interface RuntimeDecision {
   id: string;
@@ -281,6 +281,9 @@ export class InnerCursor implements StelleCursor {
     }
   }
 
+  /**
+   * Orchestrates the cognitive synthesis process by decomposing it into distinct phases.
+   */
   async triggerCognitiveSynthesis(): Promise<void> {
     if (this.isReflecting || !this.context.config.models.apiKey) return;
     this.isReflecting = true;
@@ -291,202 +294,241 @@ export class InnerCursor implements StelleCursor {
       if (decisionsToReflect.length === 0) return;
 
       const now = this.context.now();
-      this.unreflectedCount = 0;
-      this.pendingImpactScore = 0;
-      this.lastReflectionAt = now;
-      this.pressure.reset("quick");
+      const signalCount = Math.max(20, decisionsToReflect.length);
+      this.resetPressureState(now);
 
-      // Update Research Agenda
-      const signals: CognitiveSignal[] = await this.observer.collectRecentSignals(Math.max(20, this.unreflectedCount || decisionsToReflect.length));
+      const signals: CognitiveSignal[] = await this.observer.collectRecentSignals(signalCount);
 
-      const agendaUpdate = await this.agenda.update(signals, this.getSelfSnapshot(), now);
+      // Phase 1: Update Research Agenda
+      const agendaUpdate = await this.updateResearchAgenda(signals, now);
 
-      if (this.context.memory) {
-        for (const topic of agendaUpdate.addedTopics) {
-          await this.context.memory.appendResearchLog({
-            focus: topic.title,
-            process: [
-              `Topic created: ${topic.title}`,
-              ...topic.evidence.map(e => `Evidence [${e.source}]: ${e.excerpt}`)
-            ],
-            conclusion: `New research agenda item: ${topic.id}`
-          }).catch(() => {});
-        }
-        for (const topic of agendaUpdate.updatedTopics) {
-          await this.context.memory.appendResearchLog({
-            focus: topic.title,
-            process: [
-              `Topic updated: ${topic.title}`,
-              ...topic.evidence.slice(-3).map(e => `Recent Evidence [${e.source}]: ${e.excerpt}`)
-            ],
-            conclusion: `Updated research topic: ${topic.id} (Confidence: ${topic.confidence.toFixed(2)})`
-          }).catch(() => {});
-        }
-        for (const topic of agendaUpdate.closedTopics) {
-          await this.context.memory.appendResearchLog({
-            focus: topic.title,
-            process: [`Topic closed: ${topic.title}`],
-            conclusion: `Closed research topic: ${topic.id}`,
-          }).catch(() => {});
-        }
+      // Phase 2: Update Self Model
+      await this.updateSelfModel(signals, agendaUpdate);
 
-        // Persist active agenda
-        await this.context.tools.execute("memory.write_long_term",
-          { key: "research_agenda", value: JSON.stringify(this.agenda.activeTopics()), layer: "self_state" },
-          { caller: "core", cwd: process.cwd(), allowedAuthority: ["safe_write"], allowedTools: ["memory.write_long_term"] }
-        ).catch(() => {});
-      }
+      // Phase 3: Field Sampling
+      await this.performFieldSampling(signals);
 
-      const selfUpdate = await this.selfModel.update({ signals, researchUpdates: agendaUpdate });
-      this.applySelfModelSnapshot(selfUpdate.snapshot);
+      // Phase 4: Plan Directives
+      this.planDirectives(now);
 
-      if (this.context.memory && selfUpdate.changes.length > 0) {
-        await this.context.tools.execute("memory.write_long_term",
-          { key: "self_model", value: JSON.stringify(selfUpdate.snapshot), layer: "self_state" },
-          { caller: "core", cwd: process.cwd(), allowedAuthority: ["safe_write"], allowedTools: ["memory.write_long_term"] }
-        ).catch(() => {});
-        await this.context.tools.execute("memory.write_long_term",
-          { key: "current_focus", value: this.currentFocus, layer: "self_state" },
-          { caller: "core", cwd: process.cwd(), allowedAuthority: ["safe_write"], allowedTools: ["memory.write_long_term"] }
-        ).catch(() => {});
+      // Phase 5: Global Synthesis (LLM)
+      await this.generateGlobalSynthesis(decisionsToReflect, now);
+
+    } catch (e) {
+      console.error("[InnerCursor] Synthesis failed:", e);
+    } finally {
+      this.isReflecting = false;
+      this.status = "idle";
+    }
+  }
+
+  private resetPressureState(now: number): void {
+    this.unreflectedCount = 0;
+    this.pendingImpactScore = 0;
+    this.lastReflectionAt = now;
+    this.pressure.reset("quick");
+  }
+
+  private async updateResearchAgenda(signals: CognitiveSignal[], now: number): Promise<ResearchAgendaUpdate> {
+    const agendaUpdate = await this.agenda.update(signals, this.getSelfSnapshot(), now);
+
+    if (this.context.memory) {
+      for (const topic of agendaUpdate.addedTopics) {
         await this.context.memory.appendResearchLog({
-          focus: this.currentFocus,
-          process: selfUpdate.changes.slice(0, 6),
-          conclusion: `Self model updated: mood=${selfUpdate.snapshot.mood}`,
+          focus: topic.title,
+          process: [
+            `Topic created: ${topic.title}`,
+            ...topic.evidence.map(e => `Evidence [${e.source}]: ${e.excerpt}`)
+          ],
+          conclusion: `New research agenda item: ${topic.id}`
+        }).catch(() => {});
+      }
+      for (const topic of agendaUpdate.updatedTopics) {
+        await this.context.memory.appendResearchLog({
+          focus: topic.title,
+          process: [
+            `Topic updated: ${topic.title}`,
+            ...topic.evidence.slice(-3).map(e => `Recent Evidence [${e.source}]: ${e.excerpt}`)
+          ],
+          conclusion: `Updated research topic: ${topic.id} (Confidence: ${topic.confidence.toFixed(2)})`
+        }).catch(() => {});
+      }
+      for (const topic of agendaUpdate.closedTopics) {
+        await this.context.memory.appendResearchLog({
+          focus: topic.title,
+          process: [`Topic closed: ${topic.title}`],
+          conclusion: `Closed research topic: ${topic.id}`,
         }).catch(() => {});
       }
 
-      // Phase 3: Field Sampling
-      const samplingResult = await this.fieldSampler.sample({
-        activeTopics: this.agenda.activeTopics(),
-        recentSignals: signals,
-        selfModel: this.getSelfSnapshot()
-      });
-      this.recentFieldNotes = samplingResult.notes;
-      this.recommendedLiveFocus = samplingResult.recommendedFocus;
+      // Persist active agenda
+      await this.context.tools.execute("memory.write_long_term",
+        { key: "research_agenda", value: JSON.stringify(this.agenda.activeTopics()), layer: "self_state" },
+        { caller: "core", cwd: process.cwd(), allowedAuthority: ["safe_write"], allowedTools: ["memory.write_long_term"] }
+      ).catch(() => {});
+    }
+    return agendaUpdate;
+  }
 
-      if (this.context.memory) {
-        await this.context.tools.execute("memory.write_long_term",
-          { key: "field_notes", value: JSON.stringify(this.recentFieldNotes), layer: "self_state" },
-          { caller: "core", cwd: process.cwd(), allowedAuthority: ["safe_write"], allowedTools: ["memory.write_long_term"] }
-        ).catch(() => {});
+  private async updateSelfModel(signals: CognitiveSignal[], agendaUpdate: ResearchAgendaUpdate): Promise<void> {
+    const selfUpdate = await this.selfModel.update({ signals, researchUpdates: agendaUpdate });
+    this.applySelfModelSnapshot(selfUpdate.snapshot);
 
-        if (this.recentFieldNotes.length > 0) {
-          await this.context.memory.appendResearchLog({
-            focus: "Field Sampling",
-            process: [
-              `Sampled ${this.recentFieldNotes.length} field notes.`,
-              `Recommended focus: ${this.recommendedLiveFocus || "none"}`
-            ],
-            conclusion: `Field sampling complete. Recent vibes: ${this.recentFieldNotes.map(n => n.vibe).slice(0, 3).join(", ")}`
-          }).catch(() => {});
-        }
+    if (this.context.memory && selfUpdate.changes.length > 0) {
+      await this.context.tools.execute("memory.write_long_term",
+        { key: "self_model", value: JSON.stringify(selfUpdate.snapshot), layer: "self_state" },
+        { caller: "core", cwd: process.cwd(), allowedAuthority: ["safe_write"], allowedTools: ["memory.write_long_term"] }
+      ).catch(() => {});
+      await this.context.tools.execute("memory.write_long_term",
+        { key: "current_focus", value: this.currentFocus, layer: "self_state" },
+        { caller: "core", cwd: process.cwd(), allowedAuthority: ["safe_write"], allowedTools: ["memory.write_long_term"] }
+      ).catch(() => {});
+      await this.context.memory.appendResearchLog({
+        focus: this.currentFocus,
+        process: selfUpdate.changes.slice(0, 6),
+        conclusion: `Self model updated: mood=${selfUpdate.snapshot.mood}`,
+      }).catch(() => {});
+    }
+  }
+
+  private async performFieldSampling(signals: CognitiveSignal[]): Promise<void> {
+    const samplingResult = await this.fieldSampler.sample({
+      activeTopics: this.agenda.activeTopics(),
+      recentSignals: signals,
+      selfModel: this.getSelfSnapshot()
+    });
+    this.recentFieldNotes = samplingResult.notes;
+    this.recommendedLiveFocus = samplingResult.recommendedFocus;
+
+    if (this.context.memory) {
+      await this.context.tools.execute("memory.write_long_term",
+        { key: "field_notes", value: JSON.stringify(this.recentFieldNotes), layer: "self_state" },
+        { caller: "core", cwd: process.cwd(), allowedAuthority: ["safe_write"], allowedTools: ["memory.write_long_term"] }
+      ).catch(() => {});
+
+      if (this.recentFieldNotes.length > 0) {
+        await this.context.memory.appendResearchLog({
+          focus: "Field Sampling",
+          process: [
+            `Sampled ${this.recentFieldNotes.length} field notes.`,
+            `Recommended focus: ${this.recommendedLiveFocus || "none"}`
+          ],
+          conclusion: `Field sampling complete. Recent vibes: ${this.recentFieldNotes.map(n => n.vibe).slice(0, 3).join(", ")}`
+        }).catch(() => {});
       }
+    }
+  }
 
-      this.applyDirectiveEnvelopes(this.directivePlanner.plan({
-        activeTopics: this.agenda.activeTopics(),
-        fieldNotes: this.recentFieldNotes,
-        selfModel: this.getSelfSnapshot(),
-        now,
-      }), now);
+  private planDirectives(now: number): void {
+    const envelopes = this.directivePlanner.plan({
+      activeTopics: this.agenda.activeTopics(),
+      fieldNotes: this.recentFieldNotes,
+      selfModel: this.getSelfSnapshot(),
+      now,
+    });
+    this.applyDirectiveEnvelopes(envelopes, now);
+  }
 
-      // 注入结构化决策日志
-      const decisionLog = decisionsToReflect.map(d => `[${d.source}] ${d.type}: ${d.summary}`).join("\n");
+  private constructCognitiveSynthesisPrompt(decisionLog: string, rawBackground: string): string {
+    return [
+      "You are the 'Inner Mind'. Review recent actions and synthesize a cognitive policy.",
+      "Your goal is to guide the interaction cursors (Discord/Live) using structural bias and specific instructions.",
+      `RECENT RAW OBSERVATIONS:\n${rawBackground || "(None)"}`,
+      `RECENT STRUCTURED DECISIONS:\n${decisionLog}`,
+      'Schema: {"insight":"...","globalMood":"...","newConviction":{"topic":"...","stance":"..."},"directives":[{"target":"discord_text_channel|live_danmaku|browser|desktop_input|android_device|global","policy":{"replyBias":"aggressive|normal|selective|silent","vibeIntensity":1-5,"focusTopic":"...","instruction":"..."},"lifespanMinutes":30}]}',
+    ].join("\n\n");
+  }
 
-      // 注入原始背景片段 (从所有作用域读取最近记忆)
-      let rawBackground = "";
-      if (this.context.memory) {
-        const discordRecent = await this.context.memory.readRecent({ kind: "discord_global" }, 15).catch(() => []);
-        const liveRecent = await this.context.memory.readRecent({ kind: "live" }, 10).catch(() => []);
-        rawBackground = [...discordRecent, ...liveRecent]
-          .sort((a, b) => a.timestamp - b.timestamp)
-          .map(e => `[Raw:${e.source}] ${e.text}`).join("\n");
-      }
+  private async generateGlobalSynthesis(decisionsToReflect: RuntimeDecision[], now: number): Promise<void> {
+    const decisionLog = decisionsToReflect.map(d => `[${d.source}] ${d.type}: ${d.summary}`).join("\n");
 
-      const prompt = [
-        "You are the 'Inner Mind'. Review recent actions and synthesize a cognitive policy.",
-        "Your goal is to guide the interaction cursors (Discord/Live) using structural bias and specific instructions.",
-        `RECENT RAW OBSERVATIONS:\n${rawBackground || "(None)"}`,
-        `RECENT STRUCTURED DECISIONS:\n${decisionLog}`,
-        'Schema: {"insight":"...","globalMood":"...","newConviction":{"topic":"...","stance":"..."},"directives":[{"target":"discord_text_channel|live_danmaku|browser|desktop_input|android_device|global","policy":{"replyBias":"aggressive|normal|selective|silent","vibeIntensity":1-5,"focusTopic":"...","instruction":"..."},"lifespanMinutes":30}]}',
-      ].join("\n\n");
+    let rawBackground = "";
+    if (this.context.memory) {
+      const discordRecent = await this.context.memory.readRecent({ kind: "discord_global" }, 15).catch(() => []);
+      const liveRecent = await this.context.memory.readRecent({ kind: "live" }, 10).catch(() => []);
+      rawBackground = [...discordRecent, ...liveRecent]
+        .sort((a, b) => a.timestamp - b.timestamp)
+        .map(e => `[Raw:${e.source}] ${e.text}`).join("\n");
+    }
 
-      const result = await this.context.llm.generateJson(
-        prompt,
-        "cognitive_synthesis",
-        (raw: any) => {
-          const v = asRecord(raw);
-          return {
-            insight: String(v.insight || "Processing."),
-            globalMood: String(v.globalMood || this.currentGlobalMood),
-            newConviction: v.newConviction ? { topic: String(asRecord(v.newConviction).topic), stance: String(asRecord(v.newConviction).stance) } : undefined,
-            directives: Array.isArray(v.directives) ? v.directives.map((d: any) => {
-              const rec = asRecord(d);
-              const pol = asRecord(rec.policy);
-              let target = String(rec.target || "global");
-              if (target === "all") target = "global";
-              if (target === "discord") target = "discord_text_channel";
-              if (target === "live") target = "live_danmaku";
-              return {
-                target: target as CursorDirective["target"],
-                policy: {
-                  replyBias: pol.replyBias ? enumValue(pol.replyBias, ["aggressive", "normal", "selective", "silent"] as const, "normal") : undefined,
-                  vibeIntensity: typeof pol.vibeIntensity === "number" ? pol.vibeIntensity : undefined,
-                  focusTopic: pol.focusTopic ? String(pol.focusTopic) : undefined,
-                  instruction: pol.instruction ? String(pol.instruction) : undefined,
-                },
-                lifespanMinutes: Number(rec.lifespanMinutes || 30)
-              };
-            }) : []
-          };
+    const prompt = this.constructCognitiveSynthesisPrompt(decisionLog, rawBackground);
+
+    const result = await this.context.llm.generateJson(
+      prompt,
+      "cognitive_synthesis",
+      (raw: any) => {
+        const v = asRecord(raw);
+        return {
+          insight: String(v.insight || "Processing."),
+          globalMood: String(v.globalMood || this.currentGlobalMood),
+          newConviction: v.newConviction ? { topic: String(asRecord(v.newConviction).topic), stance: String(asRecord(v.newConviction).stance) } : undefined,
+          directives: Array.isArray(v.directives) ? v.directives.map((d: any) => {
+            const rec = asRecord(d);
+            const pol = asRecord(rec.policy);
+            let target = String(rec.target || "global");
+            if (target === "all") target = "global";
+            if (target === "discord") target = "discord_text_channel";
+            if (target === "live") target = "live_danmaku";
+            return {
+              target: target as CursorDirective["target"],
+              policy: {
+                replyBias: pol.replyBias ? enumValue(pol.replyBias, ["aggressive", "normal", "selective", "silent"] as const, "normal") : undefined,
+                vibeIntensity: typeof pol.vibeIntensity === "number" ? pol.vibeIntensity : undefined,
+                focusTopic: pol.focusTopic ? String(pol.focusTopic) : undefined,
+                instruction: pol.instruction ? String(pol.instruction) : undefined,
+              },
+              lifespanMinutes: Number(rec.lifespanMinutes || 30)
+            };
+          }) : []
+        };
+      },
+      {
+        role: "primary",
+        temperature: 0.35,
+        maxOutputTokens: 600,
+        safeDefault: {
+          insight: "Processing.",
+          globalMood: this.currentGlobalMood,
+          directives: [],
         },
-        {
-          role: "primary",
-          temperature: 0.35,
-          maxOutputTokens: 600,
-          safeDefault: {
-            insight: "Processing.",
-            globalMood: this.currentGlobalMood,
-            directives: [],
-          },
-        }
-      );
+      }
+    );
 
-      this.currentGlobalMood = result.globalMood;
-      this.addReflection(result.insight);
+    this.currentGlobalMood = result.globalMood;
+    this.addReflection(result.insight);
 
-      if (result.newConviction && result.newConviction.topic && result.newConviction.stance) {
-        this.coreConvictions.push(result.newConviction);
-        if (this.coreConvictions.length > 20) this.coreConvictions.shift(); 
-        this.selfModel.hydrate({
-          activeConvictions: this.coreConvictions.map(c => ({ topic: c.topic, stance: c.stance, confidence: 1 })),
-        });
+    if (result.newConviction && result.newConviction.topic && result.newConviction.stance) {
+      this.coreConvictions.push(result.newConviction);
+      if (this.coreConvictions.length > 20) this.coreConvictions.shift(); 
+      this.selfModel.hydrate({
+        activeConvictions: this.coreConvictions.map(c => ({ topic: c.topic, stance: c.stance, confidence: 1 })),
+      });
+      if (this.context.memory) {
         await this.context.tools.execute("memory.write_long_term", 
           { key: "core_convictions", value: JSON.stringify(this.coreConvictions), layer: "self_state" },
           { caller: "core", cwd: process.cwd(), allowedAuthority: ["safe_write"], allowedTools: ["memory.write_long_term"] }
         ).catch(() => {});
       }
+    }
 
-      for (const d of result.directives) {
-        const instruction = d.policy.instruction || "";
-        if (!instruction && !d.policy.replyBias && !d.policy.vibeIntensity) continue; // 无效指令跳过
-        
-        this.applyDirectiveEnvelopes([{
-          target: d.target,
-          action: "apply_policy",
-          policy: d.policy,
-          expiresAt: now + (d.lifespanMinutes * 60 * 1000),
-          priority: 2,
-        }], now);
-      }
+    for (const d of result.directives) {
+      const instruction = d.policy.instruction || "";
+      if (!instruction && !d.policy.replyBias && !d.policy.vibeIntensity) continue; 
+      
+      this.applyDirectiveEnvelopes([{
+        target: d.target,
+        action: "apply_policy",
+        policy: d.policy,
+        expiresAt: now + (d.lifespanMinutes * 60 * 1000),
+        priority: 2,
+      }], now);
+    }
 
+    if (this.context.memory) {
       await this.context.tools.execute("memory.write_long_term", 
         { key: "global_subconscious", value: this.buildContextBlock(), layer: "self_state" },
         { caller: "core", cwd: process.cwd(), allowedAuthority: ["safe_write"], allowedTools: ["memory.write_long_term"] }
       ).catch(() => {});
-    } finally {
-      this.isReflecting = false;
-      this.status = "idle";
     }
   }
 

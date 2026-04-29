@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { StelleApplication } from "../../src/core/application.js";
+import { DiscordRuntime } from "../../src/utils/discord.js";
 
 // Mock entire modules that start servers or have side effects
 vi.mock("../../src/utils/renderer.js", () => ({
@@ -15,13 +16,17 @@ vi.mock("../../src/utils/renderer.js", () => ({
 
 describe("StelleApplication Isolation", () => {
   it("should initialize and stop cursors correctly without global side effects", async () => {
+    // Spy on prototype to handle instances created inside constructor
+    vi.spyOn(DiscordRuntime.prototype, "login").mockResolvedValue(undefined);
+    vi.spyOn(DiscordRuntime.prototype, "setBotPresence").mockResolvedValue(undefined);
+    vi.spyOn(DiscordRuntime.prototype, "getStatus").mockResolvedValue({ connected: true });
+
     // Start Application 1
     const app1 = new StelleApplication("runtime");
     (app1 as any).config.discord.token = "test-token";
     (app1 as any).config.models.apiKey = "test-key";
     
     vi.spyOn(app1.memory, "start").mockResolvedValue(undefined);
-    vi.spyOn(app1.discord, "login").mockResolvedValue(undefined);
 
     await app1.start();
     const eventBus1 = app1.eventBus;

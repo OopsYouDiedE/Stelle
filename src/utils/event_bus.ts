@@ -23,12 +23,12 @@ export class StelleEventBus {
    * 发布一个事件 (带元数据注入和校验)
    */
   public publish(
-    input: { type: StelleEventType; source: string; [key: string]: any }
+    input: { type: StelleEventType; source: string } & Record<string, unknown>
   ): void {
     const eventData = {
       ...input,
-      id: input.id || `evt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      timestamp: input.timestamp || Date.now(),
+      id: (input.id as string) || `evt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      timestamp: (input.timestamp as number) || Date.now(),
     };
 
     // 运行时强校验
@@ -56,11 +56,12 @@ export class StelleEventBus {
    */
   public subscribe<T extends StelleEventType>(
     type: T | "*",
-    listener: (event: Extract<StelleEvent, { type: T }>) => void
+    listener: (event: T extends StelleEventType ? Extract<StelleEvent, { type: T }> : StelleEvent) => void
   ): () => void {
-    this.emitter.on(type, listener as any);
+    const wrapper = (event: StelleEvent) => listener(event as any);
+    this.emitter.on(type, wrapper);
     return () => {
-      this.emitter.off(type, listener as any);
+      this.emitter.off(type, wrapper);
     };
   }
 
