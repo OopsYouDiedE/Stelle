@@ -14,6 +14,8 @@ import { StageOutputArbiter } from "../stage/output_arbiter.js";
 import { DeviceActionArbiter } from "../device/action_arbiter.js";
 import { StelleContainer, type RuntimeServices } from "./container.js";
 import { LlmClient } from "../utils/llm.js";
+import { LivePlatformManager } from "../live/platforms/manager.js";
+import { LiveEngagementService } from "../live/engagement_service.js";
 
 export type StartMode = "runtime" | "discord" | "live";
 
@@ -22,6 +24,8 @@ export class StelleApplication {
   public readonly scheduler: StelleScheduler;
   public renderer?: LiveRendererServer;
   public cursors: StelleCursor[] = [];
+  private livePlatforms?: LivePlatformManager;
+  private liveEngagement?: LiveEngagementService;
 
   constructor(private readonly mode: StartMode) {
     const config = loadRuntimeConfig();
@@ -59,6 +63,7 @@ export class StelleApplication {
     await this.setupCursors();
     this.setupEventRouting();
     this.setupDebugController();
+    await this.setupLiveServices();
 
     if (this.mode !== "live" && this.config.discord.token) {
       await this.connectDiscord();
@@ -113,9 +118,11 @@ export class StelleApplication {
     this.scheduler.stop();
     await Promise.allSettled([
       ...this.cursors.map(c => c.stop?.()),
+      this.livePlatforms?.stop(),
       this.discord.destroy(),
       this.renderer?.stop(),
     ]);
+    this.liveEngagement?.stop();
     this.state.updateDiscord({ connected: false });
     this.state.updateRenderer({ connected: false });
     this.state.record("runtime_stopped", "Runtime stopped.");
@@ -165,6 +172,25 @@ export class StelleApplication {
       proposeSystemLiveOutput: (source, input) => this.proposeSystemLiveOutput(source, input),
       now: () => Date.now(),
     });
+  }
+
+  private async setupLiveServices(): Promise<void> {
+    if (this.mode !== "runtime" && this.mode !== "live") return;
+
+    this.liveEngagement = new LiveEngagementService({
+      config: this.config,
+      eventBus: this.eventBus,
+      stageOutput: this.stageOutput,
+      now: () => Date.now(),
+    });
+    this.liveEngagement.start();
+
+    this.livePlatforms = new LivePlatformManager(this.config, this.eventBus);
+    await this.livePlatforms.start();
+    const enabled = this.livePlatforms.status().filter(status => status.enabled).map(status => `${status.platform}:${status.connected ? "connected" : status.lastError ?? "idle"}`);
+    if (enabled.length) {
+      console.log(`[Stelle] Live platform bridges: ${enabled.join(", ")}`);
+    }
   }
 
   private async proposeSystemLiveOutput(source: "debug" | "system", input: Record<string, unknown>) {

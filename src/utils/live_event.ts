@@ -19,8 +19,8 @@
 import { asRecord, enumValue } from "./json.js";
 import { sanitizeExternalText, truncateText } from "./text.js";
 
-export type LiveEventSource = "bilibili" | "fixture" | "debug";
-export type LiveEventKind = "danmaku" | "super_chat" | "gift" | "guard" | "like" | "system" | "unknown";
+export type LiveEventSource = "bilibili" | "twitch" | "youtube" | "tiktok" | "fixture" | "debug";
+export type LiveEventKind = "danmaku" | "super_chat" | "gift" | "guard" | "entrance" | "follow" | "like" | "system" | "unknown";
 export type LiveEventPriority = "low" | "medium" | "high";
 
 export interface NormalizedLiveEvent {
@@ -88,9 +88,13 @@ export function normalizeLiveEvent(input: Record<string, unknown>): NormalizedLi
     String(
       input.text ??
         normalized.text ??
+        normalized.comment ??
         extractBilibiliDanmakuText(rawRecord) ??
         extractBilibiliDataText(rawRecord) ??
+        extractYoutubeText(rawRecord) ??
+        extractTikTokText(rawRecord) ??
         rawRecord.text ??
+        rawRecord.comment ??
         rawRecord.message ??
         ""
     )
@@ -99,7 +103,7 @@ export function normalizeLiveEvent(input: Record<string, unknown>): NormalizedLi
 
   return {
     id: String(input.id ?? rawRecord.id ?? `live-event-${Date.now()}-${Math.random().toString(36).slice(2)}`),
-    source: enumValue(input.source, ["bilibili", "fixture", "debug"] as const, "debug"),
+    source: enumValue(input.source, ["bilibili", "twitch", "youtube", "tiktok", "fixture", "debug"] as const, "debug"),
     kind,
     priority: normalizePriority(input.priority, trustedPayment, kind),
     receivedAt: Number(input.receivedAt ?? rawRecord.receivedAt ?? Date.now()),
@@ -138,10 +142,12 @@ export function formatLiveEventForPrompt(event: NormalizedLiveEvent): string {
 
 function normalizeKind(command: string, explicitKind: unknown): LiveEventKind {
   const value = String(explicitKind ?? command).toUpperCase();
+  if (value.includes("ENTRANCE") || value.includes("JOIN") || value.includes("INTERACT_WORD") || value.includes("MEMBER")) return "entrance";
+  if (value.includes("FOLLOW")) return "follow";
   if (value.includes("DANMU")) return "danmaku";
   if (value.includes("SUPER_CHAT") || value.includes("SUPERCHAT")) return "super_chat";
   if (value.includes("SEND_GIFT") || value.includes("GIFT")) return "gift";
-  if (value.includes("GUARD") || value.includes("舰长")) return "guard";
+  if (value.includes("GUARD") || value.includes("SPONSOR") || value.includes("SUB") || value.includes("MEMBERSHIP") || value.includes("舰长")) return "guard";
   if (value.includes("LIKE")) return "like";
   if (value.includes("SYSTEM")) return "system";
   return "unknown";
@@ -150,26 +156,34 @@ function normalizeKind(command: string, explicitKind: unknown): LiveEventKind {
 function normalizePriority(rawPriority: unknown, trustedPayment: NormalizedLiveEvent["trustedPayment"], kind: LiveEventKind): LiveEventPriority {
   if (trustedPayment?.rawType === "super_chat" || trustedPayment?.rawType === "guard") return "high";
   if (trustedPayment?.rawType === "gift") return "medium";
+  if (kind === "entrance" || kind === "follow" || kind === "like") return "low";
   if (kind === "system") return "medium";
   return enumValue(rawPriority, ["low", "medium", "high"] as const, "low");
 }
 
 function trustedPaymentFromRaw(kind: LiveEventKind, raw: Record<string, unknown>, input: Record<string, unknown>): NormalizedLiveEvent["trustedPayment"] {
   if (kind !== "super_chat" && kind !== "gift" && kind !== "guard") return undefined;
-  const data = asRecord(raw.data ?? input.data);
+  const data = asRecord(raw.data ?? input.data ?? raw.gift ?? raw.snippet);
+  const snippet = asRecord(raw.snippet);
+  const superChat = asRecord(snippet.superChatDetails);
+  const superSticker = asRecord(snippet.superStickerDetails);
   return {
     rawType: kind === "super_chat" ? "super_chat" : kind === "guard" ? "guard" : "gift",
-    amount: numberOrUndefined(data.price ?? data.amount ?? input.amount),
-    currency: stringOrUndefined(data.currency ?? "CNY"),
-    giftName: stringOrUndefined(data.giftName ?? data.gift_name ?? input.giftName),
+    amount: numberOrUndefined(data.price ?? data.amount ?? data.amountMicros ?? superChat.amountMicros ?? superSticker.amountMicros ?? input.amount),
+    currency: stringOrUndefined(data.currency ?? superChat.currency ?? superSticker.currency ?? input.currency ?? "CNY"),
+    giftName: stringOrUndefined(data.giftName ?? data.gift_name ?? data.name ?? input.giftName),
   };
 }
 
 function normalizeUser(input: Record<string, unknown>, normalized: Record<string, unknown>, raw: Record<string, unknown>): NormalizedLiveEvent["user"] | undefined {
   const info = raw.info;
   const bilibiliUser = Array.isArray(info) ? info[2] : undefined;
-  const id = input.userId ?? normalized.userId ?? raw.uid ?? (Array.isArray(bilibiliUser) ? bilibiliUser[0] : undefined);
-  const name = input.userName ?? normalized.userName ?? raw.uname ?? (Array.isArray(bilibiliUser) ? bilibiliUser[1] : undefined);
+  const author = asRecord(raw.authorDetails);
+  const user = asRecord(raw.user);
+  const data = asRecord(raw.data);
+  const userInfo = asRecord(data.user_info);
+  const id = input.userId ?? normalized.userId ?? raw.uid ?? data.uid ?? author.channelId ?? user.uniqueId ?? user.id ?? (Array.isArray(bilibiliUser) ? bilibiliUser[0] : undefined);
+  const name = input.userName ?? normalized.userName ?? raw.uname ?? data.uname ?? userInfo.uname ?? author.displayName ?? user.nickname ?? user.uniqueId ?? (Array.isArray(bilibiliUser) ? bilibiliUser[1] : undefined);
   if (id === undefined && name === undefined) return undefined;
   return { id: stringOrUndefined(id), name: stringOrUndefined(name) };
 }
@@ -181,7 +195,17 @@ function extractBilibiliDanmakuText(raw: Record<string, unknown>): string | unde
 
 function extractBilibiliDataText(raw: Record<string, unknown>): string | undefined {
   const data = asRecord(raw.data);
-  return stringOrUndefined(data.message ?? data.giftName ?? data.gift_name);
+  return stringOrUndefined(data.message ?? data.giftName ?? data.gift_name ?? data.uname);
+}
+
+function extractYoutubeText(raw: Record<string, unknown>): string | undefined {
+  const snippet = asRecord(raw.snippet);
+  return stringOrUndefined(snippet.displayMessage ?? asRecord(snippet.textMessageDetails).messageText);
+}
+
+function extractTikTokText(raw: Record<string, unknown>): string | undefined {
+  const data = asRecord(raw.data ?? raw);
+  return stringOrUndefined(data.comment ?? data.text ?? data.giftName ?? data.gift_name);
 }
 
 function containsPoliticalContent(text: string): boolean {

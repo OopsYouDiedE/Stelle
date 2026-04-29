@@ -27,6 +27,12 @@ export class LiveGateway {
       return { accepted: true, reason: "noise_filtered" };
     }
 
+    // 礼物、入场、关注等运营型事件由 LiveEngagementService 处理，避免 Cursor 再生成一轮重复台词。
+    if (event.kind === "gift" || event.kind === "guard" || event.kind === "entrance" || event.kind === "follow" || event.kind === "like") {
+      this.publishSystemEvent(event.id, "incoming", `[${event.kind}] ${event.user?.name ?? "观众"} ${event.text}`.trim());
+      return { accepted: true, reason: "engagement_event" };
+    }
+
     this.buffer.push(event);
     this.publishSystemEvent(event.id, "incoming", event.text);
 

@@ -25,6 +25,7 @@ for (const child of children) {
     cwd: rootDir,
     env: process.env,
     stdio: ["inherit", "pipe", "pipe"],
+    shell: child.shell ?? false,
     windowsHide: false,
   });
 
@@ -75,8 +76,7 @@ function createStelleChild(targetMode, options) {
   if (options.watch) {
     return {
       name: "stelle",
-      command: process.execPath,
-      args: [resolveBin("tsx"), "watch", "src/start.ts", targetMode],
+      ...tsxCommand(["watch", "src/start.ts", targetMode]),
       startKokoroAfter: targetMode === "runtime",
     };
   }
@@ -92,8 +92,7 @@ function createStelleChild(targetMode, options) {
 
   return {
     name: "stelle",
-    command: process.execPath,
-    args: [resolveBin("tsx"), "src/start.ts", targetMode],
+    ...tsxCommand(["src/start.ts", targetMode]),
     startKokoroAfter: targetMode === "runtime",
   };
 }
@@ -110,12 +109,10 @@ function createKokoroChild() {
 function createBilibiliChild(options = {}) {
   return {
     name: "bilibili",
-    command: process.execPath,
-    args: [
-      resolveBin("tsx"),
+    ...tsxCommand([
       path.join(rootDir, "scripts", "bilibili_danmaku_bridge.ts"),
       ...(options.dryRun ? ["--dry-run"] : []),
-    ],
+    ]),
     process: undefined,
   };
 }
@@ -127,6 +124,7 @@ function startDeferredChild(child) {
     cwd: rootDir,
     env: process.env,
     stdio: ["inherit", "pipe", "pipe"],
+    shell: child.shell ?? false,
     windowsHide: false,
   });
 
@@ -167,6 +165,16 @@ function prefixStream(name, stream) {
 
 function resolveBin(binName) {
   return path.join(rootDir, "node_modules", ".bin", process.platform === "win32" ? `${binName}.cmd` : binName);
+}
+
+function tsxCommand(args) {
+  return {
+    command: resolveBin("tsx"),
+    args,
+    // Windows npm shims are .cmd files; execute them via the shell instead of
+    // passing the shim to node.exe as if it were JavaScript.
+    shell: process.platform === "win32",
+  };
 }
 
 function normalizeMode(input) {

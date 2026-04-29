@@ -43,7 +43,24 @@ client.on("error", (error) => {
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
 
-await client.start();
+console.log(`[bilibili] starting bridge room=${roomId}${dryRun ? " dry-run" : ""}`);
+await startClientWithRetry();
+
+async function startClientWithRetry(): Promise<void> {
+  let attempt = 0;
+  while (true) {
+    attempt += 1;
+    try {
+      await client.start();
+      return;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`[bilibili] initial connection failed #${attempt}: ${message}`);
+      if (attempt >= 10) throw error;
+      await new Promise(resolve => setTimeout(resolve, Math.min(30_000, attempt * 2_000)));
+    }
+  }
+}
 
 async function forwardCommand(command: BilibiliCommand): Promise<void> {
   const cmd = String(command.cmd ?? "UNKNOWN");

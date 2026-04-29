@@ -14,6 +14,42 @@ cursors:
   live:
     ttsEnabled: true
     speechQueueLimit: 3
+    platforms:
+      bilibili:
+        enabled: false
+        roomId: ""
+      twitch:
+        enabled: false
+        channel: ""
+        trackJoins: false
+      youtube:
+        enabled: false
+        liveChatId: ""
+        videoId: ""
+        forwardHistory: false
+      tiktok:
+        enabled: false
+        provider: websocket
+        username: ""
+        webSocketUrl: ""
+    thanks:
+      enabled: true
+      usernameMaxLen: 12
+      cooldownSeconds: 20
+      giftLowestAmount: 0
+      entranceTemplates: ["欢迎{username}来到直播间"]
+      followTemplates: ["感谢{username}的关注"]
+      giftTemplates: ["感谢{username}送的{gift_name}"]
+      guardTemplates: ["感谢{username}开通的{gift_name}"]
+      superChatTemplates: ["感谢{username}的醒目留言：{comment}"]
+    idle:
+      enabled: false
+      minQuietSeconds: 90
+      cooldownSeconds: 120
+      templates: ["直播间安静下来了，那我来抛个小话题：你们今天有什么想聊的吗？"]
+    schedule:
+      enabled: false
+      items: []
   browser:
     enabled: false
     allowlist:

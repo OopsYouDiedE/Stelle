@@ -36,6 +36,48 @@ export interface LiveConfig {
   ttsEnabled: boolean;
   obsControlEnabled: boolean;
   speechQueueLimit: number;
+  platforms: LivePlatformsConfig;
+  thanks: LiveThanksConfig;
+  idle: LiveIdleConfig;
+  schedule: LiveScheduleConfig;
+}
+
+export interface LivePlatformsConfig {
+  bilibili: { enabled: boolean; roomId?: string };
+  twitch: { enabled: boolean; channel?: string; username?: string; oauthToken?: string; trackJoins?: boolean };
+  youtube: { enabled: boolean; liveChatId?: string; videoId?: string; apiKey?: string; oauthToken?: string; forwardHistory?: boolean };
+  tiktok: { enabled: boolean; username?: string; provider?: "websocket" | "tiktok-live-connector"; webSocketUrl?: string; apiKey?: string };
+}
+
+export interface LiveThanksConfig {
+  enabled: boolean;
+  usernameMaxLen: number;
+  cooldownSeconds: number;
+  giftLowestAmount: number;
+  entranceTemplates: string[];
+  followTemplates: string[];
+  giftTemplates: string[];
+  guardTemplates: string[];
+  superChatTemplates: string[];
+}
+
+export interface LiveIdleConfig {
+  enabled: boolean;
+  minQuietSeconds: number;
+  cooldownSeconds: number;
+  templates: string[];
+}
+
+export interface LiveScheduleItemConfig {
+  id: string;
+  enabled: boolean;
+  intervalSeconds: number;
+  templates: string[];
+}
+
+export interface LiveScheduleConfig {
+  enabled: boolean;
+  items: LiveScheduleItemConfig[];
 }
 
 export interface CoreConfig {
@@ -105,6 +147,7 @@ export function loadRuntimeConfig(): RuntimeConfig {
   // Cursor aliases. Canonical module ids override short aliases when both are present.
   const discordCursor = mergeRecords(asRecord(cursors.discord), asRecord(cursors.discord_text_channel));
   const liveCursor = mergeRecords(asRecord(cursors.live), asRecord(cursors.live_danmaku));
+  const liveRoot = mergeRecords(asRecord(rawYaml.live), liveCursor);
   const browserCursor = asRecord(cursors.browser);
   const desktopInputCursor = asRecord(cursors.desktop_input || cursors.desktopInput);
   const androidCursor = asRecord(cursors.android || cursors.android_device || cursors.androidDevice);
@@ -162,6 +205,10 @@ export function loadRuntimeConfig(): RuntimeConfig {
       ttsEnabled: (liveCursor.ttsEnabled ?? process.env.LIVE_TTS_ENABLED) !== false && process.env.LIVE_TTS_ENABLED !== "false",
       obsControlEnabled: liveCursor.obsControlEnabled === true || process.env.OBS_CONTROL_ENABLED === "true",
       speechQueueLimit: clamp(process.env.LIVE_SPEECH_QUEUE_LIMIT ?? liveCursor.speechQueueLimit, 1, 12, 3),
+      platforms: loadLivePlatformsConfig(liveRoot),
+      thanks: loadLiveThanksConfig(liveRoot),
+      idle: loadLiveIdleConfig(liveRoot),
+      schedule: loadLiveScheduleConfig(liveRoot),
     },
     browser: {
       enabled: browserCursor.enabled === true || process.env.BROWSER_ENABLED === "true",
@@ -204,4 +251,103 @@ export function loadModelConfig() {
 
 function mergeRecords(...records: Record<string, unknown>[]): Record<string, unknown> {
   return Object.assign({}, ...records);
+}
+
+function loadLivePlatformsConfig(liveRoot: Record<string, unknown>): LivePlatformsConfig {
+  const platforms = asRecord(liveRoot.platforms);
+  const bilibili = asRecord(platforms.bilibili);
+  const twitch = asRecord(platforms.twitch);
+  const youtube = asRecord(platforms.youtube);
+  const tiktok = asRecord(platforms.tiktok);
+  return {
+    bilibili: {
+      enabled: bool(process.env.BILIBILI_LIVE_ENABLED, bilibili.enabled === true),
+      roomId: asString(process.env.BILIBILI_ROOM_ID) ?? asString(bilibili.roomId),
+    },
+    twitch: {
+      enabled: bool(process.env.TWITCH_LIVE_ENABLED, twitch.enabled === true),
+      channel: asString(process.env.TWITCH_CHANNEL) ?? asString(twitch.channel),
+      username: asString(process.env.TWITCH_BOT_USERNAME) ?? asString(twitch.username),
+      oauthToken: asString(process.env.TWITCH_OAUTH_TOKEN) ?? asString(twitch.oauthToken),
+      trackJoins: bool(process.env.TWITCH_TRACK_JOINS, twitch.trackJoins === true),
+    },
+    youtube: {
+      enabled: bool(process.env.YOUTUBE_LIVE_ENABLED, youtube.enabled === true),
+      liveChatId: asString(process.env.YOUTUBE_LIVE_CHAT_ID) ?? asString(youtube.liveChatId),
+      videoId: asString(process.env.YOUTUBE_VIDEO_ID) ?? asString(youtube.videoId),
+      apiKey: asString(process.env.YOUTUBE_API_KEY) ?? asString(youtube.apiKey),
+      oauthToken: asString(process.env.YOUTUBE_OAUTH_TOKEN) ?? asString(youtube.oauthToken),
+      forwardHistory: bool(process.env.YOUTUBE_FORWARD_HISTORY, youtube.forwardHistory === true),
+    },
+    tiktok: {
+      enabled: bool(process.env.TIKTOK_LIVE_ENABLED, tiktok.enabled === true),
+      username: asString(process.env.TIKTOK_USERNAME) ?? asString(tiktok.username),
+      provider: parseTikTokProvider(asString(process.env.TIKTOK_PROVIDER) ?? asString(tiktok.provider)),
+      webSocketUrl: asString(process.env.TIKTOK_LIVE_WS_URL) ?? asString(tiktok.webSocketUrl),
+      apiKey: asString(process.env.TIKTOK_API_KEY) ?? asString(tiktok.apiKey),
+    },
+  };
+}
+
+function loadLiveThanksConfig(liveRoot: Record<string, unknown>): LiveThanksConfig {
+  const thanks = asRecord(liveRoot.thanks);
+  return {
+    enabled: bool(process.env.LIVE_THANKS_ENABLED, thanks.enabled !== false),
+    usernameMaxLen: clamp(thanks.usernameMaxLen, 1, 40, 12),
+    cooldownSeconds: clamp(thanks.cooldownSeconds, 0, 3600, 20),
+    giftLowestAmount: clamp(thanks.giftLowestAmount, 0, 1_000_000, 0),
+    entranceTemplates: stringList(thanks.entranceTemplates, ["欢迎{username}来到直播间"]),
+    followTemplates: stringList(thanks.followTemplates, ["感谢{username}的关注"]),
+    giftTemplates: stringList(thanks.giftTemplates, ["感谢{username}送的{gift_name}"]),
+    guardTemplates: stringList(thanks.guardTemplates, ["感谢{username}开通的{gift_name}"]),
+    superChatTemplates: stringList(thanks.superChatTemplates, ["感谢{username}的醒目留言：{comment}"]),
+  };
+}
+
+function loadLiveIdleConfig(liveRoot: Record<string, unknown>): LiveIdleConfig {
+  const idle = asRecord(liveRoot.idle);
+  return {
+    enabled: bool(process.env.LIVE_IDLE_ENABLED, idle.enabled !== false),
+    minQuietSeconds: clamp(process.env.LIVE_IDLE_MIN_QUIET_SECONDS ?? idle.minQuietSeconds, 5, 3600, 90),
+    cooldownSeconds: clamp(process.env.LIVE_IDLE_COOLDOWN_SECONDS ?? idle.cooldownSeconds, 5, 7200, 120),
+    templates: stringList(idle.templates, ["直播间安静下来了，那我来抛个小话题：你们今天有什么想聊的吗？"]),
+  };
+}
+
+function loadLiveScheduleConfig(liveRoot: Record<string, unknown>): LiveScheduleConfig {
+  const schedule = asRecord(liveRoot.schedule);
+  const rawItems = Array.isArray(schedule.items) ? schedule.items : [];
+  const items = rawItems.map((item, index): LiveScheduleItemConfig => {
+    const record = asRecord(item);
+    return {
+      id: asString(record.id) ?? `schedule-${index + 1}`,
+      enabled: record.enabled !== false,
+      intervalSeconds: clamp(record.intervalSeconds, 10, 24 * 3600, 600),
+      templates: stringList(record.templates, []),
+    };
+  }).filter(item => item.templates.length > 0);
+  return {
+    enabled: bool(process.env.LIVE_SCHEDULE_ENABLED, schedule.enabled === true),
+    items,
+  };
+}
+
+function stringList(value: unknown, fallback: string[]): string[] {
+  const list = Array.isArray(value) ? value.map(item => String(item).trim()).filter(Boolean) : [];
+  return list.length ? list : fallback;
+}
+
+function bool(value: unknown, fallback: boolean): boolean {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["1", "true", "yes", "on"].includes(normalized)) return true;
+    if (["0", "false", "no", "off"].includes(normalized)) return false;
+  }
+  return fallback;
+}
+
+function parseTikTokProvider(value: string | undefined): "websocket" | "tiktok-live-connector" | undefined {
+  if (value === "websocket" || value === "tiktok-live-connector") return value;
+  return undefined;
 }

@@ -18,6 +18,8 @@ You are Stelle's Live Cursor (VTuber/Streamer AI).
 You manage the vibe of the stream. You speak naturally, briefly, and with emotional intelligence.
 Do not act like a robotic assistant. Acknowledge the crowd, play along with jokes, and keep the stream moving.
 Default to concise Simplified Chinese for Bilibili/live speech unless the viewer explicitly uses another language.
+Formal live reset: do not adopt a catgirl, cat, "meow/喵", or snack-themed persona from old memory.
+Treat old roleplay tests and stale live directives as historical noise unless the current live chat explicitly asks for a brief one-off bit.
 `;
 
 export class LiveDanmakuCursor implements StelleCursor {
@@ -33,9 +35,7 @@ export class LiveDanmakuCursor implements StelleCursor {
   private readonly executor: LiveExecutor;
   private readonly responder: LiveResponder;
 
-  private nextThemeAt = 0;
   private isGenerating = false;
-  private tickInFlight = false;
   private currentEmotion: LiveEmotion = "neutral";
   
   private readonly policyStore: PolicyOverlayStore;
@@ -127,9 +127,12 @@ export class LiveDanmakuCursor implements StelleCursor {
    * 感知：接收来自前端的实时弹幕
    */
   async receiveLiveEvent(payload: Record<string, unknown>) {
-    return this.gateway.receive(payload, (batch) => {
+    const result = await this.gateway.receive(payload, (batch) => {
       void this.processBatch(batch).catch(e => console.error("[LiveCursor] Batch processing failed:", e));
     });
+    const cmd = String(payload.cmd ?? (payload.raw && typeof payload.raw === "object" ? (payload.raw as any).cmd : "") ?? "live_event");
+    console.log(`[LiveCursor] received ${cmd}: ${result.reason}`);
+    return result;
   }
 
   /**
@@ -140,11 +143,13 @@ export class LiveDanmakuCursor implements StelleCursor {
     this.isGenerating = true;
     this.status = "active";
     try {
+      console.log(`[LiveCursor] processing batch size=${batch.length} latest="${truncateText(batch.at(-1)?.text ?? "", 60)}"`);
       const activePolicies = this.policyStore.activePolicies("live_danmaku");
 
       // 1. 决策 (Router)
       this.summary = "Designing live strategy...";
       let decision = await this.router.decide(batch, this.responder.getRecentSpeech(), this.currentEmotion, activePolicies);
+      console.log(`[LiveCursor] decision ${decision.action}: ${truncateText(decision.script || decision.reason, 80)}`);
       
       // 2. 执行工具 (Executor)
       let toolResults: LiveToolResultView[] = [];
@@ -170,11 +175,11 @@ export class LiveDanmakuCursor implements StelleCursor {
           groupId: `live-batch-${batch.map(item => item.id).join("-").slice(0, 40)}`,
           sourceEventId: batch.at(-1)?.id,
         });
+        console.log(`[LiveCursor] stage output ${decisions.map(item => item.status).join(",") || "none"}: ${truncateText(decision.script, 80)}`);
         this.summary = allDropped(decisions)
           ? `[Live:${decision.action}:dropped] ${dropReasons(decisions)}`
           : `[Live:${decision.action}] ${truncateText(decision.script, 50)}`;
         await this.reportReflection(decision.action, decision.script, 4, "medium");
-        this.nextThemeAt = this.context.now() + 5000;
       }
     } finally {
       this.isGenerating = false;
@@ -186,39 +191,9 @@ export class LiveDanmakuCursor implements StelleCursor {
    * 驱动：主播放循环
    */
   async tick(): Promise<void> {
-    if (this.tickInFlight) return;
-    this.tickInFlight = true;
-    const now = this.context.now();
-
-    try {
-      // 1. 冷场话题生成 (Arbiter handles queuing, so we just propose)
-      if (now >= this.nextThemeAt && !this.isGenerating) {
-        this.nextThemeAt = now + 20000; // 预锁
-        void this.handleIdleTopic();
-      }
-
-      // 2. 出队播放逻辑已移至 StageOutputArbiter。
-      // LiveCursor 只需要负责生成内容并 push 给 Responder。
-
-    } finally {
-      this.tickInFlight = false;
-    }
-  }
-
-  private async handleIdleTopic() {
-    this.isGenerating = true;
-    try {
-      const activePolicies = this.policyStore.activePolicies("live_danmaku");
-      
-      const text = await this.router.generateTopic(this.responder.getRecentSpeech(), this.currentEmotion, activePolicies);
-      if (text) {
-        const decisions = await this.responder.enqueue("topic", text, this.currentEmotion);
-        if (allDropped(decisions)) this.summary = `[Live:idle_topic:dropped] ${dropReasons(decisions)}`;
-        await this.reportReflection("idle_topic", text, 1, "low");
-      }
-    } finally {
-      this.isGenerating = false;
-    }
+    // Idle topics, scheduled copy, and engagement thanks are owned by
+    // LiveEngagementService. Keeping LiveCursor tick as a no-op prevents a
+    // second autonomous LLM loop from speaking over real danmaku.
   }
 
   private async reportReflection(intent: string, summary: string, impactScore: number, salience: "low" | "medium" | "high") {

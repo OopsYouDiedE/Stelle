@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { LiveCursor } from "../../src/cursor/live/cursor.js";
+import { LiveRouter } from "../../src/cursor/live/router.js";
 import { LiveResponder } from "../../src/cursor/live/responder.js";
 import { StelleEventBus } from "../../src/utils/event_bus.js";
 
@@ -104,5 +105,105 @@ describe("Live tool chain integration", () => {
       text: "final with tool result",
       output: expect.objectContaining({ caption: true, tts: false }),
     }));
+  });
+
+  it("does not generate autonomous idle topics from LiveCursor ticks", async () => {
+    const cursor = new LiveCursor({
+      now: () => 1000,
+      config: {
+        models: { apiKey: "test-key" },
+        live: { ttsEnabled: false, speechQueueLimit: 5 },
+      },
+      llm: { generateJson: vi.fn(), generateText: vi.fn() },
+      tools: { execute: vi.fn() },
+      stageOutput: { propose: vi.fn() },
+      eventBus: new StelleEventBus(),
+    } as any);
+
+    await cursor.tick();
+
+    expect((cursor as any).context.llm.generateText).not.toHaveBeenCalled();
+    expect((cursor as any).context.stageOutput.propose).not.toHaveBeenCalled();
+  });
+
+  it("filters stale cat and snack directives out of live danmaku prompts", async () => {
+    let capturedPrompt = "";
+    const router = new LiveRouter({
+      memory: {
+        readLongTerm: vi.fn().mockImplementation(async (key: string) => {
+          if (key === "global_subconscious") {
+            return [
+              "--- CORE EGO ---",
+              "[DIRECTIVE TO LIVE]: Continue the snack crime theme and say nya.",
+              "Convictions:",
+              "- respond warmly to viewers",
+            ].join("\n");
+          }
+          return "Current focus: answer real viewer questions.";
+        }),
+      },
+      llm: {
+        generateJson: vi.fn().mockImplementation(async (prompt, _schema, normalize) => {
+          capturedPrompt = prompt;
+          return normalize({
+            action: "respond_to_specific",
+            emotion: "neutral",
+            intensity: 3,
+            script: "晚上好，能看到你的弹幕。",
+            reason: "viewer greeting",
+          });
+        }),
+      },
+    } as any, "Live persona");
+
+    await router.decide([{
+      id: "evt1",
+      source: "bilibili",
+      kind: "danmaku",
+      priority: "low",
+      receivedAt: 1000,
+      user: { id: "u1", name: "观众" },
+      text: "晚上好，能看到吗",
+      raw: {},
+    }], [], "neutral", [{
+      instruction: "Continue the snack crime theme and use catgirl nya style.",
+      focusTopic: "snack detective",
+    } as any]);
+
+    expect(capturedPrompt).toContain("晚上好，能看到吗");
+    expect(capturedPrompt).toContain("respond warmly to viewers");
+    expect(capturedPrompt).not.toContain("snack crime");
+    expect(capturedPrompt).not.toContain("catgirl");
+    expect(capturedPrompt).not.toContain("nya");
+  });
+
+  it("repairs mistaken drop_noise decisions for addressable danmaku", async () => {
+    const router = new LiveRouter({
+      memory: { readLongTerm: vi.fn().mockResolvedValue(null) },
+      llm: {
+        generateJson: vi.fn().mockImplementation(async (_prompt, _schema, normalize) => normalize({
+          action: "drop_noise",
+          emotion: "neutral",
+          intensity: 1,
+          script: "",
+          reason: "mistaken noise",
+        })),
+      },
+    } as any, "Live persona");
+
+    const decision = await router.decide([{
+      id: "evt1",
+      source: "bilibili",
+      kind: "danmaku",
+      priority: "low",
+      receivedAt: 1000,
+      user: { id: "u1", name: "百花齐放1919" },
+      text: "能看到吗",
+      raw: {},
+    }], [], "neutral", []);
+
+    expect(decision.action).toBe("respond_to_specific");
+    expect(decision.script).toContain("能看到");
+    expect(decision.script).toContain("百花齐放1919");
   });
 });
