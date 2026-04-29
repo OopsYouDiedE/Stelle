@@ -35,7 +35,11 @@ export class LiveDanmakuCursor implements StelleCursor {
   private readonly executor: LiveExecutor;
   private readonly responder: LiveResponder;
 
-  private isGenerating = false;
+  private pendingBatches: NormalizedLiveEvent[][] = [];
+  private draining = false;
+  private batchSequence = 0;
+  private readonly maxPendingBatches = 8;
+  private readonly maxEventsPerMergedBatch = 30;
   private currentEmotion: LiveEmotion = "neutral";
   
   private readonly policyStore: PolicyOverlayStore;
@@ -139,18 +143,100 @@ export class LiveDanmakuCursor implements StelleCursor {
    * 编排：处理缓冲完成的弹幕批次
    */
   private async processBatch(batch: NormalizedLiveEvent[]) {
-    if (this.isGenerating || batch.length === 0) return;
-    this.isGenerating = true;
+    if (batch.length === 0) return;
+    this.enqueueBatch(batch);
+    void this.drainBatches();
+  }
+
+  private enqueueBatch(batch: NormalizedLiveEvent[]): void {
+    this.pendingBatches.push(batch);
+    if (this.pendingBatches.length <= this.maxPendingBatches) return;
+
+    const before = this.pendingBatches.length;
+    this.pendingBatches = this.coalescePendingBatches(this.pendingBatches);
+    console.warn(`[LiveCursor] pending batch queue coalesced ${before}->${this.pendingBatches.length}`);
+  }
+
+  private async drainBatches(): Promise<void> {
+    if (this.draining) return;
+
+    this.draining = true;
     this.status = "active";
     try {
-      console.log(`[LiveCursor] processing batch size=${batch.length} latest="${truncateText(batch.at(-1)?.text ?? "", 60)}"`);
+      while (this.pendingBatches.length > 0) {
+        const batch = this.takeNextBatch();
+        await this.handleBatch(batch);
+      }
+    } finally {
+      this.draining = false;
+      this.status = "idle";
+    }
+  }
+
+  private takeNextBatch(): NormalizedLiveEvent[] {
+    const first = this.pendingBatches.shift() ?? [];
+
+    while (
+      first.length < this.maxEventsPerMergedBatch &&
+      this.pendingBatches.length > 0 &&
+      !this.containsUrgentEvent(this.pendingBatches[0])
+    ) {
+      const next = this.pendingBatches.shift() ?? [];
+      first.push(...next);
+    }
+
+    if (first.length <= this.maxEventsPerMergedBatch) return first;
+
+    const overflow = first.splice(this.maxEventsPerMergedBatch);
+    if (overflow.length > 0) this.pendingBatches.unshift(overflow);
+    return first;
+  }
+
+  private coalescePendingBatches(batches: NormalizedLiveEvent[][]): NormalizedLiveEvent[][] {
+    const result: NormalizedLiveEvent[][] = [];
+    let ordinary: NormalizedLiveEvent[] = [];
+
+    const flushOrdinary = () => {
+      while (ordinary.length > 0) {
+        result.push(ordinary.splice(0, this.maxEventsPerMergedBatch));
+      }
+    };
+
+    for (const batch of batches) {
+      if (this.containsUrgentEvent(batch)) {
+        flushOrdinary();
+        result.push(batch);
+        continue;
+      }
+      ordinary.push(...batch);
+      if (ordinary.length >= this.maxEventsPerMergedBatch) flushOrdinary();
+    }
+
+    flushOrdinary();
+    return result;
+  }
+
+  private containsUrgentEvent(batch: NormalizedLiveEvent[] | undefined): boolean {
+    return Boolean(batch?.some(event => event.kind === "super_chat" || event.kind === "guard" || event.kind === "gift" || event.priority === "high"));
+  }
+
+  private async handleBatch(batch: NormalizedLiveEvent[]): Promise<void> {
+    const events = batch.filter(Boolean);
+    if (events.length === 0) return;
+
+    const startedAt = this.context.now();
+    const batchId = `live-batch-${++this.batchSequence}`;
+    const oldestAgeMs = startedAt - Math.min(...events.map(event => event.receivedAt));
+
+    try {
+      console.log(`[LiveCursor] processing ${batchId} size=${events.length} oldestAgeMs=${oldestAgeMs} latest="${truncateText(events.at(-1)?.text ?? "", 60)}"`);
       const activePolicies = this.policyStore.activePolicies("live_danmaku");
 
       // 1. 决策 (Router)
       this.summary = "Designing live strategy...";
-      let decision = await this.router.decide(batch, this.responder.getRecentSpeech(), this.currentEmotion, activePolicies);
+      let decision = await this.router.decide(events, this.responder.getRecentSpeech(), this.currentEmotion, activePolicies);
       console.log(`[LiveCursor] decision ${decision.action}: ${truncateText(decision.script || decision.reason, 80)}`);
-      
+
       // 2. 执行工具 (Executor)
       let toolResults: LiveToolResultView[] = [];
       if (decision.toolPlan) {
@@ -158,7 +244,7 @@ export class LiveDanmakuCursor implements StelleCursor {
         this.summary = `Executing tools: ${decision.toolPlan.calls.map(c => c.tool).join(", ")}`;
         toolResults = await this.executor.execute(decision);
         decision = await this.router.compose({
-          batch,
+          batch: events,
           initialDecision: decision,
           toolResults,
           recentSpeech: this.responder.getRecentSpeech(),
@@ -172,8 +258,8 @@ export class LiveDanmakuCursor implements StelleCursor {
         this.status = "active";
         this.currentEmotion = decision.emotion;
         const decisions = await this.responder.enqueue("response", decision.script, decision.emotion, {
-          groupId: `live-batch-${batch.map(item => item.id).join("-").slice(0, 40)}`,
-          sourceEventId: batch.at(-1)?.id,
+          groupId: `${batchId}-${events.map(item => item.id).join("-").slice(0, 40)}`,
+          sourceEventId: events.at(-1)?.id,
         });
         console.log(`[LiveCursor] stage output ${decisions.map(item => item.status).join(",") || "none"}: ${truncateText(decision.script, 80)}`);
         this.summary = allDropped(decisions)
@@ -181,9 +267,13 @@ export class LiveDanmakuCursor implements StelleCursor {
           : `[Live:${decision.action}] ${truncateText(decision.script, 50)}`;
         await this.reportReflection(decision.action, decision.script, 4, "medium");
       }
-    } finally {
-      this.isGenerating = false;
-      this.status = "idle";
+    } catch (error) {
+      console.error("[LiveDanmakuCursor] batch failed", {
+        error,
+        batchId,
+        batchSize: events.length,
+        oldestAgeMs,
+      });
     }
   }
 
