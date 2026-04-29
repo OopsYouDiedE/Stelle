@@ -37,6 +37,7 @@ export class LiveDanmakuCursor implements StelleCursor {
 
   private pendingBatches: NormalizedLiveEvent[][] = [];
   private draining = false;
+  private drainPromise?: Promise<void>;
   private batchSequence = 0;
   private readonly maxPendingBatches = 8;
   private readonly maxEventsPerMergedBatch = 30;
@@ -145,7 +146,7 @@ export class LiveDanmakuCursor implements StelleCursor {
   private async processBatch(batch: NormalizedLiveEvent[]) {
     if (batch.length === 0) return;
     this.enqueueBatch(batch);
-    void this.drainBatches();
+    return this.drainBatches();
   }
 
   private enqueueBatch(batch: NormalizedLiveEvent[]): void {
@@ -158,19 +159,23 @@ export class LiveDanmakuCursor implements StelleCursor {
   }
 
   private async drainBatches(): Promise<void> {
-    if (this.draining) return;
+    if (this.draining) return this.drainPromise;
 
     this.draining = true;
     this.status = "active";
-    try {
-      while (this.pendingBatches.length > 0) {
-        const batch = this.takeNextBatch();
-        await this.handleBatch(batch);
+    this.drainPromise = (async () => {
+      try {
+        while (this.pendingBatches.length > 0) {
+          const batch = this.takeNextBatch();
+          await this.handleBatch(batch);
+        }
+      } finally {
+        this.draining = false;
+        this.drainPromise = undefined;
+        this.status = "idle";
       }
-    } finally {
-      this.draining = false;
-      this.status = "idle";
-    }
+    })();
+    return this.drainPromise;
   }
 
   private takeNextBatch(): NormalizedLiveEvent[] {

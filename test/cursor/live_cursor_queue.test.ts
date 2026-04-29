@@ -24,15 +24,15 @@ describe("LiveDanmakuCursor pending batch queue", () => {
       getQueueStats: () => ({ topic: 0, response: 0 }),
     };
 
-    await (cursor as any).processBatch([event("batch-1")]);
+    const draining = (cursor as any).processBatch([event("batch-1")]);
     await Promise.resolve();
-    await (cursor as any).processBatch([event("batch-2")]);
-    await (cursor as any).processBatch([event("batch-3")]);
+    void (cursor as any).processBatch([event("batch-2")]);
+    void (cursor as any).processBatch([event("batch-3")]);
 
     expect(seen).toEqual([["batch-1"]]);
 
     releaseFirst?.();
-    await waitFor(() => seen.length === 2);
+    await draining;
 
     expect(seen).toEqual([["batch-1"], ["batch-2", "batch-3"]]);
   });
