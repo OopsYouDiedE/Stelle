@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { StageOutputArbiter } from "../../src/stage/output_arbiter.js";
 import type { OutputIntent, StageOutputRenderer } from "../../src/stage/output_types.js";
+import { StelleEventBus } from "../../src/utils/event_bus.js";
 
 describe("StageOutputArbiter", () => {
   let arbiter: StageOutputArbiter;
@@ -289,6 +290,43 @@ describe("StageOutputArbiter", () => {
 
     expect(mockRenderer.render).toHaveBeenCalledTimes(1);
     expect(mockRenderer.render).not.toHaveBeenCalledWith(expect.objectContaining({ id: "expired" }), expect.any(AbortSignal));
+  });
+
+  it("publishes stage.output.dropped when queued output expires", async () => {
+    const eventBus = new StelleEventBus();
+    arbiter = new StageOutputArbiter({
+      renderer: mockRenderer,
+      now: () => now,
+      maxQueueLength: 5,
+      eventBus,
+    });
+    let resolveFirst: (v: void) => void;
+    mockRenderer.render = vi.fn().mockImplementation((intent) => {
+      if (intent.id === "1") return new Promise((r) => { resolveFirst = r; });
+      return Promise.resolve();
+    });
+
+    const p1 = arbiter.propose({
+      id: "1", cursorId: "test", lane: "live_chat", priority: 50, salience: "medium",
+      text: "First", ttlMs: 5000, interrupt: "none", output: { caption: true },
+      estimatedDurationMs: 0,
+    });
+    await new Promise(r => setTimeout(r, 0));
+
+    await arbiter.propose({
+      id: "expired-visible", cursorId: "test", lane: "live_chat", priority: 50, salience: "medium",
+      text: "Too late", ttlMs: 10, interrupt: "none", output: { caption: true },
+      estimatedDurationMs: 0,
+    });
+
+    now += 11;
+    resolveFirst!(undefined);
+    await p1;
+    await new Promise(r => setTimeout(r, 10));
+
+    const dropped = eventBus.getHistory().find(event => event.type === "stage.output.dropped" && event.payload.intent.id === "expired-visible");
+    expect(dropped?.payload.reason).toBe("expired");
+    expect(mockRenderer.render).not.toHaveBeenCalledWith(expect.objectContaining({ id: "expired-visible" }), expect.any(AbortSignal));
   });
 
   it("drops debug lane output when debug is disabled", async () => {

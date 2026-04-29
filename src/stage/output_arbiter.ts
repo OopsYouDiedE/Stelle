@@ -205,9 +205,20 @@ export class StageOutputArbiter {
 
   private drain(): void {
     if (this.processing) return;
-    const next = this.queue.dequeueReady();
+    const result = this.queue.dequeueReady();
+    for (const dropped of result.dropped) {
+      this.record({
+        id: dropped.intent.id,
+        cursorId: dropped.intent.cursorId,
+        lane: dropped.intent.lane,
+        text: dropped.intent.text,
+        status: "dropped",
+        reason: dropped.reason,
+      });
+      this.publish("stage.output.dropped", dropped.intent, { reason: dropped.reason });
+    }
     this.syncQueueLength();
-    if (next) void this.start(next);
+    if (result.intent) void this.start(result.intent);
   }
 
   private syncQueueLength(): void {

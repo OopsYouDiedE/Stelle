@@ -18,7 +18,7 @@ export class LiveResponder {
 
   /**
    * 将文本切割并发送到 StageOutputArbiter。
-   * 采用并发发射策略，让 Arbiter 集中处理排队，避免 Responder 被长渲染阻塞。
+   * 按句顺序提交给 Arbiter，避免字幕/TTS 片段在舞台资源仲裁前乱序。
    */
   public async enqueue(target: "topic" | "response", text: string, emotion: string, options: LiveEnqueueOptions = {}): Promise<StageOutputDecision[]> {
     const chunks = splitSentences(text).filter(s => s.trim().length > 0);

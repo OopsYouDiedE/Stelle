@@ -1,6 +1,11 @@
 import type { OutputIntent } from "./output_types.js";
 import { compareIntentPriority } from "./output_policy.js";
 
+export interface DequeueReadyResult {
+  intent?: OutputIntent;
+  dropped: Array<{ intent: OutputIntent; reason: "expired" }>;
+}
+
 export class StageOutputQueue {
   private readonly items: Array<{ intent: OutputIntent; enqueuedAt: number }> = [];
 
@@ -39,14 +44,16 @@ export class StageOutputQueue {
     return { status, mergedIntent, droppedIntents };
   }
 
-  dequeueReady(): OutputIntent | undefined {
+  dequeueReady(): DequeueReadyResult {
     const now = this.now();
+    const dropped: Array<{ intent: OutputIntent; reason: "expired" }> = [];
     while (this.items.length > 0) {
       const item = this.items.shift();
-      if (!item) return undefined;
-      if (now - item.enqueuedAt <= item.intent.ttlMs) return item.intent;
+      if (!item) return { dropped };
+      if (now - item.enqueuedAt <= item.intent.ttlMs) return { intent: item.intent, dropped };
+      dropped.push({ intent: item.intent, reason: "expired" });
     }
-    return undefined;
+    return { dropped };
   }
 
   cancelByCursor(cursorId: string): number {
