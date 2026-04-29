@@ -17,7 +17,7 @@ import { safeErrorMessage } from "./utils/json.js";
 import type { DiscordRuntime } from "./utils/discord.js";
 import type { LiveRuntime } from "./utils/live.js";
 import type { MemoryStore } from "./utils/memory.js";
-import { KokoroTtsProvider, type StreamingTtsProvider } from "./utils/tts.js";
+import { createConfiguredTtsProvider, getConfiguredTtsProviderName, type StreamingTtsProvider } from "./utils/tts.js";
 import { sanitizeExternalText } from "./utils/text.js";
 
 export type ToolAuthority = "readonly" | "safe_write" | "network_read" | "external_write" | "system";
@@ -217,7 +217,7 @@ export function createDefaultToolRegistry(deps: ToolRegistryDeps = {}): ToolRegi
     ...createSearchTools(),
     ...createMemoryTools(deps),
     ...createLiveTools(deps),
-    ...createTtsTools(deps.tts ?? new KokoroTtsProvider()),
+    ...createTtsTools(deps.tts ?? createConfiguredTtsProvider()),
   ]) {
     registry.register(tool);
   }
@@ -535,6 +535,18 @@ function createMemoryTools(deps: ToolRegistryDeps): ToolDefinition[] {
       },
     },
     {
+      name: "memory.append_long_term",
+      title: "Append Long-Term Memory",
+      description: "Append to a long-term memory key without replacing existing content.",
+      authority: "safe_write",
+      inputSchema: z.object({ key: z.string().min(1), value: z.string().min(1), layer: z.enum(["user_facts", "self_state", "core_identity", "research_logs", "observations"]).optional().default("observations") }),
+      sideEffects: sideEffects({ writesFileSystem: true }),
+      async execute(input) {
+        await memoryRequired().appendLongTerm(input.key, input.value, input.layer as any);
+        return ok(`Appended ${input.key} to ${input.layer}.`);
+      },
+    },
+    {
       name: "memory.append_research_log",
       title: "Append Research Log",
       description: "Append a reflection log.",
@@ -567,14 +579,8 @@ function createLiveTools(deps: ToolRegistryDeps): ToolDefinition[] {
     },
     liveActionTool("live.set_caption", "Set Caption", z.object({ text: z.string().min(1) }), async (live, input) => live.setCaption(input.text)),
     liveActionTool("live.stream_caption", "Stream Caption", z.object({ text: z.string().min(1), speaker: z.string().optional(), rate_ms: z.number().int().optional().default(34) }), async (live, input) => live.streamCaption(input.text, input.speaker, input.rate_ms)),
-    liveActionTool("live.push_event", "Push Event", z.object({ event_id: z.string().optional(), lane: z.enum(["incoming", "response", "topic", "system"]), text: z.string().min(1), user_name: z.string().optional(), priority: z.enum(["low", "medium", "high"]).optional(), note: z.string().optional() }), async (live, input) => live.pushEvent({
-      eventId: input.event_id,
-      lane: input.lane,
-      text: input.text,
-      userName: input.user_name,
-      priority: input.priority,
-      note: input.note,
-    })),
+    livePanelEventTool("live.panel.push_event", "Push Live Panel Event"),
+    livePanelEventTool("live.push_event", "Push Event"),
     liveActionTool("live.trigger_motion", "Trigger Motion", z.object({ group: z.string().min(1), priority: z.enum(["normal", "force"]).optional().default("normal") }), async (live, input) => live.triggerMotion(input.group, input.priority as any)),
     liveActionTool("live.set_expression", "Set Expression", z.object({ expression: z.string().min(1) }), async (live, input) => live.setExpression(input.expression)),
     {
@@ -599,8 +605,7 @@ function createLiveTools(deps: ToolRegistryDeps): ToolDefinition[] {
       sideEffects: sideEffects({ externalVisible: true, networkAccess: true, consumesBudget: true, affectsUserState: true }),
       async execute(input) {
         const live = liveRequired();
-        await live.streamCaption(sanitizeExternalText(input.text), input.speaker ?? "Stelle", input.rate_ms);
-        const result = await live.playTtsStream(input.text, { voice: input.voice_name });
+        const result = await live.playTtsStream(input.text, { voice: input.voice_name, speaker: input.speaker ?? "Stelle", rateMs: input.rate_ms });
         return ok(result.summary, { result });
       },
     },
@@ -613,6 +618,42 @@ function createLiveTools(deps: ToolRegistryDeps): ToolDefinition[] {
       sideEffects: sideEffects({ networkAccess: true }),
       async execute() { return ok("OBS status read.", { status: (await liveRequired().getStatus()).obs }); },
     },
+    {
+      name: "obs.start_stream",
+      title: "Start OBS Stream",
+      description: "Start streaming through OBS WebSocket.",
+      authority: "external_write",
+      inputSchema: z.object({}),
+      sideEffects: sideEffects({ externalVisible: true, networkAccess: true, affectsUserState: true }),
+      async execute() {
+        const result = await liveRequired().obs.startStream();
+        return { ok: result.ok, summary: result.summary, data: { result }, error: result.error };
+      },
+    },
+    {
+      name: "obs.stop_stream",
+      title: "Stop OBS Stream",
+      description: "Stop streaming through OBS WebSocket.",
+      authority: "external_write",
+      inputSchema: z.object({}),
+      sideEffects: sideEffects({ externalVisible: true, networkAccess: true, affectsUserState: true }),
+      async execute() {
+        const result = await liveRequired().obs.stopStream();
+        return { ok: result.ok, summary: result.summary, data: { result }, error: result.error };
+      },
+    },
+    {
+      name: "obs.set_scene",
+      title: "Set OBS Scene",
+      description: "Switch the current OBS program scene.",
+      authority: "external_write",
+      inputSchema: z.object({ scene_name: z.string().min(1) }),
+      sideEffects: sideEffects({ externalVisible: true, networkAccess: true, affectsUserState: true }),
+      async execute(input) {
+        const result = await liveRequired().obs.setCurrentScene(input.scene_name);
+        return { ok: result.ok, summary: result.summary, data: { result }, error: result.error };
+      },
+    },
   ];
 
   function liveActionTool(name: string, title: string, inputSchema: z.ZodObject<any>, action: (live: LiveRuntime, input: any) => Promise<{ ok: boolean; summary: string }>): ToolDefinition {
@@ -621,20 +662,72 @@ function createLiveTools(deps: ToolRegistryDeps): ToolDefinition[] {
       return { ok: result.ok, summary: result.summary, data: { result }, sideEffects: [{ type: name, summary: result.summary, visible: true, timestamp: Date.now() }] };
     }};
   }
+
+  function livePanelEventTool(name: string, title: string): ToolDefinition {
+    return liveActionTool(
+      name,
+      title,
+      z.object({
+        event_id: z.string().optional(),
+        lane: z.enum(["incoming", "response", "topic", "system"]),
+        text: z.string().min(1),
+        user_name: z.string().optional(),
+        priority: z.enum(["low", "medium", "high"]).optional(),
+        note: z.string().optional(),
+      }),
+      async (live, input) => live.pushEvent({
+        eventId: input.event_id,
+        lane: input.lane,
+        text: input.text,
+        userName: input.user_name,
+        priority: input.priority,
+        note: input.note,
+      })
+    );
+  }
 }
 
 function createTtsTools(provider: StreamingTtsProvider): ToolDefinition[] {
   return [
     {
+      name: "tts.live_speech",
+      title: "Live Speech",
+      description: "Synthesize live speech using the configured TTS provider and save to files.",
+      authority: "safe_write",
+      inputSchema: z.object({
+        text: z.string().min(1),
+        output_dir: z.string().optional(),
+        file_prefix: z.string().optional(),
+        voice_name: z.string().optional(),
+        language: z.string().optional(),
+        instructions: z.string().optional(),
+        model: z.string().optional(),
+        stream: z.boolean().optional(),
+      }),
+      sideEffects: sideEffects({ writesFileSystem: true, networkAccess: true, consumesBudget: true }),
+      async execute(input) {
+        const artifacts = await provider.synthesizeToFiles(input.text, {
+          outputDir: input.output_dir,
+          filePrefix: input.file_prefix,
+          voiceName: input.voice_name,
+          language: input.language,
+          instructions: input.instructions,
+          model: input.model,
+          stream: input.stream,
+        });
+        return ok(`${getConfiguredTtsProviderName()} wrote ${artifacts.length} audio artifact(s).`, { artifacts });
+      },
+    },
+    {
       name: "tts.kokoro_speech",
       title: "Kokoro Speech",
-      description: "Synthesize high-quality speech using Kokoro-82M model and save to files.",
+      description: "Backward-compatible alias for configured live speech synthesis.",
       authority: "safe_write",
       inputSchema: z.object({ text: z.string().min(1), output_dir: z.string().optional(), file_prefix: z.string().optional(), voice_name: z.string().optional() }),
       sideEffects: sideEffects({ writesFileSystem: true, networkAccess: true, consumesBudget: true }),
       async execute(input) {
         const artifacts = await provider.synthesizeToFiles(input.text, { outputDir: input.output_dir, filePrefix: input.file_prefix, voiceName: input.voice_name });
-        return ok(`Kokoro wrote ${artifacts.length} audio artifact(s).`, { artifacts });
+        return ok(`${getConfiguredTtsProviderName()} wrote ${artifacts.length} audio artifact(s).`, { artifacts });
       },
     },
   ];

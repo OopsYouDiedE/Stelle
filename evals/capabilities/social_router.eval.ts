@@ -30,7 +30,7 @@ describe.skipIf(!hasEvalLlmKeys())("Social Router Capability Eval", () => {
             wait_seconds: Number(value.wait_seconds || value.waitSeconds || 0),
           };
         },
-        { role: "primary", temperature: 0.1, maxOutputTokens: 800 }
+        { role: "primary", temperature: 0.1, maxOutputTokens: 4096 }
       );
 
       const score = summarizeChecks([
@@ -50,6 +50,7 @@ describe.skipIf(!hasEvalLlmKeys())("Social Router Capability Eval", () => {
         title: evalCase.title,
         model: evalModelLabel(),
         latencyMs: Date.now() - start,
+        input: evalCase.input,
         output: result,
         score,
       });

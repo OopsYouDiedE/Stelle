@@ -12,6 +12,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import express from "express";
 import { Server as SocketIOServer } from "socket.io";
+import { fetchLiveTtsAudio, normalizeTtsProvider, type TtsProviderName } from "./tts.js";
 
 export interface LiveRendererServerOptions {
   host?: string;
@@ -56,7 +57,7 @@ export class LiveRendererServer {
     visible: true,
     caption: "Stelle renderer ready.",
   };
-  private readonly ttsRequests = new Map<string, { request: Record<string, unknown>; createdAt: number }>();
+  private readonly ttsRequests = new Map<string, { provider: TtsProviderName; request: Record<string, unknown>; createdAt: number }>();
 
   constructor(private readonly options: LiveRendererServerOptions = {}) {
     this.setupRoutes();
@@ -135,11 +136,11 @@ export class LiveRendererServer {
   private setupRoutes() {
     this.app.use(express.json());
 
-    this.app.get("/tts/kokoro/:id", async (req, res) => {
+    this.app.get("/tts/:provider/:id", async (req, res) => {
       const entry = this.ttsRequests.get(req.params.id);
       if (!entry) return res.status(404).json({ ok: false, error: "tts request not found or expired" });
       try {
-        const response = await this.fetchKokoroAudio(entry.request);
+        const response = await fetchLiveTtsAudio(entry.provider, entry.request);
         res.status(response.status);
         response.headers.forEach((value, key) => {
           if (!["content-encoding", "transfer-encoding", "connection"].includes(key.toLowerCase())) {
@@ -164,7 +165,7 @@ export class LiveRendererServer {
     });
 
     // 静态资源服务
-    this.app.use("/assets", express.static(path.resolve("dist/live-renderer")));
+    this.app.use("/assets", express.static(path.resolve("dist/live-renderer/assets")));
     this.app.use("/samples", express.static(path.resolve("assets/renderer/samples")));
     this.app.use("/models", express.static(path.resolve("assets/renderer/models")));
     this.app.use("/vendor", express.static(path.resolve("assets/renderer/vendor")));
@@ -244,29 +245,15 @@ export class LiveRendererServer {
 
   private captureTtsRequest(command: LiveRendererCommand): void {
     if (command.type !== "audio:stream" || typeof command.url !== "string") return;
-    const match = command.url.match(/^\/tts\/kokoro\/([^/?#]+)/);
+    const match = command.url.match(/^\/tts\/([^/?#]+)\/([^/?#]+)/);
     if (!match) return;
     const request = command.request;
     if (!request || typeof request !== "object" || Array.isArray(request)) return;
     const now = Date.now();
-    this.ttsRequests.set(match[1]!, { request: request as Record<string, unknown>, createdAt: now });
+    this.ttsRequests.set(match[2]!, { provider: normalizeTtsProvider(match[1]!), request: request as Record<string, unknown>, createdAt: now });
     for (const [id, entry] of this.ttsRequests) {
       if (now - entry.createdAt > 5 * 60 * 1000) this.ttsRequests.delete(id);
     }
-  }
-
-  private async fetchKokoroAudio(request: Record<string, unknown>): Promise<Response> {
-    const baseUrl = (process.env.KOKORO_TTS_BASE_URL ?? "http://127.0.0.1:8880").replace(/\/+$/, "");
-    const endpointPath = process.env.KOKORO_TTS_ENDPOINT_PATH ?? "/v1/audio/speech";
-    const headers: Record<string, string> = { "content-type": "application/json" };
-    if (process.env.KOKORO_TTS_API_KEY) headers.authorization = `Bearer ${process.env.KOKORO_TTS_API_KEY}`;
-    const response = await fetch(`${baseUrl}${endpointPath}`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(request),
-    });
-    if (!response.ok) throw new Error(`Kokoro TTS failed: ${response.status} ${response.statusText}`);
-    return response;
   }
 
   private debugAllowed(req: express.Request, res: express.Response): boolean {

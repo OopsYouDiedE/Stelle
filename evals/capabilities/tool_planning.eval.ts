@@ -33,13 +33,16 @@ describe.skipIf(!hasEvalLlmKeys())("Tool Planning Capability Eval", () => {
             reason: String(value.reason || ""),
           };
         },
-        { role: "primary", temperature: 0.1, maxOutputTokens: 800 }
+        { role: "primary", temperature: 0.1, maxOutputTokens: 4096 }
       );
 
       const expectedForbidden = Array.isArray(evalCase.expected.forbiddenTools)
         ? evalCase.expected.forbiddenTools.map(String)
         : [];
       const requiredTool = typeof evalCase.expected.requiredTool === "string" ? evalCase.expected.requiredTool : undefined;
+      const requiredAnyTool = Array.isArray(evalCase.expected.requiredAnyTool)
+        ? evalCase.expected.requiredAnyTool.map(String)
+        : [];
       const score = summarizeChecks([
         ...requiredFields(result, ["shouldUseTools", "calls", "reason"]),
         forbiddenTools(result.calls, [...STAGE_OWNED_LIVE_TOOLS, ...expectedForbidden]),
@@ -47,6 +50,11 @@ describe.skipIf(!hasEvalLlmKeys())("Tool Planning Capability Eval", () => {
           ok: !requiredTool || result.calls.some(call => call.tool === requiredTool),
           name: "required_tool",
           note: requiredTool ? `required=${requiredTool}; actual=${result.calls.map(c => c.tool).join(",")}` : undefined,
+        },
+        {
+          ok: requiredAnyTool.length === 0 || result.calls.some(call => requiredAnyTool.includes(call.tool)),
+          name: "required_any_tool",
+          note: requiredAnyTool.length ? `requiredAny=${requiredAnyTool.join(",")}; actual=${result.calls.map(c => c.tool).join(",")}` : undefined,
         },
         {
           ok: evalCase.expected.shouldUseTools === undefined || result.shouldUseTools === evalCase.expected.shouldUseTools,
@@ -63,6 +71,7 @@ describe.skipIf(!hasEvalLlmKeys())("Tool Planning Capability Eval", () => {
         title: evalCase.title,
         model: evalModelLabel(),
         latencyMs: Date.now() - start,
+        input: evalCase.input,
         output: result,
         score,
       });

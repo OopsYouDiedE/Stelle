@@ -70,6 +70,7 @@ describe.skipIf(!hasEvalLlmKeys())("Inner Synthesis Capability Eval", () => {
         title: evalCase.title,
         model: evalModelLabel(),
         latencyMs: Date.now() - start,
+        input: evalCase.input,
         output,
         score,
       });

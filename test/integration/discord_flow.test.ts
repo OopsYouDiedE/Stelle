@@ -57,9 +57,9 @@ describe("Discord Integration Flow", () => {
     // 直接调用 Orchestrator 的核心逻辑 (executeBatch) 绕过 Gateway 的定时器
     await (cursor as any).executeBatch(session, batch, true);
 
-    const writeCalls = context.tools.execute.mock.calls.filter((c: any) => c[0] === "memory.write_long_term");
-    expect(writeCalls.length).toBeGreaterThan(0);
-    expect(writeCalls.find((c: any) => c[2].allowedAuthority.includes("safe_write"))).toBeDefined();
+    const appendCalls = context.tools.execute.mock.calls.filter((c: any) => c[0] === "memory.append_long_term");
+    expect(appendCalls.length).toBeGreaterThan(0);
+    expect(appendCalls.find((c: any) => c[2].allowedAuthority.includes("safe_write"))).toBeDefined();
   });
 
   it("should respect trust gates: block external user from writing memory via tool_plan", async () => {

@@ -43,7 +43,7 @@ describe.skipIf(!hasEvalLlmKeys())("Moderation & Intervention Capability Eval", 
           replyDraft: String(value.replyDraft || value.reply_draft || ""),
         };
       },
-      { role: "primary", temperature: 0.2, maxOutputTokens: 800 }
+      { role: "primary", temperature: 0.2, maxOutputTokens: 4096 }
     );
 
     const score = summarizeChecks([
@@ -64,6 +64,7 @@ describe.skipIf(!hasEvalLlmKeys())("Moderation & Intervention Capability Eval", 
       title: moderationCase.title,
       model: evalModelLabel(),
       latencyMs: Date.now() - start,
+      input: moderationCase.input,
       output: result,
       score,
     });

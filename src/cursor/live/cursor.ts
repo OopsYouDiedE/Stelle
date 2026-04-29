@@ -11,11 +11,13 @@ import { LiveResponder } from "./responder.js";
 import { PolicyOverlayStore } from "../policy_overlay_store.js";
 import type { LiveEmotion, LiveToolResultView } from "./types.js";
 import type { NormalizedLiveEvent } from "../../utils/live_event.js";
+import type { StageOutputDecision } from "../../stage/output_types.js";
 
 export const LIVE_PERSONA = `
 You are Stelle's Live Cursor (VTuber/Streamer AI).
 You manage the vibe of the stream. You speak naturally, briefly, and with emotional intelligence.
 Do not act like a robotic assistant. Acknowledge the crowd, play along with jokes, and keep the stream moving.
+Default to concise Simplified Chinese for Bilibili/live speech unless the viewer explicitly uses another language.
 `;
 
 export class LiveDanmakuCursor implements StelleCursor {
@@ -95,8 +97,9 @@ export class LiveDanmakuCursor implements StelleCursor {
     
     const { text, forceTopic } = event.payload;
     if (text) {
-      await this.responder.enqueue(forceTopic ? "topic" : "response", text, "neutral");
+      const decisions = await this.responder.enqueue(forceTopic ? "topic" : "response", text, "neutral", { sourceEventId: event.id });
       this.summary = `[Live:Dispatch] ${truncateText(text, 50)}`;
+      if (allDropped(decisions)) this.summary = `[Live:Dispatch Dropped] ${dropReasons(decisions)}`;
       await this.reportReflection("dispatch", text, 8, "high");
     }
     return { accepted: true, reason: "Accepted", eventId: event.id };
@@ -163,8 +166,13 @@ export class LiveDanmakuCursor implements StelleCursor {
       if (decision.action !== "drop_noise" && decision.script.trim()) {
         this.status = "active";
         this.currentEmotion = decision.emotion;
-        await this.responder.enqueue("response", decision.script, decision.emotion);
-        this.summary = `[Live:${decision.action}] ${truncateText(decision.script, 50)}`;
+        const decisions = await this.responder.enqueue("response", decision.script, decision.emotion, {
+          groupId: `live-batch-${batch.map(item => item.id).join("-").slice(0, 40)}`,
+          sourceEventId: batch.at(-1)?.id,
+        });
+        this.summary = allDropped(decisions)
+          ? `[Live:${decision.action}:dropped] ${dropReasons(decisions)}`
+          : `[Live:${decision.action}] ${truncateText(decision.script, 50)}`;
         await this.reportReflection(decision.action, decision.script, 4, "medium");
         this.nextThemeAt = this.context.now() + 5000;
       }
@@ -204,7 +212,8 @@ export class LiveDanmakuCursor implements StelleCursor {
       
       const text = await this.router.generateTopic(this.responder.getRecentSpeech(), this.currentEmotion, activePolicies);
       if (text) {
-        await this.responder.enqueue("topic", text, this.currentEmotion);
+        const decisions = await this.responder.enqueue("topic", text, this.currentEmotion);
+        if (allDropped(decisions)) this.summary = `[Live:idle_topic:dropped] ${dropReasons(decisions)}`;
         await this.reportReflection("idle_topic", text, 1, "low");
       }
     } finally {
@@ -237,3 +246,11 @@ export class LiveDanmakuCursor implements StelleCursor {
 }
 
 export { LiveDanmakuCursor as LiveCursor };
+
+function allDropped(decisions: StageOutputDecision[]): boolean {
+  return decisions.length > 0 && decisions.every(decision => decision.status === "dropped");
+}
+
+function dropReasons(decisions: StageOutputDecision[]): string {
+  return decisions.map(decision => decision.reason).filter(Boolean).join(", ") || "stage_output_dropped";
+}

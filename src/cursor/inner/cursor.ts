@@ -8,11 +8,12 @@ import type { CursorContext, CursorSnapshot, StelleEvent, StelleCursor } from ".
 import { DefaultResearchAgenda } from "./research_agenda.js";
 import { DefaultFieldSampler } from "./field_sampler.js";
 import { DefaultSelfModel } from "./self_model.js";
+import { DefaultInnerObserver } from "./observer.js";
 import type { CognitiveSignal, SelfModelSnapshot, FieldNote } from "./types.js";
 
 export interface RuntimeDecision {
   id: string;
-  source: "discord" | "discord_text_channel" | "live" | "live_danmaku" | "browser" | "desktop_input" | "android_device" | "system";
+  source: "discord" | "discord_text_channel" | "live" | "live_danmaku" | "browser" | "desktop_input" | "android_device" | "stage_output" | "system";
   type: string;
   summary: string;
   timestamp: number;
@@ -40,8 +41,6 @@ export class InnerCursor implements StelleCursor {
   private summary = "Ego is dormant.";
 
   private readonly reflections: string[] = [];
-  private readonly recentDecisions: RuntimeDecision[] = [];
-  
   private currentGlobalMood = "calm";
   private activeDirectives: CursorDirective[] = [];
   private coreConvictions: CoreConviction[] = [];
@@ -55,6 +54,7 @@ export class InnerCursor implements StelleCursor {
   private currentFocus = "保持轻量观察：先关注最近对话里反复出现的关系、情绪和未完成问题。";
 
   private readonly agenda: DefaultResearchAgenda;
+  private readonly observer: DefaultInnerObserver;
   private readonly fieldSampler: DefaultFieldSampler;
   private readonly selfModel: DefaultSelfModel;
   private recentFieldNotes: FieldNote[] = [];
@@ -64,6 +64,7 @@ export class InnerCursor implements StelleCursor {
     this.lastReflectionAt = context.now();
     this.lastCoreReflectionAt = context.now();
     this.agenda = new DefaultResearchAgenda();
+    this.observer = new DefaultInnerObserver();
     this.fieldSampler = new DefaultFieldSampler({ maxNotes: 12, now: () => this.context.now() });
     this.selfModel = new DefaultSelfModel({
       mood: this.currentGlobalMood,
@@ -138,7 +139,8 @@ export class InnerCursor implements StelleCursor {
     if (event.type !== "cursor.reflection") {
       return { accepted: false, reason: `InnerCursor cannot handle ${event.type}.`, eventId: event.id ?? `inner-${Date.now()}` };
     }
-    this.recordDecision({
+    this.observer.recordEvent(event);
+    const normalized = {
       id: event.id ?? `reflection-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       source: event.source,
       type: event.payload.intent,
@@ -146,15 +148,19 @@ export class InnerCursor implements StelleCursor {
       timestamp: event.timestamp ?? this.context.now(),
       impactScore: event.payload.impactScore ?? 1,
       salience: event.payload.salience ?? "low",
-    });
+    } satisfies RuntimeDecision;
+    this.bumpReflectionPressure(normalized);
     return { accepted: true, reason: "Reflection recorded.", eventId: event.id ?? `inner-${Date.now()}` };
   }
 
   recordDecision(decision: RuntimeDecision): void {
-    this.recentDecisions.push(decision);
+    this.observer.recordDecision(decision);
+    this.bumpReflectionPressure(decision);
+  }
+
+  private bumpReflectionPressure(decision: RuntimeDecision): void {
     this.unreflectedCount++;
     this.pendingImpactScore += decision.impactScore;
-    while (this.recentDecisions.length > 200) this.recentDecisions.shift();
     
     const threshold = this.context.config.core.reflectionAccumulationThreshold;
     const shouldReflect = 
@@ -261,7 +267,7 @@ export class InnerCursor implements StelleCursor {
     this.status = "active";
 
     try {
-      const decisionsToReflect = this.recentDecisions.slice(-Math.max(20, this.unreflectedCount));
+      const decisionsToReflect = this.observer.recentObservations(Math.max(20, this.unreflectedCount));
       if (decisionsToReflect.length === 0) return;
 
       const now = this.context.now();
@@ -270,15 +276,7 @@ export class InnerCursor implements StelleCursor {
       this.lastReflectionAt = now;
 
       // Update Research Agenda
-      const signals: CognitiveSignal[] = decisionsToReflect.map(d => ({
-        id: d.id,
-        source: this.mapSourceToCognitive(d.source),
-        kind: d.type,
-        summary: d.summary,
-        timestamp: d.timestamp,
-        impactScore: d.impactScore,
-        salience: d.salience,
-      }));
+      const signals: CognitiveSignal[] = await this.observer.collectRecentSignals(Math.max(20, this.unreflectedCount || decisionsToReflect.length));
 
       const agendaUpdate = await this.agenda.update(signals, this.getSelfSnapshot(), now);
 
@@ -535,6 +533,7 @@ export class InnerCursor implements StelleCursor {
         selfModelMood: selfSnap.mood,
         selfModelWarningsCount: selfSnap.behavioralWarnings.length,
         selfModelConvictionsCount: selfSnap.activeConvictions.length,
+        ...this.observer.snapshot(),
         ...this.agenda.snapshot(),
       },
     };

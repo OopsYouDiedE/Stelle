@@ -10,6 +10,7 @@ export interface EvalReportCase {
   title: string;
   model: string;
   latencyMs: number;
+  input?: unknown;
   output: unknown;
   score: EvalScore;
 }
@@ -22,20 +23,33 @@ export async function recordEvalCase(report: EvalReportCase): Promise<void> {
   const jsonPath = path.join(logDir, `${report.suite}_summary.json`);
   const timestamp = new Date().toISOString();
 
+  const input = truncate(sanitizeSecrets(JSON.stringify(report.input ?? "未记录", null, 2)), 2500);
   const output = truncate(sanitizeSecrets(JSON.stringify(report.output, null, 2)), 4000);
+  const assessment = report.score.passed
+    ? `通过。得分 ${report.score.score.toFixed(2)}，未发现失败检查。`
+    : `未通过。得分 ${report.score.score.toFixed(2)}，失败检查：${report.score.failedChecks.join("、") || "未知"}。`;
   const content = [
     `### ${report.suite}: ${report.caseId} @ ${timestamp}`,
-    `- **Title**: ${report.title}`,
-    `- **Model**: ${report.model}`,
-    `- **Latency**: ${report.latencyMs}ms`,
-    `- **Passed**: ${report.score.passed}`,
-    `- **Score**: ${report.score.score.toFixed(2)}`,
-    `- **Failed Checks**: ${report.score.failedChecks.length ? report.score.failedChecks.join(", ") : "none"}`,
+    `- **测试项目**：${report.title}`,
+    `- **模型**：${report.model}`,
+    `- **耗时**：${report.latencyMs}ms`,
+    `- **是否通过**：${report.score.passed ? "通过" : "未通过"}`,
+    `- **得分**：${report.score.score.toFixed(2)}`,
+    `- **失败检查**：${report.score.failedChecks.length ? report.score.failedChecks.join("、") : "无"}`,
     "",
-    "#### Output",
+    "#### 使用数据",
+    "```json",
+    input,
+    "```",
+    "",
+    "#### 输出结果",
     "```json",
     output,
     "```",
+    "",
+    "#### 结果评估",
+    assessment,
+    ...(report.score.notes.length ? ["", "补充说明：", ...report.score.notes.slice(0, 8).map(note => `- ${note}`)] : []),
     "",
     "---",
     "",

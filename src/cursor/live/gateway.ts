@@ -44,14 +44,14 @@ export class LiveGateway {
 
   private publishSystemEvent(id: string, lane: string, text: string) {
     this.context.tools.execute(
-      "live.push_event",
+      "live.panel.push_event",
       { event_id: id, lane, text },
       { 
         caller: "cursor", 
         cursorId: "live", 
         cwd: process.cwd(), 
         allowedAuthority: ["external_write"],
-        allowedTools: ["live.push_event"] // 必须显式授权
+        allowedTools: ["live.panel.push_event"] // 必须显式授权
       }
     ).catch(err => {
       // 至少在调试时能看到为什么失败

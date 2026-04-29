@@ -44,6 +44,7 @@ export class LiveRouter {
       "- live.status: {} (Check stage)",
       "- obs.status: {} (Check OBS)",
       "- search.web_search: { query: '...' } (Web search)",
+      "Language: reply in concise Simplified Chinese by default.",
       `\nLATEST CHAT BATCH:\n${batchLog}`
     ].filter(Boolean).join("\n\n");
 
@@ -99,7 +100,7 @@ export class LiveRouter {
       this.persona,
       subconscious ? `Internal subconscious guidance:\n${subconscious}` : undefined,
       directiveBlock,
-      "Chat is quiet. Generate ONE short, engaging sentence to keep the stream lively.",
+      "Chat is quiet. Generate ONE short, engaging sentence in concise Simplified Chinese to keep the stream lively.",
       `Current Focus:\n${focus ?? "Relaxed chatting"}`,
       `What you just said:\n${recentSpeech.join("\n") || "(none)"}`
     ].filter(Boolean).join("\n\n");
@@ -132,7 +133,7 @@ export class LiveRouter {
       `What you just said (DO NOT REPEAT):\n${input.recentSpeech.join("\n") || "(Silent)"}`,
       `Current Emotion: ${input.currentEmotion}`,
       `LATEST CHAT BATCH:\n${batchLog}`,
-      "Return a short natural script. If the tools prove there is nothing useful to say, choose drop_noise."
+      "Return a short natural Simplified Chinese script. If the tools prove there is nothing useful to say, choose drop_noise."
     ].filter(Boolean).join("\n\n");
 
     return this.context.llm.generateJson(

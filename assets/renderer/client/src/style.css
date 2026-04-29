@@ -416,3 +416,134 @@ button {
     font-size: clamp(1.6rem, 8vw, 2.8rem);
   }
 }
+
+body[data-scene="standalone"] {
+  background:
+    linear-gradient(180deg, rgba(4, 8, 13, 0.08), rgba(4, 8, 13, 0.78)),
+    radial-gradient(circle at 50% 42%, rgba(139, 224, 200, 0.16), transparent 18rem),
+    linear-gradient(135deg, #0a1118 0%, #17212a 43%, #36211f 100%);
+}
+
+body[data-scene="standalone"]::before {
+  opacity: 0.55;
+  mask-image: linear-gradient(to bottom, transparent, black 18%, black 82%, transparent);
+}
+
+body[data-scene="standalone"] #app {
+  padding: 0;
+}
+
+body[data-scene="standalone"] .layout {
+  display: block;
+  min-height: 100vh;
+}
+
+body[data-scene="standalone"] .panel {
+  display: none;
+}
+
+body[data-scene="standalone"] .stage-shell {
+  min-height: 100vh;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+body[data-scene="standalone"] .stage-shell::before {
+  background:
+    linear-gradient(to top, rgba(4, 8, 13, 0.86) 0%, rgba(4, 8, 13, 0.26) 38%, rgba(4, 8, 13, 0.08) 100%),
+    var(--stage-background-image),
+    radial-gradient(ellipse at 50% 52%, rgba(90, 165, 255, 0.24), transparent 44%),
+    linear-gradient(120deg, rgba(242, 182, 97, 0.12), transparent 28%, rgba(139, 224, 200, 0.1) 72%, transparent);
+}
+
+body[data-scene="standalone"] .stage-scene {
+  min-height: 100vh;
+  padding: clamp(1rem, 2.4vw, 2rem);
+}
+
+body[data-scene="standalone"] .stage-topbar {
+  align-items: flex-start;
+}
+
+body[data-scene="standalone"] .stage-eyebrow {
+  font-size: clamp(0.78rem, 1vw, 0.98rem);
+  color: rgba(247, 239, 225, 0.78);
+}
+
+body[data-scene="standalone"] .stage-status-group {
+  gap: 0.55rem;
+}
+
+body[data-scene="standalone"] .status-chip {
+  border-radius: 0.4rem;
+  background: rgba(4, 8, 13, 0.42);
+  color: rgba(213, 228, 239, 0.78);
+}
+
+body[data-scene="standalone"] .audio-chip {
+  color: #f2b661;
+}
+
+body[data-scene="standalone"] .stage-center {
+  min-height: 0;
+}
+
+body[data-scene="standalone"] .halo {
+  inset: 13% 21% 13%;
+  background:
+    radial-gradient(circle at center, rgba(139, 224, 200, 0.18), rgba(90, 165, 255, 0.12) 44%, transparent 74%);
+  filter: blur(18px);
+}
+
+body[data-scene="standalone"] .live2d-wrap {
+  inset: -3% 0 8%;
+}
+
+body[data-scene="standalone"] .caption-box {
+  width: min(68rem, calc(100vw - 2rem));
+  margin-bottom: clamp(0.4rem, 1.7vh, 1.5rem);
+  padding: clamp(0.9rem, 1.4vw, 1.3rem) clamp(1rem, 2vw, 1.8rem);
+  border-radius: 0.45rem;
+  background:
+    linear-gradient(90deg, rgba(4, 8, 13, 0.12), rgba(4, 8, 13, 0.72) 18%, rgba(4, 8, 13, 0.72) 82%, rgba(4, 8, 13, 0.12));
+  border: 1px solid rgba(247, 239, 225, 0.12);
+  box-shadow: 0 1.2rem 3rem rgba(0, 0, 0, 0.24);
+}
+
+body[data-scene="standalone"] #caption {
+  min-height: 1.25em;
+  font-size: clamp(2rem, 4.2vw, 5rem);
+  line-height: 1.08;
+  text-shadow: 0 0.18rem 1rem rgba(0, 0, 0, 0.42);
+}
+
+body[data-scene="standalone"] #speaker {
+  color: rgba(242, 182, 97, 0.82);
+}
+
+body[data-autoplay="true"] .audio-chip::before {
+  content: "AUTO ";
+  color: rgba(139, 224, 200, 0.82);
+}
+
+@media (max-width: 720px) {
+  body[data-scene="standalone"] .stage-scene {
+    padding: 0.8rem;
+  }
+
+  body[data-scene="standalone"] .stage-topbar {
+    gap: 0.5rem;
+  }
+
+  body[data-scene="standalone"] .status-chip {
+    font-size: 0.62rem;
+    padding: 0.35rem 0.5rem;
+  }
+
+  body[data-scene="standalone"] .caption-box {
+    width: calc(100vw - 1rem);
+  }
+}

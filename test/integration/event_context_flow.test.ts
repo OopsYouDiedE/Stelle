@@ -21,7 +21,10 @@ describe("Event-Driven Context Flow Integration", () => {
         generateText: vi.fn().mockResolvedValue("Reply")
       },
       tools: {
-        execute: vi.fn().mockResolvedValue({ ok: true, summary: "OK", data: { status: { botUserId: "bot-123" } } })
+        execute: vi.fn().mockImplementation(async (name: string) => {
+          if (name === "discord.reply_message") return { ok: true, summary: "OK", data: { message: { id: "reply-1", channelId: "c1" } } };
+          return { ok: true, summary: "OK", data: { status: { botUserId: "bot-123" } } };
+        })
       },
       memory: {
         writeRecent: vi.fn().mockResolvedValue(undefined),

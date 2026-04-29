@@ -36,33 +36,35 @@ export async function generateReadableEvalSummaryReport(): Promise<void> {
   const totalLatency = allRuns.reduce((sum, run) => sum + (typeof run.latencyMs === "number" ? run.latencyMs : 0), 0);
 
   const lines = [
-    "# Stelle Eval Summary Report",
+    "# Stelle Eval 总体报告",
     "",
-    `- Run started: ${runStartedAt}`,
-    `- Report generated: ${new Date().toISOString()}`,
-    `- Model: ${model}`,
-    `- Cases: ${total}`,
-    `- Passed: ${passed}`,
-    `- Failed: ${failed}`,
-    `- Average score: ${averageScore.toFixed(2)}`,
-    `- Total model latency: ${totalLatency}ms`,
+    `- **运行开始**：${runStartedAt}`,
+    `- **报告生成**：${new Date().toISOString()}`,
+    `- **使用模型**：${model}`,
+    `- **测试项目数**：${total}`,
+    `- **通过**：${passed}`,
+    `- **未通过**：${failed}`,
+    `- **平均得分**：${averageScore.toFixed(2)}`,
+    `- **模型总耗时**：${totalLatency}ms`,
     "",
-    "## Suite Overview",
+    "## 套件总览",
     "",
-    "| Suite | Cases | Passed | Failed | Avg Score | Avg Latency |",
+    "| 套件 | 测试数 | 通过 | 未通过 | 平均得分 | 平均耗时 |",
     "| --- | ---: | ---: | ---: | ---: | ---: |",
     ...summaries.map(summary => formatSuiteRow(summary)),
     "",
-    "## Attention Needed",
+    "## 需要关注的项目",
     "",
     ...formatFailures(allRuns),
     "",
-    "## Notes",
+    "## 总体结论",
     "",
     total === 0
-      ? "- No eval cases were recorded in this run. This usually means model evals were skipped because API keys were unavailable or disabled."
-      : "- Detailed per-suite reports remain in `evals/logs/*_report.md`.",
-    "- This summary is generated from current-run JSON summaries, not from raw private material.",
+      ? "- 本次没有记录任何 eval 用例，通常表示缺少 API key 或 eval 被跳过。"
+      : failed === 0
+        ? "- 本次所有已记录 eval 均通过；详细的测试项目、使用数据、输出结果和结果评估见 `evals/logs/*_report.md`。"
+        : "- 本次仍有未通过 eval；请优先查看上方“需要关注的项目”，再进入对应套件报告定位具体输入与输出。",
+    "- 该总体报告由本次运行的 JSON 摘要生成；每个套件的可读报告会截断过长数据并过滤常见密钥。",
     "",
   ];
 
@@ -106,12 +108,12 @@ function formatSuiteRow(summary: SuiteSummary): string {
 
 function formatFailures(runs: Array<SummaryRun & { suite: string }>): string[] {
   const failures = runs.filter(run => !run.passed);
-  if (failures.length === 0) return ["- No failed eval checks in this run."];
+  if (failures.length === 0) return ["- 本次没有失败检查。"];
 
   return failures.flatMap(run => {
-    const failedChecks = run.failedChecks?.length ? run.failedChecks.join(", ") : "unknown";
-    const notes = run.notes?.length ? ` Notes: ${run.notes.slice(0, 3).join(" | ")}` : "";
-    return [`- ${run.suite}/${run.caseId ?? "unknown"}: ${run.title ?? "Untitled"} (${failedChecks}).${notes}`];
+    const failedChecks = run.failedChecks?.length ? run.failedChecks.join("、") : "未知";
+    const notes = run.notes?.length ? ` 说明：${run.notes.slice(0, 3).join(" | ")}` : "";
+    return [`- ${run.suite}/${run.caseId ?? "unknown"}：${run.title ?? "未命名"}（失败检查：${failedChecks}）。${notes}`];
   });
 }
 

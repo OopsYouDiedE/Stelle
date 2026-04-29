@@ -15,7 +15,9 @@ import { setupRendererControllers } from "./debug_controller.js";
 import { StageOutputArbiter } from "../stage/output_arbiter.js";
 import { StageOutputRenderer } from "../stage/output_renderer.js";
 import { DeviceActionArbiter } from "../device/action_arbiter.js";
-import { MockDeviceActionDriver } from "../device/drivers/mock_driver.js";
+import { AndroidAdbDriver } from "../device/drivers/android_adb_driver.js";
+import { BrowserCdpDriver } from "../device/drivers/browser_cdp_driver.js";
+import { DesktopInputDriver } from "../device/drivers/desktop_input_driver.js";
 import { buildDeviceActionAllowlist } from "../device/action_allowlist.js";
 
 export type StartMode = "runtime" | "discord" | "live";
@@ -233,7 +235,7 @@ export class StelleApplication {
 
   private createDeviceAction(): DeviceActionArbiter {
     return new DeviceActionArbiter({
-      drivers: [new MockDeviceActionDriver("browser"), new MockDeviceActionDriver("desktop_input")],
+      drivers: [new BrowserCdpDriver(), new DesktopInputDriver(), new AndroidAdbDriver()],
       eventBus: this.eventBus,
       now: () => Date.now(),
       allowlist: buildDeviceActionAllowlist(this.config),

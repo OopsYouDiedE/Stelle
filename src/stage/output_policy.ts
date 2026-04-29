@@ -27,6 +27,9 @@ export type OutputPolicyDecision =
 export function compareIntentPriority(a: OutputIntent, b: OutputIntent): number {
   const rankDiff = LANE_RANK[b.lane] - LANE_RANK[a.lane];
   if (rankDiff !== 0) return rankDiff;
+  if (a.groupId && a.groupId === b.groupId && a.sequence !== undefined && b.sequence !== undefined) {
+    return a.sequence - b.sequence;
+  }
   return b.priority - a.priority;
 }
 

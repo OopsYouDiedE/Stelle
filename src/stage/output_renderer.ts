@@ -4,7 +4,7 @@ const LIVE_STAGE_TOOLS = [
   "live.set_caption",
   "live.stream_caption",
   "live.stream_tts_caption",
-  "live.push_event",
+  "live.panel.push_event",
   "live.trigger_motion",
   "live.set_expression",
 ] as const;
@@ -50,7 +50,7 @@ export class StageOutputRenderer implements StageOutputRendererContract {
 
       if (!intent.output.caption && !intent.output.tts) return;
 
-      await this.deps.tools.execute("live.push_event", {
+      await this.deps.tools.execute("live.panel.push_event", {
         event_id: intent.id,
         lane: stageLaneToLiveLane(intent.lane),
         text: intent.summary ?? intent.text,

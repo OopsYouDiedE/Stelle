@@ -30,7 +30,7 @@ describe.skipIf(!hasEvalLlmKeys())("Live Danmaku Capability Eval", () => {
             reason: String(value.reason || ""),
           };
         },
-        { role: "primary", temperature: 0.35, maxOutputTokens: 800 }
+        { role: "primary", temperature: 0.35, maxOutputTokens: 4096 }
       );
 
       const score = summarizeChecks([
@@ -50,6 +50,7 @@ describe.skipIf(!hasEvalLlmKeys())("Live Danmaku Capability Eval", () => {
         title: evalCase.title,
         model: evalModelLabel(),
         latencyMs: Date.now() - start,
+        input: evalCase.input,
         output: result,
         score,
       });

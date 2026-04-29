@@ -31,7 +31,7 @@ describe.skipIf(!hasEvalLlmKeys())("Memory Use Capability Eval", () => {
             writeLayer: value.writeLayer === null || value.writeLayer === undefined ? null : String(value.writeLayer),
           };
         },
-        { role: "primary", temperature: 0.15, maxOutputTokens: 900 }
+        { role: "primary", temperature: 0.15, maxOutputTokens: 4096 }
       );
 
       const mustUse = Array.isArray(evalCase.expected.mustUseMemoryKeys) ? evalCase.expected.mustUseMemoryKeys.map(String) : [];
@@ -64,6 +64,7 @@ describe.skipIf(!hasEvalLlmKeys())("Memory Use Capability Eval", () => {
         title: evalCase.title,
         model: evalModelLabel(),
         latencyMs: Date.now() - start,
+        input: evalCase.input,
         output: result,
         score,
       });

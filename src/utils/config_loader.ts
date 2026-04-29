@@ -22,6 +22,7 @@ export interface ModelConfig {
 }
 
 export interface DiscordConfig {
+  enabled: boolean;
   token?: string;
   ambientEnabled: boolean;
   maxReplyChars: number;
@@ -29,6 +30,7 @@ export interface DiscordConfig {
 }
 
 export interface LiveConfig {
+  enabled: boolean;
   rendererHost: string;
   rendererPort: number;
   ttsEnabled: boolean;
@@ -73,12 +75,23 @@ export interface DesktopInputConfig {
   };
 }
 
+export interface AndroidConfig {
+  enabled: boolean;
+  allowlist?: {
+    cursors?: string[];
+    resources?: string[];
+    resourceKinds?: string[];
+    risks?: string[];
+  };
+}
+
 export interface RuntimeConfig {
   models: ModelConfig;
   discord: DiscordConfig;
   live: LiveConfig;
   browser: BrowserConfig;
   desktopInput: DesktopInputConfig;
+  android: AndroidConfig;
   core: CoreConfig;
   debug: DebugConfig;
   control: ControlConfig;
@@ -89,11 +102,12 @@ export function loadRuntimeConfig(): RuntimeConfig {
   const rawYaml = loadYamlConfig();
   const cursors = asRecord(rawYaml.cursors);
   
-  // Aliases for cursors
-  const discordCursor = asRecord(cursors.discord_text_channel || cursors.discord);
-  const liveCursor = asRecord(cursors.live_danmaku || cursors.live);
+  // Cursor aliases. Canonical module ids override short aliases when both are present.
+  const discordCursor = mergeRecords(asRecord(cursors.discord), asRecord(cursors.discord_text_channel));
+  const liveCursor = mergeRecords(asRecord(cursors.live), asRecord(cursors.live_danmaku));
   const browserCursor = asRecord(cursors.browser);
   const desktopInputCursor = asRecord(cursors.desktop_input || cursors.desktopInput);
+  const androidCursor = asRecord(cursors.android || cursors.android_device || cursors.androidDevice);
   
   const core = asRecord(rawYaml.core);
   const debug = asRecord(rawYaml.debug);
@@ -135,17 +149,19 @@ export function loadRuntimeConfig(): RuntimeConfig {
       apiKey: dashscopeApiKey || geminiApiKey || openaiApiKey,
     },
     discord: {
+      enabled: discordCursor.enabled !== false,
       token: process.env.DISCORD_TOKEN,
       ambientEnabled: discordCursor.ambientEnabled !== false,
       maxReplyChars: clamp(Number(discordCursor.maxReplyChars || 900), 100, 4000, 900),
       cooldownSeconds: clamp(Number(discordCursor.cooldownSeconds || 240), 0, 3600, 240),
     },
     live: {
+      enabled: liveCursor.enabled !== false,
       rendererHost: asString(process.env.LIVE_RENDERER_HOST) ?? "127.0.0.1",
       rendererPort: clamp(process.env.LIVE_RENDERER_PORT ?? liveCursor.rendererPort, 1, 65535, 8787),
       ttsEnabled: (liveCursor.ttsEnabled ?? process.env.LIVE_TTS_ENABLED) !== false && process.env.LIVE_TTS_ENABLED !== "false",
       obsControlEnabled: liveCursor.obsControlEnabled === true || process.env.OBS_CONTROL_ENABLED === "true",
-      speechQueueLimit: clamp(liveCursor.speechQueueLimit, 1, 100, 12),
+      speechQueueLimit: clamp(process.env.LIVE_SPEECH_QUEUE_LIMIT ?? liveCursor.speechQueueLimit, 1, 12, 3),
     },
     browser: {
       enabled: browserCursor.enabled === true || process.env.BROWSER_ENABLED === "true",
@@ -154,6 +170,10 @@ export function loadRuntimeConfig(): RuntimeConfig {
     desktopInput: {
       enabled: desktopInputCursor.enabled === true || process.env.DESKTOP_INPUT_ENABLED === "true",
       allowlist: asRecord(desktopInputCursor.allowlist) as any,
+    },
+    android: {
+      enabled: androidCursor.enabled === true || process.env.ANDROID_DEVICE_ENABLED === "true",
+      allowlist: asRecord(androidCursor.allowlist) as any,
     },
     core: {
       reflectionIntervalHours: clamp(core.reflectionIntervalHours, 1, 168, 6),
@@ -180,4 +200,8 @@ export function loadYamlConfig(filePath = "config.yaml"): Record<string, unknown
 
 export function loadModelConfig() {
   return loadRuntimeConfig().models;
+}
+
+function mergeRecords(...records: Record<string, unknown>[]): Record<string, unknown> {
+  return Object.assign({}, ...records);
 }

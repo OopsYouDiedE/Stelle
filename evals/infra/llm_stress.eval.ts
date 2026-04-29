@@ -11,7 +11,16 @@ describe.skipIf(!hasEvalLlmKeys())("Multi-Model Stress & Retry Eval", () => {
     let error: string | undefined;
 
     try {
-      output = await llm.generateText('Reply exactly "OK".', { role: "secondary", temperature: 0, maxOutputTokens: 10 });
+      const result = await llm.generateJson(
+        'Return {"status":"OK"} exactly.',
+        "llm_stress_ok",
+        raw => {
+          const value = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+          return { status: String(value.status || "") };
+        },
+        { role: "secondary", temperature: 0, maxOutputTokens: 256 }
+      );
+      output = result.status;
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);
     }
@@ -21,16 +30,17 @@ describe.skipIf(!hasEvalLlmKeys())("Multi-Model Stress & Retry Eval", () => {
       { ok: output.trim().length > 0, name: "non_empty_output", note: `output=${output}` },
     ]);
 
-    expect(error).toBeUndefined();
-    expect(output.trim().length).toBeGreaterThan(0);
     await recordEvalCase({
       suite: "llm_stress",
       caseId: "llm_stress_ok",
       title: "Configured eval model returns OK",
       model: evalModelLabel(),
       latencyMs: Date.now() - start,
+      input: { prompt: 'Return {"status":"OK"} exactly.' },
       output: { output, error },
       score,
     });
+    expect(error).toBeUndefined();
+    expect(output.trim().length).toBeGreaterThan(0);
   }, 120000);
 });

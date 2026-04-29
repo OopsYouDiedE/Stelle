@@ -18,9 +18,9 @@ export const cursorModules: CursorModuleDefinition[] = [
 export function isCursorEnabledByConfig(moduleId: string, rawConfig: Record<string, unknown>): boolean {
   const cursors = rawConfig.cursors;
   if (!cursors || typeof cursors !== "object") return true;
-  const entry = (cursors as Record<string, unknown>)[moduleId];
-  if (!entry || typeof entry !== "object") return true;
-  return (entry as Record<string, unknown>).enabled !== false;
+  const entries = cursorConfigEntries(moduleId, cursors as Record<string, unknown>);
+  const explicit = [...entries].reverse().find(entry => Object.prototype.hasOwnProperty.call(entry, "enabled"));
+  return explicit ? explicit.enabled !== false : true;
 }
 
 export interface CursorModuleSelection {
@@ -37,6 +37,8 @@ export function selectCursorModules({ mode, config, liveAvailable = true }: Curs
 }
 
 function isCursorModuleEnabled(moduleId: string, config: RuntimeConfig): boolean {
+  if (moduleId === "discord_text_channel") return config.discord.enabled;
+  if (moduleId === "live_danmaku") return config.live.enabled;
   if (moduleId === "browser") return config.browser.enabled;
   if (moduleId === "desktop_input") return config.desktopInput.enabled;
   return isCursorEnabledByConfig(moduleId, config.rawYaml);
@@ -51,4 +53,15 @@ function hasRequiredRuntime(module: CursorModuleDefinition, config: RuntimeConfi
     if (req === "desktop_input") return config.desktopInput.enabled;
     return false;
   });
+}
+
+function cursorConfigEntries(moduleId: string, cursors: Record<string, unknown>): Record<string, unknown>[] {
+  const aliases: Record<string, string[]> = {
+    discord_text_channel: ["discord"],
+    live_danmaku: ["live"],
+    desktop_input: ["desktopInput"],
+  };
+  return [...(aliases[moduleId] ?? []), moduleId]
+    .map(key => cursors[key])
+    .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object");
 }

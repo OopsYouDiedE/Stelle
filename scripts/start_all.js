@@ -6,11 +6,14 @@ const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const mode = normalizeMode(process.argv[2] ?? process.env.STELLE_STACK_MODE ?? "runtime");
 const watch = process.argv.includes("--watch");
 const built = process.argv.includes("--built");
+const bilibili = process.argv.includes("--bilibili");
+const bilibiliDryRun = process.argv.includes("--bilibili-dry-run");
 const pythonExe = process.env.KOKORO_PYTHON || path.join(rootDir, ".venv", "Scripts", "python.exe");
 
 const children = [];
 const stelleChild = createStelleChild(mode, { watch, built });
 const kokoroChild = mode === "discord" ? null : createKokoroChild();
+const bilibiliChild = bilibili && mode !== "discord" ? createBilibiliChild({ dryRun: bilibiliDryRun }) : null;
 
 children.push(stelleChild);
 
@@ -46,6 +49,14 @@ for (const child of children) {
       const text = chunk.toString();
       if (!text.includes("Runtime started")) return;
       startDeferredChild(kokoroChild);
+    });
+  }
+
+  if (child.name === "stelle" && bilibiliChild && !bilibiliChild.process) {
+    child.process.stdout?.on("data", (chunk) => {
+      const text = chunk.toString();
+      if (!text.includes("Runtime started")) return;
+      startDeferredChild(bilibiliChild);
     });
   }
 }
@@ -92,6 +103,19 @@ function createKokoroChild() {
     name: "kokoro",
     command: pythonExe,
     args: [path.join(rootDir, "scripts", "kokoro_tts_server.py")],
+    process: undefined,
+  };
+}
+
+function createBilibiliChild(options = {}) {
+  return {
+    name: "bilibili",
+    command: process.execPath,
+    args: [
+      resolveBin("tsx"),
+      path.join(rootDir, "scripts", "bilibili_danmaku_bridge.ts"),
+      ...(options.dryRun ? ["--dry-run"] : []),
+    ],
     process: undefined,
   };
 }

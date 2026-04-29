@@ -65,23 +65,35 @@ export class DiscordResponder {
       { channel_id: latestMessage.channelId, message_id: latestMessage.id, content: sanitizeExternalText(replyText) },
       { caller: "cursor", cursorId: this.cursorId, cwd: process.cwd(), allowedAuthority: ["external_write"], allowedTools: ["discord.reply_message"] }
     );
+    if (!result.ok) {
+      throw new Error(`Discord reply failed: ${result.error?.message ?? result.summary}`);
+    }
+    const sentMessage = asRecord(result.data?.message);
+    const sentId = String(sentMessage.id ?? "");
+    if (!sentId) {
+      throw new Error("Discord reply failed: tool returned no sent message id.");
+    }
 
     // 2. 只有 Owner 可触发长期记忆写入 (归类为 user_facts)
     if (latestMessage.author.trustLevel === "owner" && policy.intent === "memory_write" && this.context.memory) {
       const key = `discord_channel_memory_${latestMessage.channelId}`;
       const line = `[${new Date().toISOString()}] User: ${latestMessage.cleanContent}\nStelle: ${replyText}`;
       await this.context.tools.execute(
-        "memory.write_long_term", 
+        "memory.append_long_term", 
         { key, value: line, layer: "user_facts" }, 
-        { caller: "cursor", cursorId: this.cursorId, cwd: process.cwd(), allowedAuthority: ["safe_write"], allowedTools: ["memory.write_long_term"] }
+        { caller: "cursor", cursorId: this.cursorId, cwd: process.cwd(), allowedAuthority: ["safe_write"], allowedTools: ["memory.append_long_term"] }
       ).catch(() => {});
     }
 
     return {
-      id: String(asRecord(result.data?.message).id || `reply-${Date.now()}`),
-      channelId: latestMessage.channelId,
+      id: sentId,
+      channelId: String(sentMessage.channelId ?? latestMessage.channelId),
+      guildId: typeof sentMessage.guildId === "string" ? sentMessage.guildId : latestMessage.guildId,
       author: { id: "bot", username: "Stelle", displayName: "Stelle", bot: true, trustLevel: "bot" },
-      content: replyText, cleanContent: replyText, createdTimestamp: this.context.now(), trustedInput: false
+      content: replyText,
+      cleanContent: replyText,
+      createdTimestamp: typeof sentMessage.createdTimestamp === "number" ? sentMessage.createdTimestamp : this.context.now(),
+      trustedInput: false
     };
   }
 }

@@ -13,7 +13,7 @@ cursors:
     dmSilenceSeconds: 4
   live:
     ttsEnabled: true
-    speechQueueLimit: 12
+    speechQueueLimit: 3
   browser:
     enabled: false
     allowlist:
@@ -23,6 +23,11 @@ cursors:
     enabled: false
     allowlist:
       resources: ["desktop"]
+      risks: ["readonly", "safe_interaction", "text_input"]
+  android:
+    enabled: false
+    allowlist:
+      resources: ["default"]
       risks: ["readonly", "safe_interaction", "text_input"]
 
 core:

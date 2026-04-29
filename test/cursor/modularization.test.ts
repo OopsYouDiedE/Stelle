@@ -5,7 +5,7 @@ import { DiscordTextChannelCursor } from "../../src/cursor/discord/cursor.js";
 import { LiveDanmakuCursor } from "../../src/cursor/live/cursor.js";
 import { BrowserCursor } from "../../src/cursor/modules/browser/cursor.js";
 import { DesktopInputCursor } from "../../src/cursor/modules/desktop-input/cursor.js";
-import { cursorModules } from "../../src/cursor/registry.js";
+import { cursorModules, isCursorEnabledByConfig, selectCursorModules } from "../../src/cursor/registry.js";
 import { StelleEventBus } from "../../src/utils/event_bus.js";
 
 function makeContext(overrides: Record<string, unknown> = {}) {
@@ -48,6 +48,26 @@ describe("cursor modularization", () => {
     expect(runtimeIds).toEqual(expect.arrayContaining(["inner", "discord_text_channel", "live_danmaku", "browser", "desktop_input"]));
     expect(discordIds).toEqual(expect.arrayContaining(["inner", "discord_text_channel"]));
     expect(discordIds).not.toContain("live_danmaku");
+  });
+
+  it("honors short cursor enabled aliases for canonical cursor modules", () => {
+    expect(isCursorEnabledByConfig("discord_text_channel", { cursors: { discord: { enabled: false } } })).toBe(false);
+    expect(isCursorEnabledByConfig("live_danmaku", { cursors: { live: { enabled: false } } })).toBe(false);
+
+    const selected = selectCursorModules({
+      mode: "runtime",
+      liveAvailable: true,
+      config: {
+        discord: { enabled: false, token: "token", ambientEnabled: true, cooldownSeconds: 0, maxReplyChars: 900 },
+        live: { enabled: false, ttsEnabled: false, speechQueueLimit: 5 },
+        browser: { enabled: false },
+        desktopInput: { enabled: false },
+        rawYaml: { cursors: { discord: { enabled: false }, live: { enabled: false } } },
+      } as any,
+    }).map(module => module.id);
+
+    expect(selected).not.toContain("discord_text_channel");
+    expect(selected).not.toContain("live_danmaku");
   });
 
   it("bridges legacy and new discord message events to the text channel cursor", async () => {

@@ -7,7 +7,7 @@ export const CURSOR_CAPABILITIES = {
     ],
     executeTools: [
       "memory.read_recent", "memory.search", "memory.read_long_term", "memory.write_long_term",
-      "memory.append_research_log", "search.web_search", "search.web_read",
+      "memory.append_long_term", "memory.append_research_log", "search.web_search", "search.web_read",
       "discord.status", "discord.get_channel_history", "discord.reply_message",
       "live.status", "obs.status",
     ],
@@ -21,11 +21,11 @@ export const CURSOR_CAPABILITIES = {
     stageTools: [
       "basic.datetime", "memory.read_long_term", "memory.write_recent", "memory.search",
       "memory.propose_write", "search.web_search", "search.web_read", "live.status",
-      "live.push_event", "obs.status", "tts.kokoro_speech",
+      "live.panel.push_event", "obs.status", "tts.live_speech", "tts.kokoro_speech",
     ],
     executeTools: [
       "memory.read_recent", "memory.search", "memory.read_long_term",
-      "live.status", "live.push_event", "obs.status", "basic.datetime",
+      "live.status", "live.panel.push_event", "obs.status", "basic.datetime",
       "search.web_search", "search.web_read",
     ],
   },

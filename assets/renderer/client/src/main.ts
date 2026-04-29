@@ -34,12 +34,6 @@ interface BilibiliFixtureEvent {
   };
 }
 
-interface BilibiliFixture {
-  source: string;
-  capturedShape: string;
-  events: BilibiliFixtureEvent[];
-}
-
 const caption = document.querySelector<HTMLHeadingElement>("#caption");
 const speaker = document.querySelector<HTMLParagraphElement>("#speaker");
 const avatarStatus = document.querySelector<HTMLParagraphElement>("#avatar-status");
@@ -52,21 +46,21 @@ const simulateText = document.querySelector<HTMLInputElement>("#simulate-text");
 const simulatePriority = document.querySelector<HTMLSelectElement>("#simulate-priority");
 const params = new URLSearchParams(window.location.search);
 
-const defaultSample = "/samples/bilibili-danmu.sample.json";
 const avatar = liveCanvas ? new Live2DAvatar({ canvas: liveCanvas, status: avatarStatus }) : null;
+const standaloneScene = shouldUseStandaloneScene();
 
 let streamToken = 0;
 let activeAudio: HTMLAudioElement | null = null;
-let autoplayStarted = false;
-const pendingAudioQueue: Array<{ url: string }> = [];
+const pendingAudioQueue: Array<{ url: string; text?: string; speaker?: string; rateMs?: number }> = [];
 let audioPumpRunning = false;
 
+applySceneMode();
 void avatar?.mount().catch(() => undefined);
 connectEvents();
 bindSimulationForm();
 
 if (shouldAutoplay()) {
-  void runAutoplaySample(params.get("sample") || defaultSample);
+  primeAutoplayAudio();
 }
 
 function connectEvents(): void {
@@ -151,7 +145,7 @@ function applyCommand(command: RendererCommand): void {
     return;
   }
   if (command.type === "audio:play" || command.type === "audio:stream") {
-    queueAudio(command.url ?? "");
+    queueAudio(command.url ?? "", { text: command.text, speaker: command.speaker, rateMs: command.rateMs });
     return;
   }
   if (command.type === "audio:stop") {
@@ -181,38 +175,6 @@ async function streamCaption(text: string, source: string, rateMs = 34): Promise
   }
 }
 
-async function runAutoplaySample(sampleUrl: string): Promise<void> {
-  try {
-    if (autoplayStarted) return;
-    autoplayStarted = true;
-    const fixture = (await fetch(sampleUrl, { cache: "no-store" }).then((response) => {
-      if (!response.ok) throw new Error(`sample fetch failed: ${response.status}`);
-      return response.json();
-    })) as BilibiliFixture;
-
-    pushFeed({ lane: "system", text: `loaded ${fixture.events.length} sample events`, userName: "fixture", note: "autoplay" });
-    const intervalMs = Math.max(2500, Number(params.get("intervalMs") ?? 6500));
-    const loop = !["0", "false", "off"].includes(String(params.get("loop") ?? "0").toLowerCase());
-
-    do {
-      for (const event of fixture.events) {
-        const text = event.normalized?.text ?? extractDanmakuText(event.raw) ?? `[${event.cmd}]`;
-        const name = event.normalized?.userName ?? extractUserName(event.raw) ?? "Bilibili viewer";
-        pushFeed({ lane: "incoming", text, userName: name, priority: event.priority, note: event.cmd });
-        await postLiveEvent(event);
-        await delay(intervalMs);
-      }
-      if (loop) {
-        pushFeed({ lane: "system", text: "fixture loop restart", userName: "fixture", note: "autoplay" });
-        await delay(Math.max(1000, intervalMs));
-      }
-    } while (loop);
-  } catch (error) {
-    setSpeaker("autoplay failed");
-    setCaption(error instanceof Error ? error.message : String(error));
-  }
-}
-
 async function postLiveEvent(event: BilibiliFixtureEvent): Promise<boolean> {
   try {
     const token = params.get("controlToken") || params.get("token");
@@ -237,10 +199,10 @@ async function postLiveEvent(event: BilibiliFixtureEvent): Promise<boolean> {
   }
 }
 
-function queueAudio(url: string): void {
+function queueAudio(url: string, sync?: { text?: string; speaker?: string; rateMs?: number }): void {
   if (!url) return;
-  pendingAudioQueue.push({ url });
-  while (pendingAudioQueue.length > 8) pendingAudioQueue.shift();
+  pendingAudioQueue.push({ url, ...sync });
+  while (pendingAudioQueue.length > 3) pendingAudioQueue.shift();
   void pumpAudioQueue();
 }
 
@@ -251,22 +213,27 @@ async function pumpAudioQueue(): Promise<void> {
     while (pendingAudioQueue.length > 0) {
       const next = pendingAudioQueue.shift();
       if (!next) continue;
-      await playAudio(next.url);
+      await playAudio(next);
     }
   } finally {
     audioPumpRunning = false;
   }
 }
 
-async function playAudio(url: string): Promise<void> {
-  if (!url) return;
-  const audio = new Audio(url);
+async function playAudio(item: { url: string; text?: string; speaker?: string; rateMs?: number }): Promise<void> {
+  if (!item.url) return;
+  const audio = new Audio(item.url);
   audio.autoplay = true;
   audio.preload = "auto";
   audio.playsInline = true;
   activeAudio = audio;
   try {
     setAudioStatus("audio loading");
+    if (item.text?.trim()) {
+      streamToken += 1;
+      setSpeaker(item.speaker ?? "Stelle");
+      setCaption(" ");
+    }
     await avatar?.startLipSync(audio);
     await new Promise<void>((resolve, reject) => {
       audio.addEventListener("ended", () => {
@@ -278,13 +245,14 @@ async function playAudio(url: string): Promise<void> {
         resolve();
       }, { once: true });
       audio.addEventListener("error", () => {
-        console.warn("live audio element error", url);
+        console.warn("live audio element error", item.url);
         avatar?.stopLipSync();
-        reject(new Error(`audio element error: ${url}`));
+        reject(new Error(`audio element error: ${item.url}`));
       }, { once: true });
       audio.play().then(() => {
         setAudioStatus("audio playing");
-        console.log("live audio playing", url);
+        startSyncedCaption(item, audio);
+        console.log("live audio playing", item.url);
       }).catch(reject);
     });
   } catch (error) {
@@ -296,7 +264,17 @@ async function playAudio(url: string): Promise<void> {
   }
 }
 
+function startSyncedCaption(item: { text?: string; speaker?: string; rateMs?: number }, audio: HTMLAudioElement): void {
+  const text = item.text?.trim();
+  if (!text) return;
+  const chars = [...text].length || 1;
+  const durationMs = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration * 1000 : undefined;
+  const rateMs = durationMs ? clamp(Math.floor(durationMs / chars), 22, 90) : item.rateMs;
+  void streamCaption(text, item.speaker ?? "Stelle", rateMs);
+}
+
 function stopAudioPlayback(): void {
+  streamToken += 1;
   pendingAudioQueue.length = 0;
   if (activeAudio) {
     activeAudio.pause();
@@ -349,27 +327,42 @@ function setAudioStatus(text: string): void {
   if (audioStatus) audioStatus.textContent = text;
 }
 
-function extractDanmakuText(raw: unknown): string | undefined {
-  const info = asRecord(raw).info;
-  if (Array.isArray(info) && typeof info[1] === "string") return info[1];
-  return undefined;
-}
-
-function extractUserName(raw: unknown): string | undefined {
-  const info = asRecord(raw).info;
-  const user = Array.isArray(info) ? info[2] : undefined;
-  return Array.isArray(user) && typeof user[1] === "string" ? user[1] : undefined;
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
-}
-
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
 }
 
 function shouldAutoplay(): boolean {
   const value = String(params.get("autoplay") ?? "0").toLowerCase();
   return !["0", "false", "off"].includes(value);
+}
+
+function shouldUseStandaloneScene(): boolean {
+  const panel = String(params.get("panel") ?? "0").toLowerCase();
+  if (!["0", "false", "off"].includes(panel)) return false;
+  return location.pathname === "/live" || location.pathname === "/" || params.get("view") === "stage";
+}
+
+function applySceneMode(): void {
+  if (standaloneScene) {
+    document.body.dataset.scene = "standalone";
+    setSpeaker("Stelle");
+    setAudioStatus(shouldAutoplay() ? "autoplay ready" : "audio idle");
+  }
+  if (shouldAutoplay()) {
+    document.body.dataset.autoplay = "true";
+  }
+}
+
+function primeAutoplayAudio(): void {
+  const AudioContextCtor = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  try {
+    const context = AudioContextCtor ? new AudioContextCtor() : undefined;
+    void context?.resume().catch(() => undefined);
+  } catch {
+    // Browser autoplay policy may still require the launch flag; playback will report blocked if so.
+  }
 }

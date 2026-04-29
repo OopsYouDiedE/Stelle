@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { DeviceActionArbiter } from "../../src/device/action_arbiter.js";
 import { MockDeviceActionDriver } from "../../src/device/drivers/mock_driver.js";
+import { buildDeviceActionAllowlist } from "../../src/device/action_allowlist.js";
 import type { DeviceActionIntent } from "../../src/device/action_types.js";
 
 describe("DeviceActionArbiter", () => {
@@ -203,6 +204,21 @@ describe("DeviceActionArbiter", () => {
     const result = await arbiter.propose(intent);
     expect(result.status).toBe("rejected");
     expect(result.reason).toContain("no allowlist configured");
+  });
+
+  it("should include Android resources when Android device actions are enabled", () => {
+    const allowlist = buildDeviceActionAllowlist({
+      browser: { enabled: false },
+      desktopInput: { enabled: false },
+      android: {
+        enabled: true,
+        allowlist: { resources: ["emulator-5554"], risks: ["readonly", "safe_interaction", "text_input"] },
+      },
+    } as any);
+
+    expect(allowlist?.cursors).toContain("android_device");
+    expect(allowlist?.resources).toContain("emulator-5554");
+    expect(allowlist?.resourceKinds).toContain("android_device");
   });
 });
 

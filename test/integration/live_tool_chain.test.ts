@@ -1,8 +1,48 @@
 import { describe, it, expect, vi } from "vitest";
 import { LiveCursor } from "../../src/cursor/live/cursor.js";
+import { LiveResponder } from "../../src/cursor/live/responder.js";
 import { StelleEventBus } from "../../src/utils/event_bus.js";
 
 describe("Live tool chain integration", () => {
+  it("returns StageOutputArbiter decisions with group and sequence metadata", async () => {
+    const stageOutput = {
+      propose: vi.fn().mockImplementation(async (intent) => ({
+        status: intent.sequence === 1 ? "dropped" : "queued",
+        outputId: intent.id,
+        reason: intent.sequence === 1 ? "queue_overflow" : "stage_busy",
+        intent,
+      })),
+    };
+    const responder = new LiveResponder({
+      config: { live: { ttsEnabled: false } },
+      stageOutput,
+    } as any);
+
+    const decisions = await responder.enqueue("response", "第一句。第二句。", "neutral", { groupId: "group-1", sequenceStart: 0 });
+
+    expect(decisions.map(d => d.status)).toEqual(["queued", "dropped"]);
+    expect(stageOutput.propose).toHaveBeenNthCalledWith(1, expect.objectContaining({ groupId: "group-1", sequence: 0 }));
+    expect(stageOutput.propose).toHaveBeenNthCalledWith(2, expect.objectContaining({ groupId: "group-1", sequence: 1 }));
+  });
+
+  it("maps semantic live emotions to model expression names", async () => {
+    const stageOutput = {
+      propose: vi.fn().mockImplementation(async (intent) => ({ status: "accepted", outputId: intent.id, reason: "ok", intent })),
+    };
+    const responder = new LiveResponder({
+      config: { live: { ttsEnabled: false } },
+      stageOutput,
+    } as any);
+
+    await responder.enqueue("response", "好呀。", "happy", { groupId: "group-1" });
+
+    expect(stageOutput.propose).toHaveBeenCalledWith(expect.objectContaining({
+      output: expect.objectContaining({
+        expression: "exp_01",
+      }),
+    }));
+  });
+
   it("should compose final speech from executed tool results for topic requests", async () => {
     const eventBus = new StelleEventBus();
     const toolExecute = vi.fn().mockImplementation(async (name: string) => {

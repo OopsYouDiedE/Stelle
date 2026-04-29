@@ -4,15 +4,17 @@
  * 运行逻辑：
  * - LiveCursor 通过工具层调用 LiveRuntime。
  * - LiveRuntime 维护当前舞台状态，并把 caption/motion/expression/background 命令发布给 renderer。
- * - OBS 控制目前是安全 stub：保留接口，不实际连接外部 OBS。
+ * - OBS 控制通过 OBS WebSocket v5 执行状态读取、开播/停播与切场景。
  *
  * 主要类：
  * - `LiveRuntime`：直播舞台状态和动作执行。
  * - `LocalLiveRendererBridge` / `HttpLiveRendererBridge`：向 renderer 发布命令。
  * - `ObsWebSocketController`：OBS 状态/控制接口占位。
  */
+import crypto from "node:crypto";
 import type { LiveRendererCommand, LiveRendererServer } from "./renderer.js";
 import { sanitizeExternalText } from "./text.js";
+import { buildLiveTtsRequest } from "./tts.js";
 
 export type LiveMotionPriority = "idle" | "normal" | "force";
 
@@ -192,11 +194,23 @@ export class LiveRuntime {
   }
 
   async playTtsStream(text: string, request: Record<string, unknown>): Promise<LiveActionResult> {
-    const id = `kokoro-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const url = `/tts/kokoro/${id}`;
-    await this.renderer?.publish({ type: "audio:status", status: "streaming", provider: "kokoro", text: sanitizeExternalText(text) });
-    await this.renderer?.publish({ type: "audio:stream", url, provider: "kokoro", request, text: sanitizeExternalText(text) });
-    return liveOk(`Queued live Kokoro stream playback: ${url}.`, this.stage);
+    const caption = sanitizeExternalText(text);
+    const speaker = typeof request.speaker === "string" ? sanitizeExternalText(request.speaker) : "Stelle";
+    const rateMs = typeof request.rateMs === "number" ? request.rateMs : undefined;
+    this.stage = { ...this.stage, caption, speaker };
+    const liveTts = buildLiveTtsRequest(text, {
+      voiceName: typeof request.voice === "string" ? request.voice : undefined,
+      language: typeof request.language === "string" ? request.language : undefined,
+      instructions: typeof request.instructions === "string" ? request.instructions : undefined,
+      model: typeof request.model === "string" ? request.model : undefined,
+      speed: typeof request.speed === "number" ? request.speed : undefined,
+      stream: typeof request.stream === "boolean" ? request.stream : undefined,
+    });
+    const id = `${liveTts.provider}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const url = `/tts/${liveTts.provider}/${id}`;
+    await this.renderer?.publish({ type: "audio:status", status: "streaming", provider: liveTts.provider, text: caption });
+    await this.renderer?.publish({ type: "audio:stream", url, provider: liveTts.provider, request: liveTts.request, text: caption, speaker, rateMs });
+    return liveOk(`Queued live ${liveTts.provider} stream playback: ${url}.`, this.stage);
   }
 
   async stopAudio(): Promise<LiveActionResult> {
@@ -215,8 +229,12 @@ export interface ObsController {
 
 export class ObsWebSocketController implements ObsController {
   private status: ObsStatus;
+  private readonly password?: string;
+  private readonly timeoutMs: number;
 
   constructor(options: { enabled?: boolean; url?: string; password?: string; timeoutMs?: number } = {}) {
+    this.password = options.password ?? process.env.OBS_WEBSOCKET_PASSWORD;
+    this.timeoutMs = options.timeoutMs ?? 7000;
     this.status = {
       enabled: options.enabled ?? process.env.OBS_CONTROL_ENABLED === "true",
       connected: false,
@@ -227,21 +245,164 @@ export class ObsWebSocketController implements ObsController {
 
   async getStatus(): Promise<ObsStatus> {
     if (!this.status.enabled) return { ...this.status, connected: false };
-    return { ...this.status, lastError: "OBS WebSocket control is not implemented in this runtime slice yet." };
+    try {
+      const client = await ObsWebSocketClient.connect(this.status.url!, { password: this.password, timeoutMs: this.timeoutMs });
+      try {
+        const stream = await client.request("GetStreamStatus");
+        const scene = await client.request("GetCurrentProgramScene").catch(() => ({}));
+        this.status = {
+          ...this.status,
+          connected: true,
+          streaming: Boolean((stream as any).outputActive),
+          currentScene: typeof (scene as any).currentProgramSceneName === "string" ? (scene as any).currentProgramSceneName : this.status.currentScene,
+          lastError: undefined,
+        };
+        return { ...this.status };
+      } finally {
+        client.close();
+      }
+    } catch (error) {
+      this.status = { ...this.status, connected: false, lastError: error instanceof Error ? error.message : String(error) };
+      return { ...this.status };
+    }
   }
 
   async startStream(): Promise<LiveActionResult> {
-    return obsUnavailable("OBS start is unavailable until OBS WebSocket is enabled.", this.status);
+    if (!this.status.enabled) return obsUnavailable("OBS WebSocket control is disabled.", this.status);
+    return this.runObsAction("StartStream", undefined, "OBS stream started.");
   }
 
   async stopStream(): Promise<LiveActionResult> {
-    return obsUnavailable("OBS stop is unavailable until OBS WebSocket is enabled.", this.status);
+    if (!this.status.enabled) return obsUnavailable("OBS WebSocket control is disabled.", this.status);
+    return this.runObsAction("StopStream", undefined, "OBS stream stopped.");
   }
 
   async setCurrentScene(sceneName: string): Promise<LiveActionResult> {
-    this.status = { ...this.status, currentScene: sceneName };
-    return obsUnavailable("OBS scene control is unavailable until OBS WebSocket is enabled.", this.status);
+    if (!this.status.enabled) return obsUnavailable("OBS WebSocket control is disabled.", this.status);
+    return this.runObsAction("SetCurrentProgramScene", { sceneName }, `OBS scene set to ${sceneName}.`);
   }
+
+  private async runObsAction(requestType: string, requestData: Record<string, unknown> | undefined, summary: string): Promise<LiveActionResult> {
+    try {
+      const client = await ObsWebSocketClient.connect(this.status.url!, { password: this.password, timeoutMs: this.timeoutMs });
+      try {
+        await client.request(requestType, requestData);
+      } finally {
+        client.close();
+      }
+      const status = await this.getStatus();
+      return { ok: true, summary, timestamp: Date.now(), obs: status };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.status = { ...this.status, connected: false, lastError: message };
+      return obsUnavailable(message, this.status);
+    }
+  }
+}
+
+class ObsWebSocketClient {
+  private requestCounter = 0;
+  private pending = new Map<string, { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: NodeJS.Timeout }>();
+
+  private constructor(
+    private readonly ws: any,
+    private readonly timeoutMs: number,
+  ) {
+    ws.onmessage = (event: { data: string }) => this.handleMessage(event.data);
+    ws.onerror = () => this.rejectAll(new Error("OBS websocket error."));
+    ws.onclose = () => this.rejectAll(new Error("OBS websocket closed."));
+  }
+
+  static connect(url: string, options: { password?: string; timeoutMs: number }): Promise<ObsWebSocketClient> {
+    const WebSocketCtor = (globalThis as any).WebSocket;
+    if (!WebSocketCtor) return Promise.reject(new Error("Global WebSocket is unavailable. Use Node.js >= 20."));
+
+    return new Promise((resolve, reject) => {
+      const ws = new WebSocketCtor(url);
+      const timeout = setTimeout(() => reject(new Error("OBS websocket connection timed out.")), options.timeoutMs);
+      let client: ObsWebSocketClient | undefined;
+
+      ws.onopen = () => undefined;
+      ws.onerror = () => {
+        clearTimeout(timeout);
+        reject(new Error("OBS websocket connection failed."));
+      };
+      ws.onmessage = async (event: { data: string }) => {
+        try {
+          const message = JSON.parse(event.data);
+          if (message.op !== 0) return;
+          const authentication = message.d?.authentication;
+          const identify: Record<string, unknown> = { rpcVersion: 1 };
+          if (authentication) {
+            if (!options.password) throw new Error("OBS websocket password is required.");
+            identify.authentication = obsAuth(options.password, authentication.salt, authentication.challenge);
+          }
+          ws.send(JSON.stringify({ op: 1, d: identify }));
+          ws.onmessage = (identifiedEvent: { data: string }) => {
+            const identified = JSON.parse(identifiedEvent.data);
+            if (identified.op !== 2) return;
+            clearTimeout(timeout);
+            if (!client) client = new ObsWebSocketClient(ws, options.timeoutMs);
+            ws.onmessage = (runtimeEvent: { data: string }) => client!.handleMessage(runtimeEvent.data);
+            resolve(client);
+          };
+        } catch (error) {
+          clearTimeout(timeout);
+          reject(error instanceof Error ? error : new Error(String(error)));
+        }
+      };
+    });
+  }
+
+  request(requestType: string, requestData: Record<string, unknown> = {}): Promise<unknown> {
+    const requestId = `stelle-${Date.now()}-${++this.requestCounter}`;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(requestId);
+        reject(new Error(`OBS request timed out: ${requestType}.`));
+      }, this.timeoutMs);
+      this.pending.set(requestId, { resolve, reject, timer });
+      this.ws.send(JSON.stringify({ op: 6, d: { requestType, requestId, requestData } }));
+    });
+  }
+
+  close(): void {
+    try {
+      this.ws.close();
+    } catch {
+      // best effort
+    }
+  }
+
+  private handleMessage(raw: string): void {
+    const message = JSON.parse(raw);
+    if (message.op !== 7) return;
+    const requestId = message.d?.requestId;
+    const pending = typeof requestId === "string" ? this.pending.get(requestId) : undefined;
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    this.pending.delete(requestId);
+
+    const status = message.d?.requestStatus;
+    if (!status?.result) {
+      pending.reject(new Error(status?.comment || `OBS request failed: ${status?.code ?? "unknown"}`));
+      return;
+    }
+    pending.resolve(message.d?.responseData ?? {});
+  }
+
+  private rejectAll(error: Error): void {
+    for (const [id, pending] of this.pending) {
+      clearTimeout(pending.timer);
+      pending.reject(error);
+      this.pending.delete(id);
+    }
+  }
+}
+
+function obsAuth(password: string, salt: string, challenge: string): string {
+  const secret = crypto.createHash("sha256").update(password + salt).digest("base64");
+  return crypto.createHash("sha256").update(secret + challenge).digest("base64");
 }
 
 function liveOk(summary: string, stage: LiveStageState, obs?: ObsStatus): LiveActionResult {

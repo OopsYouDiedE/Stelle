@@ -18,6 +18,8 @@ export interface OutputIntent {
   id: string;
   cursorId: string;
   sourceEventId?: string;
+  groupId?: string;
+  sequence?: number;
   lane: OutputLane;
   priority: number;
   salience: OutputSalience;

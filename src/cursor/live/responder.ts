@@ -1,6 +1,12 @@
 import { splitSentences } from "../../utils/text.js";
 import type { CursorContext } from "../types.js";
-import type { OutputLane, OutputSalience } from "../../stage/output_types.js";
+import type { OutputLane, OutputSalience, StageOutputDecision } from "../../stage/output_types.js";
+
+export interface LiveEnqueueOptions {
+  groupId?: string;
+  sequenceStart?: number;
+  sourceEventId?: string;
+}
 
 /**
  * 模块：Live Responder (队列与播放)
@@ -14,21 +20,37 @@ export class LiveResponder {
    * 将文本切割并发送到 StageOutputArbiter。
    * 采用并发发射策略，让 Arbiter 集中处理排队，避免 Responder 被长渲染阻塞。
    */
-  public async enqueue(target: "topic" | "response", text: string, emotion: string): Promise<void> {
+  public async enqueue(target: "topic" | "response", text: string, emotion: string, options: LiveEnqueueOptions = {}): Promise<StageOutputDecision[]> {
     const chunks = splitSentences(text).filter(s => s.trim().length > 0);
+    const groupId = options.groupId ?? `live-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const decisions: StageOutputDecision[] = [];
     
-    // 并发提交所有 chunk，让 Arbiter 的统一队列发挥作用
-    await Promise.all(chunks.map(chunk => this.proposeChunk(target, chunk, emotion)));
+    for (let index = 0; index < chunks.length; index += 1) {
+      decisions.push(await this.proposeChunk(target, chunks[index], emotion, {
+        groupId,
+        sequence: (options.sequenceStart ?? 0) + index,
+        sourceEventId: options.sourceEventId,
+      }));
+    }
+    return decisions;
   }
 
-  private async proposeChunk(target: "topic" | "response", text: string, emotion: string): Promise<void> {
+  private async proposeChunk(
+    target: "topic" | "response",
+    text: string,
+    emotion: string,
+    options: { groupId: string; sequence: number; sourceEventId?: string }
+  ): Promise<StageOutputDecision> {
     // 响应弹幕使用 direct_response，以便在舞台繁忙时能排在话题托管前面
     const lane: OutputLane = target === "response" ? "direct_response" : "topic_hosting";
     const salience: OutputSalience = target === "response" ? "medium" : "low";
     
-    await this.context.stageOutput.propose({
+    return this.context.stageOutput.propose({
       id: `live-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       cursorId: this.cursorId,
+      sourceEventId: options.sourceEventId,
+      groupId: options.groupId,
+      sequence: options.sequence,
       lane,
       priority: target === "response" ? 60 : 45,
       salience,
@@ -39,10 +61,13 @@ export class LiveResponder {
       output: {
         caption: true,
         tts: Boolean(this.context.config.live.ttsEnabled),
-        expression: emotion !== "neutral" ? emotion : undefined,
+        expression: expressionForEmotion(emotion),
+        motion: motionForEmotion(emotion),
       },
       metadata: {
         source: target,
+        groupId: options.groupId,
+        sequence: options.sequence,
       },
     });
   }
@@ -59,4 +84,21 @@ export class LiveResponder {
   public getQueueStats() {
     return { topic: 0, response: 0 }; // Queues are now in StageOutputArbiter
   }
+}
+
+function expressionForEmotion(emotion: string): string | undefined {
+  const map: Record<string, string> = {
+    happy: "exp_01",
+    laughing: "exp_02",
+    surprised: "exp_03",
+    thinking: "exp_04",
+    sad: "exp_05",
+    teasing: "exp_06",
+  };
+  return map[emotion];
+}
+
+function motionForEmotion(emotion: string): string | undefined {
+  if (emotion === "laughing" || emotion === "surprised" || emotion === "teasing") return "TapBody";
+  return undefined;
 }

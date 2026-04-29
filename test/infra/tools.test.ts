@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { ToolRegistry } from "../../src/tool.js";
+import { createDefaultToolRegistry, ToolRegistry } from "../../src/tool.js";
 
 describe("ToolRegistry & Single Call Test", () => {
   it("should correctly register and find tools", () => {
@@ -29,5 +29,13 @@ describe("ToolRegistry & Single Call Test", () => {
     const result = await registry.execute("restricted_tool", {}, context as any);
     expect(result.ok).toBe(false);
     expect(result.summary).toContain("cannot use");
+  });
+
+  it("registers OBS control tools", () => {
+    const registry = createDefaultToolRegistry({ live: {} as any });
+    expect(registry.get("obs.status")).toBeDefined();
+    expect(registry.get("obs.start_stream")).toBeDefined();
+    expect(registry.get("obs.stop_stream")).toBeDefined();
+    expect(registry.get("obs.set_scene")).toBeDefined();
   });
 });

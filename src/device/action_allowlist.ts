@@ -4,7 +4,8 @@ import type { DeviceActionAllowlist, DeviceActionRisk } from "./action_types.js"
 export function buildDeviceActionAllowlist(config: RuntimeConfig): DeviceActionAllowlist | undefined {
   const browserEnabled = config.browser.enabled;
   const desktopEnabled = config.desktopInput.enabled;
-  if (!browserEnabled && !desktopEnabled) return undefined;
+  const androidEnabled = config.android.enabled;
+  if (!browserEnabled && !desktopEnabled && !androidEnabled) return undefined;
 
   const merged: DeviceActionAllowlist = {
     cursors: [],
@@ -25,6 +26,13 @@ export function buildDeviceActionAllowlist(config: RuntimeConfig): DeviceActionA
     addAll(merged.resources!, (config.desktopInput.allowlist?.resources as string[] | undefined) ?? ["desktop"]);
     addAll(merged.resourceKinds!, ["desktop_input"]);
     addAll(merged.risks!, (config.desktopInput.allowlist?.risks as DeviceActionRisk[] | undefined) ?? ["readonly", "safe_interaction", "text_input"]);
+  }
+
+  if (androidEnabled) {
+    addAll(merged.cursors!, ["android_device", ...((config.android.allowlist?.cursors as string[] | undefined) ?? [])]);
+    addAll(merged.resources!, (config.android.allowlist?.resources as string[] | undefined) ?? ["default"]);
+    addAll(merged.resourceKinds!, ["android_device"]);
+    addAll(merged.risks!, (config.android.allowlist?.risks as DeviceActionRisk[] | undefined) ?? ["readonly", "safe_interaction", "text_input"]);
   }
 
   return merged;

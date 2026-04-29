@@ -10,7 +10,7 @@
  * Main methods:
  * - writeRecent/readRecent: scoped recent memory.
  * - searchHistory: keyword search over compacted history markdown.
- * - readLongTerm/writeLongTerm: shared long-term state.
+ * - readLongTerm/writeLongTerm/appendLongTerm: shared long-term state.
  * - appendResearchLog/readResearchLogs: StelleCore reflection logs.
  */
 import { appendFile, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
@@ -144,6 +144,20 @@ export class MemoryStore {
       const dir = path.join(this.rootDir, "long_term", layer);
       await mkdir(dir, { recursive: true });
       await atomicWrite(path.join(dir, `${safeSegment(key)}.md`), sanitizeExternalText(value));
+    });
+  }
+
+  async appendLongTerm(key: string, value: string, layer: MemoryLayer = "observations"): Promise<void> {
+    await this.inScopeQueue({ kind: "long_term" }, async () => {
+      const dir = path.join(this.rootDir, "long_term", layer);
+      await mkdir(dir, { recursive: true });
+      const entry = [
+        `## ${new Date().toISOString()}`,
+        "",
+        sanitizeExternalText(value),
+        "",
+      ].join("\n");
+      await appendFile(path.join(dir, `${safeSegment(key)}.md`), entry, "utf8");
     });
   }
 
