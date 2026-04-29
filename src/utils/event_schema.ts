@@ -75,13 +75,26 @@ export const DiscordMessageEventSchema = z.union([
 ]);
 
 const LiveEventReceivedBaseSchema = EventMetadataSchema.extend({
-  source: z.literal("system"),
+  source: z.string(),
   payload: z.record(z.any()).describe("原始直播事件载荷"),
 });
 
 export const LiveEventReceivedSchema = z.union([
   LiveEventReceivedBaseSchema.extend({ type: z.literal("live.event.received") }),
   LiveEventReceivedBaseSchema.extend({ type: z.literal("live.danmaku.received") }),
+  LiveEventReceivedBaseSchema.extend({ type: z.literal("live.event.danmaku") }),
+  LiveEventReceivedBaseSchema.extend({ type: z.literal("live.event.gift") }),
+  LiveEventReceivedBaseSchema.extend({ type: z.literal("live.event.super_chat") }),
+  LiveEventReceivedBaseSchema.extend({ type: z.literal("live.event.guard") }),
+  LiveEventReceivedBaseSchema.extend({ type: z.literal("live.event.follow") }),
+  LiveEventReceivedBaseSchema.extend({ type: z.literal("live.event.like") }),
+  LiveEventReceivedBaseSchema.extend({ type: z.literal("live.event.entrance") }),
+  LiveEventReceivedBaseSchema.extend({ type: z.literal("live.event.system") }),
+  LiveEventReceivedBaseSchema.extend({ type: z.literal("live.event.unknown") }),
+  LiveEventReceivedBaseSchema.extend({ type: z.literal("live.ingress.dropped") }),
+  LiveEventReceivedBaseSchema.extend({ type: z.literal("live.batch.flushed") }),
+  LiveEventReceivedBaseSchema.extend({ type: z.literal("live.platform.status_changed") }),
+  LiveEventReceivedBaseSchema.extend({ type: z.literal("live.platform.error") }),
 ]);
 
 export const BrowserObservationReceivedSchema = EventMetadataSchema.extend({

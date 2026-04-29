@@ -1,76 +1,106 @@
 import { moderateLiveEvent, normalizeLiveEvent, type NormalizedLiveEvent } from "../../utils/live_event.js";
+import { LiveBatchAggregator, type DropReason, type FlushReason, type LiveBatchAggregatorPolicy } from "../../live/ingress/live_batch_aggregator.js";
 import type { CursorContext } from "../types.js";
+
+const DEFAULT_BATCH_POLICY: LiveBatchAggregatorPolicy = {
+  flushIntervalMs: 500,
+  maxWaitMs: 2_000,
+  urgentDelayMs: 100,
+  maxBatchSize: 20,
+  maxBufferSize: 200,
+};
 
 /**
  * 模块：Live Gateway (感知与缓冲)
  */
 export class LiveGateway {
-  private buffer: NormalizedLiveEvent[] = [];
-  private timer: NodeJS.Timeout | null = null;
+  private aggregator?: LiveBatchAggregator;
+  private onFlush?: (batch: NormalizedLiveEvent[]) => void;
 
-  constructor(private readonly context: CursorContext) {}
+  constructor(
+    private readonly context: CursorContext,
+    private readonly policy: LiveBatchAggregatorPolicy = DEFAULT_BATCH_POLICY,
+  ) {}
 
   /**
    * 接收原始直播事件并进行初步过滤
    */
   public async receive(payload: Record<string, unknown>, onFlush: (batch: NormalizedLiveEvent[]) => void): Promise<{ accepted: boolean; reason: string }> {
+    this.onFlush = onFlush;
+    const aggregator = this.ensureAggregator();
     const event = normalizeLiveEvent(payload);
     const moderation = moderateLiveEvent(event);
 
     if (!moderation.allowed) {
-      this.publishSystemEvent(event.id, "dropped", moderation.reason);
+      this.publishDropped(event, "moderation_rejected", moderation.reason);
       return { accepted: true, reason: moderation.reason };
     }
 
     // 基础过滤：噪音识别
     if (/^[0-9+]+$|^扣|^签到/u.test(event.text.trim()) && event.priority !== "high") {
+      this.publishDropped(event, "noise_filtered", "noise_filtered");
       return { accepted: true, reason: "noise_filtered" };
     }
 
     // 礼物、入场、关注等运营型事件由 LiveEngagementService 处理，避免 Cursor 再生成一轮重复台词。
     if (event.kind === "gift" || event.kind === "guard" || event.kind === "entrance" || event.kind === "follow" || event.kind === "like") {
-      this.publishSystemEvent(event.id, "incoming", `[${event.kind}] ${event.user?.name ?? "观众"} ${event.text}`.trim());
       return { accepted: true, reason: "engagement_event" };
     }
 
-    this.buffer.push(event);
-    this.publishSystemEvent(event.id, "incoming", event.text);
-
-    // 动态防抖：SC/打赏立即触发，普通弹幕等待窗口
-    const delay = event.priority === "high" ? 100 : 2000;
-    if (this.timer) clearTimeout(this.timer);
-    this.timer = setTimeout(() => {
-      const batch = [...this.buffer];
-      this.buffer = [];
-      onFlush(batch);
-    }, delay);
-
+    aggregator.push(event);
     return { accepted: true, reason: "buffered" };
   }
 
-  private publishSystemEvent(id: string, lane: string, text: string) {
-    this.context.tools.execute(
-      "live.panel.push_event",
-      { event_id: id, lane, text },
-      { 
-        caller: "cursor", 
-        cursorId: "live", 
-        cwd: process.cwd(), 
-        allowedAuthority: ["external_write"],
-        allowedTools: ["live.panel.push_event"] // 必须显式授权
-      }
-    ).catch(err => {
-      // 至少在调试时能看到为什么失败
-      if (process.env.DEBUG) console.warn("[LiveGateway] System event push failed:", err.message);
+  private ensureAggregator(): LiveBatchAggregator {
+    if (!this.aggregator) {
+      this.aggregator = new LiveBatchAggregator(
+        this.policy,
+        this.context.now,
+        (batch, reason) => this.flush(batch, reason),
+        (event, reason) => this.publishDropped(event, reason, reason),
+      );
+    }
+    return this.aggregator;
+  }
+
+  private flush(batch: NormalizedLiveEvent[], reason: FlushReason): void {
+    this.context.eventBus.publish({
+      type: "live.batch.flushed",
+      source: "live_gateway",
+      id: `live-batch-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      timestamp: this.context.now(),
+      payload: {
+        reason,
+        size: batch.length,
+        oldestEventAgeMs: batch.length ? this.context.now() - Math.min(...batch.map(event => event.receivedAt)) : 0,
+        eventIds: batch.map(event => event.id),
+      },
+    });
+    this.onFlush?.(batch);
+  }
+
+  private publishDropped(event: NormalizedLiveEvent, reason: DropReason, detail: string): void {
+    this.context.eventBus.publish({
+      type: "live.ingress.dropped",
+      source: "live_gateway",
+      id: `live-drop-${event.id}`,
+      timestamp: this.context.now(),
+      payload: {
+        event,
+        reason,
+        detail,
+        platform: event.source,
+        kind: event.kind,
+        eventId: event.id,
+      },
     });
   }
 
   public getBufferSize(): number {
-    return this.buffer.length;
+    return this.aggregator?.getBufferSize() ?? 0;
   }
 
   public clear(): void {
-    if (this.timer) clearTimeout(this.timer);
-    this.buffer = [];
+    this.aggregator?.clear();
   }
 }
