@@ -238,3 +238,6 @@ memory_rag_test/
 *.flac
 *.tmp
 *.bak
+
+# Renderer models: stop tracking 3D/texture model folders
+assets/renderer/models/
