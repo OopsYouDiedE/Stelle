@@ -121,6 +121,46 @@ describe("StageOutputArbiter", () => {
     expect(mockRenderer.stopCurrentOutput).toHaveBeenCalled();
   });
 
+  it("awaits hard interrupt stop before starting replacement output", async () => {
+    const order: string[] = [];
+    let resolveFirst: (v: void) => void;
+    let resolveStop: (v: void) => void;
+
+    mockRenderer.render = vi.fn().mockImplementation((intent) => {
+      order.push(`render:${intent.id}`);
+      if (intent.id === "1") return new Promise((r) => { resolveFirst = r; });
+      return Promise.resolve();
+    });
+    mockRenderer.stopCurrentOutput = vi.fn().mockImplementation(() => {
+      order.push("stop");
+      return new Promise((r) => { resolveStop = r; });
+    });
+
+    const intent1: OutputIntent = {
+      id: "1", cursorId: "test", lane: "ambient", priority: 10, salience: "low",
+      text: "First", ttlMs: 5000, interrupt: "none", output: { caption: true },
+    };
+    const intent2: OutputIntent = {
+      id: "2", cursorId: "test", lane: "emergency", priority: 100, salience: "critical",
+      text: "Emergency", ttlMs: 5000, interrupt: "hard", output: { caption: true },
+    };
+
+    const p1 = arbiter.propose(intent1);
+    await new Promise(r => setTimeout(r, 0));
+
+    const p2 = arbiter.propose(intent2);
+    await new Promise(r => setTimeout(r, 0));
+    expect(order).toEqual(["render:1", "stop"]);
+
+    resolveStop!(undefined);
+    resolveFirst!(undefined);
+    await p1;
+    await p2;
+    await new Promise(r => setTimeout(r, 0));
+
+    expect(order).toEqual(["render:1", "stop", "render:2"]);
+  });
+
   it("should return queued for soft interrupt when busy (and not abort current)", async () => {
     let resolveFirst: (v: void) => void;
     let signalCaptured: AbortSignal | undefined;
@@ -217,5 +257,55 @@ describe("StageOutputArbiter", () => {
     expect(arbiter.snapshot().speaking).toBe(false);
     
     await p;
+  });
+
+  it("drops expired queued output without rendering it", async () => {
+    let resolveFirst: (v: void) => void;
+    mockRenderer.render = vi.fn().mockImplementation((intent) => {
+      if (intent.id === "1") return new Promise((r) => { resolveFirst = r; });
+      return Promise.resolve();
+    });
+
+    const intent1: OutputIntent = {
+      id: "1", cursorId: "test", lane: "live_chat", priority: 50, salience: "medium",
+      text: "First", ttlMs: 5000, interrupt: "none", output: { caption: true },
+      estimatedDurationMs: 0,
+    };
+    const expiredQueued: OutputIntent = {
+      id: "expired", cursorId: "test", lane: "live_chat", priority: 50, salience: "medium",
+      text: "Too late", ttlMs: 10, interrupt: "none", output: { caption: true },
+      estimatedDurationMs: 0,
+    };
+
+    const p1 = arbiter.propose(intent1);
+    await new Promise(r => setTimeout(r, 0));
+    const queued = await arbiter.propose(expiredQueued);
+    expect(queued.status).toBe("queued");
+
+    now += 11;
+    resolveFirst!(undefined);
+    await p1;
+    await new Promise(r => setTimeout(r, 10));
+
+    expect(mockRenderer.render).toHaveBeenCalledTimes(1);
+    expect(mockRenderer.render).not.toHaveBeenCalledWith(expect.objectContaining({ id: "expired" }), expect.any(AbortSignal));
+  });
+
+  it("drops debug lane output when debug is disabled", async () => {
+    const decision = await arbiter.propose({
+      id: "debug-off",
+      cursorId: "debug",
+      lane: "debug",
+      priority: 1,
+      salience: "low",
+      text: "hidden",
+      ttlMs: 5000,
+      interrupt: "none",
+      output: { caption: true },
+    });
+
+    expect(decision.status).toBe("dropped");
+    expect(decision.reason).toBe("debug_disabled");
+    expect(mockRenderer.render).not.toHaveBeenCalled();
   });
 });

@@ -68,4 +68,36 @@ describe("ToolRegistry Stage Protection", () => {
     expect(res.ok).toBe(false);
     expect(res.error?.code).toBe("stage_output_required");
   });
+
+  it("blocks ordinary cursors from direct live.stream_tts_caption but allows stage_renderer", async () => {
+    const registry = new ToolRegistry();
+    const execute = vi.fn().mockResolvedValue({ ok: true, summary: "spoke" });
+    registry.register({
+      name: "live.stream_tts_caption",
+      title: "TTS",
+      description: "TTS",
+      authority: "external_write",
+      inputSchema: z.object({ text: z.string() }),
+      sideEffects: sideEffects(),
+      execute,
+    });
+
+    const cursorResult = await registry.execute("live.stream_tts_caption", { text: "hi" }, {
+      caller: "cursor",
+      cwd: ".",
+      allowedAuthority: ["external_write"],
+      allowedTools: ["live.stream_tts_caption"],
+    });
+    expect(cursorResult.ok).toBe(false);
+    expect(cursorResult.error?.code).toBe("stage_output_required");
+
+    const stageResult = await registry.execute("live.stream_tts_caption", { text: "hi" }, {
+      caller: "stage_renderer",
+      cwd: ".",
+      allowedAuthority: ["external_write"],
+      allowedTools: ["live.stream_tts_caption"],
+    });
+    expect(stageResult.ok).toBe(true);
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
 });

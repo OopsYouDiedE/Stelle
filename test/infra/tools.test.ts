@@ -38,4 +38,24 @@ describe("ToolRegistry & Single Call Test", () => {
     expect(registry.get("obs.stop_stream")).toBeDefined();
     expect(registry.get("obs.set_scene")).toBeDefined();
   });
+
+  it("requires cursor/core callers to whitelist system.run_command", async () => {
+    const registry = createDefaultToolRegistry();
+
+    const cursorResult = await registry.execute("system.run_command", { command: "echo nope" }, {
+      caller: "cursor",
+      cwd: process.cwd(),
+      allowedAuthority: ["system"],
+    });
+    expect(cursorResult.ok).toBe(false);
+    expect(cursorResult.error?.code).toBe("tool_not_whitelisted");
+
+    const coreResult = await registry.execute("system.run_command", { command: "echo nope" }, {
+      caller: "core",
+      cwd: process.cwd(),
+      allowedAuthority: ["system"],
+    });
+    expect(coreResult.ok).toBe(false);
+    expect(coreResult.error?.code).toBe("tool_not_whitelisted");
+  });
 });

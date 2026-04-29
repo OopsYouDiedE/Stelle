@@ -74,7 +74,17 @@ export class LiveRouter {
           toolPlan
         };
       },
-      { role: "primary", temperature: 0.65 }
+      {
+        role: "primary",
+        temperature: 0.65,
+        safeDefault: {
+          action: "drop_noise",
+          emotion: "neutral",
+          intensity: 3,
+          script: "",
+          reason: "llm_error_fallback",
+        },
+      }
     );
   }
 
@@ -150,7 +160,18 @@ export class LiveRouter {
           toolPlan: undefined
         };
       },
-      { role: "primary", temperature: 0.55, maxOutputTokens: 400 }
+      {
+        role: "primary",
+        temperature: 0.55,
+        maxOutputTokens: 400,
+        safeDefault: {
+          action: input.initialDecision.action,
+          emotion: input.initialDecision.emotion,
+          intensity: input.initialDecision.intensity,
+          script: input.initialDecision.script,
+          reason: "tool_composition_fallback",
+        },
+      }
     );
   }
 }

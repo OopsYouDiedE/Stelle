@@ -118,7 +118,7 @@ export class DiscordRouter {
             clearContext: Boolean(v.clearContext ?? v.clear_context ?? String(v.mode) === "deactivate")
           };
         },
-        { role: isMentioned ? "primary" : "secondary", temperature: 0.1, maxOutputTokens: 400 }
+        { role: isMentioned ? "primary" : "secondary", temperature: 0.1, maxOutputTokens: 400, safeDefault: fallback }
       );
     } catch (error) {
       return fallback;

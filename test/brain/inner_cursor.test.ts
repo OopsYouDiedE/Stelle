@@ -111,7 +111,9 @@ describe("InnerCursor Full Logic Coverage", () => {
     await innerCursor.recordDecision({ salience: "high" } as any);
     await new Promise(r => setTimeout(r, 50));
 
-    expect(innerCursor.snapshot().state.activeDirectivesCount).toBe(0);
+    const directives = (innerCursor as any).activeDirectives;
+    expect(directives.some((d: any) => d.instruction === "")).toBe(false);
+    expect(innerCursor.snapshot().state.activeDirectivesCount).toBe(1);
   });
 
   // --- 边界测试: 空闲反思触发 ---

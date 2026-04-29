@@ -9,7 +9,9 @@ import { DefaultResearchAgenda } from "./research_agenda.js";
 import { DefaultFieldSampler } from "./field_sampler.js";
 import { DefaultSelfModel } from "./self_model.js";
 import { DefaultInnerObserver } from "./observer.js";
-import type { CognitiveSignal, SelfModelSnapshot, FieldNote } from "./types.js";
+import { DefaultPressureValve } from "./pressure.js";
+import { DefaultDirectivePlanner } from "./directive_planner.js";
+import type { CognitiveSignal, SelfModelSnapshot, FieldNote, CursorDirectiveEnvelope } from "./types.js";
 
 export interface RuntimeDecision {
   id: string;
@@ -25,6 +27,8 @@ export interface CursorDirective {
   target: "discord" | "discord_text_channel" | "live" | "live_danmaku" | "browser" | "desktop_input" | "android_device" | "global";
   instruction: string;
   expiresAt: number;
+  policy?: CursorDirectiveEnvelope["policy"];
+  priority?: number;
 }
 
 export interface CoreConviction {
@@ -57,6 +61,8 @@ export class InnerCursor implements StelleCursor {
   private readonly observer: DefaultInnerObserver;
   private readonly fieldSampler: DefaultFieldSampler;
   private readonly selfModel: DefaultSelfModel;
+  private readonly pressure: DefaultPressureValve;
+  private readonly directivePlanner: DefaultDirectivePlanner;
   private recentFieldNotes: FieldNote[] = [];
   private recommendedLiveFocus?: string;
 
@@ -65,6 +71,11 @@ export class InnerCursor implements StelleCursor {
     this.lastCoreReflectionAt = context.now();
     this.agenda = new DefaultResearchAgenda();
     this.observer = new DefaultInnerObserver();
+    this.pressure = new DefaultPressureValve({
+      accumulationThreshold: context.config.core.reflectionAccumulationThreshold,
+      idleReflectionMs: 30 * 60 * 1000,
+    });
+    this.directivePlanner = new DefaultDirectivePlanner();
     this.fieldSampler = new DefaultFieldSampler({ maxNotes: 12, now: () => this.context.now() });
     this.selfModel = new DefaultSelfModel({
       mood: this.currentGlobalMood,
@@ -159,16 +170,12 @@ export class InnerCursor implements StelleCursor {
   }
 
   private bumpReflectionPressure(decision: RuntimeDecision): void {
+    this.pressure.record(this.decisionToSignal(decision));
     this.unreflectedCount++;
     this.pendingImpactScore += decision.impactScore;
-    
-    const threshold = this.context.config.core.reflectionAccumulationThreshold;
-    const shouldReflect = 
-      decision.salience === "high" || 
-      this.pendingImpactScore >= threshold || 
-      this.unreflectedCount >= (threshold * 1.5);
 
-    if (shouldReflect) {
+    const pressureDecision = this.pressure.evaluate(this.context.now());
+    if (pressureDecision.mode !== "none") {
       void this.triggerCognitiveSynthesis().catch(e => console.error("[Inner] Synthesis failed:", e));
     }
   }
@@ -178,7 +185,8 @@ export class InnerCursor implements StelleCursor {
     this.activeDirectives = this.activeDirectives.filter(d => d.expiresAt > now);
 
     const idleTime = now - this.lastReflectionAt;
-    if (this.unreflectedCount > 0 && !this.isReflecting && idleTime > 30 * 60 * 1000) {
+    const pressureDecision = this.pressure.evaluate(now);
+    if (this.unreflectedCount > 0 && !this.isReflecting && (idleTime > 30 * 60 * 1000 || pressureDecision.mode !== "none")) {
       await this.triggerCognitiveSynthesis();
     }
 
@@ -198,6 +206,18 @@ export class InnerCursor implements StelleCursor {
     if (s === "system") return "system";
     // Map unsupported runtime sources such as desktop_input/android_device to system
     return "system";
+  }
+
+  private decisionToSignal(decision: RuntimeDecision): CognitiveSignal {
+    return {
+      id: decision.id ?? `decision-${decision.timestamp}-${Math.random().toString(36).slice(2)}`,
+      source: this.mapSourceToCognitive(decision.source),
+      kind: decision.type,
+      summary: decision.summary,
+      timestamp: decision.timestamp ?? this.context.now(),
+      impactScore: decision.impactScore ?? 1,
+      salience: decision.salience ?? "low",
+    };
   }
 
   async triggerCoreReflection(): Promise<void> {
@@ -274,6 +294,7 @@ export class InnerCursor implements StelleCursor {
       this.unreflectedCount = 0;
       this.pendingImpactScore = 0;
       this.lastReflectionAt = now;
+      this.pressure.reset("quick");
 
       // Update Research Agenda
       const signals: CognitiveSignal[] = await this.observer.collectRecentSignals(Math.max(20, this.unreflectedCount || decisionsToReflect.length));
@@ -362,27 +383,12 @@ export class InnerCursor implements StelleCursor {
         }
       }
 
-      if (this.recommendedLiveFocus) {
-        const expiresAt = now + (30 * 60 * 1000);
-        this.context.eventBus.publish({
-          type: "cursor.directive",
-          source: "inner",
-          id: `dir-field-${now}`,
-          timestamp: now,
-          payload: {
-            target: "live_danmaku",
-            action: "apply_policy",
-            policy: {
-              replyBias: "selective",
-              vibeIntensity: 3,
-              focusTopic: this.recommendedLiveFocus,
-              instruction: `Focus on: ${this.recommendedLiveFocus}`
-            },
-            expiresAt,
-            priority: 2
-          }
-        });
-      }
+      this.applyDirectiveEnvelopes(this.directivePlanner.plan({
+        activeTopics: this.agenda.activeTopics(),
+        fieldNotes: this.recentFieldNotes,
+        selfModel: this.getSelfSnapshot(),
+        now,
+      }), now);
 
       // 注入结构化决策日志
       const decisionLog = decisionsToReflect.map(d => `[${d.source}] ${d.type}: ${d.summary}`).join("\n");
@@ -434,7 +440,16 @@ export class InnerCursor implements StelleCursor {
             }) : []
           };
         },
-        { role: "primary", temperature: 0.35, maxOutputTokens: 600 }
+        {
+          role: "primary",
+          temperature: 0.35,
+          maxOutputTokens: 600,
+          safeDefault: {
+            insight: "Processing.",
+            globalMood: this.currentGlobalMood,
+            directives: [],
+          },
+        }
       );
 
       this.currentGlobalMood = result.globalMood;
@@ -456,21 +471,13 @@ export class InnerCursor implements StelleCursor {
         const instruction = d.policy.instruction || "";
         if (!instruction && !d.policy.replyBias && !d.policy.vibeIntensity) continue; // 无效指令跳过
         
-        const expiresAt = now + (d.lifespanMinutes * 60 * 1000);
-        this.activeDirectives.push({ target: d.target, instruction: instruction || "Policy update", expiresAt });
-        this.context.eventBus.publish({
-          type: "cursor.directive",
-          source: "inner",
-          id: `dir-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
-          timestamp: now,
-          payload: { 
-            target: d.target, 
-            action: "apply_policy", 
-            policy: d.policy,
-            expiresAt, 
-            priority: 2 
-          }
-        });
+        this.applyDirectiveEnvelopes([{
+          target: d.target,
+          action: "apply_policy",
+          policy: d.policy,
+          expiresAt: now + (d.lifespanMinutes * 60 * 1000),
+          priority: 2,
+        }], now);
       }
 
       await this.context.tools.execute("memory.write_long_term", 
@@ -507,6 +514,34 @@ export class InnerCursor implements StelleCursor {
 
   private getSelfSnapshot(): SelfModelSnapshot {
     return this.selfModel.snapshot();
+  }
+
+  private applyDirectiveEnvelopes(envelopes: CursorDirectiveEnvelope[], now: number): void {
+    for (const envelope of envelopes) {
+      const instruction = envelope.policy?.instruction || envelope.policy?.focusTopic || envelope.action;
+      if (!instruction && !envelope.policy?.replyBias && !envelope.policy?.vibeIntensity) continue;
+      const expiresAt = envelope.expiresAt ?? now + 30 * 60 * 1000;
+      this.activeDirectives.push({
+        target: envelope.target,
+        instruction: instruction || "Policy update",
+        expiresAt,
+        policy: envelope.policy,
+        priority: envelope.priority,
+      });
+      this.context.eventBus.publish({
+        type: "cursor.directive",
+        source: "inner",
+        id: `dir-${now}-${Math.random().toString(36).slice(2, 5)}`,
+        timestamp: now,
+        payload: {
+          target: envelope.target,
+          action: envelope.action,
+          policy: envelope.policy,
+          expiresAt,
+          priority: envelope.priority,
+        },
+      });
+    }
   }
 
   private applySelfModelSnapshot(snapshot: SelfModelSnapshot): void {

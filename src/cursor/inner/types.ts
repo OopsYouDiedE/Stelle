@@ -109,6 +109,7 @@ export interface DirectivePlanningInput {
   selfModel: SelfModelSnapshot;
   activeTopics: ResearchTopic[];
   fieldNotes: FieldNote[];
+  now?: number;
 }
 
 export interface IdentityProposal {

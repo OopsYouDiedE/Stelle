@@ -13,7 +13,7 @@
  * - readLongTerm/writeLongTerm/appendLongTerm: shared long-term state.
  * - appendResearchLog/readResearchLogs: StelleCore reflection logs.
  */
-import { appendFile, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { sanitizeExternalText, truncateText } from "./text.js";
 
@@ -100,7 +100,7 @@ export class MemoryStore {
     await this.inScopeQueue(scope, async () => {
       const dir = this.scopeDir(scope);
       await mkdir(dir, { recursive: true });
-      await appendFile(this.recentPath(scope), `${JSON.stringify(entry)}\n`, "utf8");
+      await atomicAppend(this.recentPath(scope), `${JSON.stringify(entry)}\n`);
       if (this.compactionEnabled && (await this.readRecent(scope, this.recentLimit + 1)).length >= this.recentLimit) {
         await this.createCheckpoint(scope);
       }
@@ -124,10 +124,12 @@ export class MemoryStore {
   async proposeMemory(proposal: Omit<MemoryProposal, "id" | "timestamp">): Promise<string> {
     const id = `prop-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const fullProposal: MemoryProposal = { ...proposal, id, timestamp: Date.now() };
-    
-    const dir = path.join(this.rootDir, "long_term", "proposals");
-    await mkdir(dir, { recursive: true });
-    await appendFile(path.join(dir, "log.jsonl"), `${JSON.stringify(fullProposal)}\n`, "utf8");
+
+    await this.inScopeQueue({ kind: "long_term" }, async () => {
+      const dir = path.join(this.rootDir, "long_term", "proposals");
+      await mkdir(dir, { recursive: true });
+      await atomicAppend(path.join(dir, "log.jsonl"), `${JSON.stringify(fullProposal)}\n`);
+    });
     return id;
   }
 
@@ -157,7 +159,7 @@ export class MemoryStore {
         sanitizeExternalText(value),
         "",
       ].join("\n");
-      await appendFile(path.join(dir, `${safeSegment(key)}.md`), entry, "utf8");
+      await atomicAppend(path.join(dir, `${safeSegment(key)}.md`), entry);
     });
   }
 
@@ -173,9 +175,11 @@ export class MemoryStore {
       `Conclusion: ${sanitizeExternalText(log.conclusion)}`,
       "",
     ].join("\n");
-    const dir = path.join(this.rootDir, "long_term", "research_logs");
-    await mkdir(dir, { recursive: true });
-    await appendFile(path.join(dir, "index.md"), text, "utf8");
+    await this.inScopeQueue({ kind: "long_term" }, async () => {
+      const dir = path.join(this.rootDir, "long_term", "research_logs");
+      await mkdir(dir, { recursive: true });
+      await atomicAppend(path.join(dir, "index.md"), text);
+    });
     return id;
   }
 
@@ -313,7 +317,15 @@ export class MemoryStore {
               participants: Array.isArray(v.participants) ? v.participants.map(String) : []
             };
           },
-          { role: "secondary", temperature: 0.3 }
+          {
+            role: "secondary",
+            temperature: 0.3,
+            safeDefault: {
+              summary: truncateText(entries.map((entry) => `${entry.source}: ${entry.text}`).join(" | "), 1600),
+              keywords: [...new Set(entries.flatMap((entry) => keywordSnippets(entry.text)).slice(0, 12))],
+              participants: [...new Set(entries.map((e) => e.text.split(":")[0]?.trim()).filter((n) => n && n.length < 32))],
+            },
+          }
         );
         narrativeSummary = result.summary;
         keywords = result.keywords;
@@ -344,7 +356,7 @@ export class MemoryStore {
       "",
     ].join("\n");
 
-    await appendFile(this.historyPath(scope), output, "utf8");
+    await atomicAppend(this.historyPath(scope), output);
     await rm(checkpointPath, { force: true });
   }
 
@@ -431,4 +443,9 @@ async function atomicWrite(file: string, content: string): Promise<void> {
   const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
   await writeFile(temp, content, "utf8");
   await rename(temp, file);
+}
+
+async function atomicAppend(file: string, content: string): Promise<void> {
+  const previous = await readFile(file, "utf8").catch(() => "");
+  await atomicWrite(file, previous + content);
 }

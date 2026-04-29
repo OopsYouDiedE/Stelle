@@ -64,14 +64,14 @@ export interface ToolResult {
   sideEffects?: ToolSideEffect[];
 }
 
-export interface ToolDefinition {
+export interface ToolDefinition<TSchema extends z.AnyZodObject = z.AnyZodObject> {
   name: string;
   title: string;
   description: string;
   authority: ToolAuthority;
-  inputSchema: z.ZodObject<any, any, any>;
+  inputSchema: TSchema;
   sideEffects: ToolSideEffectProfile;
-  execute(input: any, context: ToolContext): Promise<ToolResult> | ToolResult;
+  execute(input: z.infer<TSchema>, context: ToolContext): Promise<ToolResult> | ToolResult;
 }
 
 export interface ToolAuditRecord {
@@ -123,7 +123,7 @@ export class ToolRegistry {
   private readonly tools = new Map<string, ToolDefinition>();
   readonly audit: ToolAuditRecord[] = [];
 
-  register(tool: ToolDefinition): void {
+  register<TSchema extends z.AnyZodObject>(tool: ToolDefinition<TSchema>): void {
     if (this.tools.has(tool.name)) throw new Error(`Tool already registered: ${tool.name}`);
     this.tools.set(tool.name, tool);
   }
@@ -305,7 +305,7 @@ function createCoreTools(): ToolDefinition[] {
       authority: "safe_write",
       inputSchema: z.object({ file_path: z.string(), content: z.string() }),
       sideEffects: sideEffects({ writesFileSystem: true }),
-      async execute(input: any, context) {
+      async execute(input, context) {
         const target = workspacePath(context, input.file_path);
         await mkdir(path.dirname(target), { recursive: true });
         await atomicWrite(target, input.content);
@@ -656,7 +656,7 @@ function createLiveTools(deps: ToolRegistryDeps): ToolDefinition[] {
     },
   ];
 
-  function liveActionTool(name: string, title: string, inputSchema: z.ZodObject<any>, action: (live: LiveRuntime, input: any) => Promise<{ ok: boolean; summary: string }>): ToolDefinition {
+  function liveActionTool<TSchema extends z.AnyZodObject>(name: string, title: string, inputSchema: TSchema, action: (live: LiveRuntime, input: z.infer<TSchema>) => Promise<{ ok: boolean; summary: string }>): ToolDefinition<TSchema> {
     return { name, title, description: title, authority: "external_write", inputSchema, sideEffects: sideEffects({ externalVisible: true, affectsUserState: true }), async execute(input) {
       const result = await action(liveRequired(), input);
       return { ok: result.ok, summary: result.summary, data: { result }, sideEffects: [{ type: name, summary: result.summary, visible: true, timestamp: Date.now() }] };
@@ -777,38 +777,157 @@ async function duckDuckGoHtmlSearch(query: string, count: number): Promise<any[]
 }
 
 async function fetchPublicUrl(url: URL): Promise<Response> {
-  return fetch(url, {
-    headers: { "User-Agent": "Stelle/1.0 (Bot; Research-Agent)" },
-    redirect: "follow",
-  });
+  let current = url;
+  for (let i = 0; i <= 5; i++) {
+    const blocked = await validatePublicHttpUrl(current);
+    if (blocked) throw new Error(blocked.summary);
+
+    const response = await fetch(current, {
+      headers: { "User-Agent": "Stelle/1.0 (Bot; Research-Agent)" },
+      redirect: "manual",
+    });
+
+    if (![301, 302, 303, 307, 308].includes(response.status)) return response;
+
+    const location = response.headers.get("location");
+    if (!location) return response;
+    current = new URL(location, current);
+  }
+  throw new Error("Too many redirects.");
 }
 
 async function validatePublicHttpUrl(url: URL): Promise<ToolResult | undefined> {
-  const host = url.hostname;
-  if (!host || host === "localhost") return fail("ssrf_blocked", "Localhost access is blocked.");
+  const host = url.hostname.replace(/^\[|\]$/g, "");
+  if (url.protocol !== "http:" && url.protocol !== "https:") return fail("ssrf_blocked", "Only HTTP(S) URLs are allowed.");
+  if (!host || host.toLowerCase() === "localhost") return fail("ssrf_blocked", "Localhost access is blocked.");
 
   try {
-    const addresses = await lookup(host, { all: true });
+    const literalReason = blockedIpReason(host);
+    if (isIP(host) && literalReason) return fail("ssrf_blocked", `${literalReason}: ${host}`);
+    const addresses = isIP(host) ? [{ address: host }] : await lookup(host, { all: true });
     for (const addr of addresses) {
       const ip = addr.address;
-      // 检查私有和特殊保留地址 (SSRF 防御)
-      if (
-        isIP(ip) === 4 && 
-        (ip.startsWith("127.") || ip.startsWith("10.") || ip.startsWith("192.168.") || 
-         ip.startsWith("172.16.") || ip.startsWith("172.17.") || ip.startsWith("172.18.") || 
-         ip.startsWith("172.19.") || ip.startsWith("172.2") || ip.startsWith("172.3") ||
-         ip.startsWith("169.254."))
-      ) {
-        return fail("ssrf_blocked", `Private IP access blocked: ${ip}`);
-      }
-      if (isIP(ip) === 6 && (ip === "::1" || ip.startsWith("fe80:"))) {
-        return fail("ssrf_blocked", `Private IPv6 access blocked: ${ip}`);
+      const reason = blockedIpReason(ip);
+      if (reason) {
+        return fail("ssrf_blocked", `${reason}: ${ip}`);
       }
     }
   } catch (e) {
     return fail("dns_failed", `Could not resolve host ${host}: ${safeErrorMessage(e)}`);
   }
   return undefined;
+}
+
+function blockedIpReason(ip: string): string | null {
+  const version = isIP(ip);
+  if (version === 4) return isBlockedIpv4(ip) ? "Non-public IPv4 access blocked" : null;
+  if (version === 6) {
+    const mapped = ipv4FromMappedIpv6(ip);
+    if (mapped) return isBlockedIpv4(mapped) ? "IPv4-mapped IPv6 access blocked" : null;
+    return isBlockedIpv6(ip) ? "Non-public IPv6 access blocked" : null;
+  }
+  return "Unparseable IP address blocked";
+}
+
+function isBlockedIpv4(ip: string): boolean {
+  return [
+    ["0.0.0.0", 8],
+    ["10.0.0.0", 8],
+    ["100.64.0.0", 10],
+    ["127.0.0.0", 8],
+    ["169.254.0.0", 16],
+    ["172.16.0.0", 12],
+    ["192.0.0.0", 24],
+    ["192.0.2.0", 24],
+    ["192.168.0.0", 16],
+    ["198.18.0.0", 15],
+    ["198.51.100.0", 24],
+    ["203.0.113.0", 24],
+    ["224.0.0.0", 4],
+    ["240.0.0.0", 4],
+  ].some(([range, bits]) => ipv4InCidr(ip, range as string, bits as number));
+}
+
+function isBlockedIpv6(ip: string): boolean {
+  const bytes = parseIpv6(ip);
+  if (!bytes) return true;
+  return [
+    ["::", 128],
+    ["::1", 128],
+    ["::ffff:0:0", 96],
+    ["64:ff9b::", 96],
+    ["100::", 64],
+    ["2001::", 23],
+    ["2001:db8::", 32],
+    ["2002::", 16],
+    ["fc00::", 7],
+    ["fe80::", 10],
+    ["ff00::", 8],
+  ].some(([range, bits]) => ipv6InCidr(bytes, range as string, bits as number));
+}
+
+function ipv4InCidr(ip: string, range: string, bits: number): boolean {
+  const ipNum = ipv4ToNumber(ip);
+  const rangeNum = ipv4ToNumber(range);
+  if (ipNum === null || rangeNum === null) return true;
+  const mask = bits === 0 ? 0 : (0xffffffff << (32 - bits)) >>> 0;
+  return (ipNum & mask) === (rangeNum & mask);
+}
+
+function ipv4ToNumber(ip: string): number | null {
+  const parts = ip.split(".").map((part) => Number(part));
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return null;
+  return (((parts[0]! << 24) >>> 0) + (parts[1]! << 16) + (parts[2]! << 8) + parts[3]!) >>> 0;
+}
+
+function ipv4FromMappedIpv6(ip: string): string | null {
+  const bytes = parseIpv6(ip);
+  if (!bytes) return null;
+  const isMapped = bytes.slice(0, 10).every((b) => b === 0) && bytes[10] === 0xff && bytes[11] === 0xff;
+  return isMapped ? bytes.slice(12).join(".") : null;
+}
+
+function ipv6InCidr(bytes: number[], range: string, bits: number): boolean {
+  const rangeBytes = parseIpv6(range);
+  if (!rangeBytes) return true;
+  let remaining = bits;
+  for (let i = 0; i < 16; i++) {
+    if (remaining <= 0) return true;
+    const take = Math.min(8, remaining);
+    const mask = (0xff << (8 - take)) & 0xff;
+    if ((bytes[i]! & mask) !== (rangeBytes[i]! & mask)) return false;
+    remaining -= take;
+  }
+  return true;
+}
+
+function parseIpv6(ip: string): number[] | null {
+  const normalized = ip.toLowerCase();
+  const zoneLess = normalized.split("%")[0]!;
+  const embeddedMatch = zoneLess.match(/(.*:)(\d{1,3}(?:\.\d{1,3}){3})$/);
+  let text = zoneLess;
+  if (embeddedMatch) {
+    const n = ipv4ToNumber(embeddedMatch[2]!);
+    if (n === null) return null;
+    text = `${embeddedMatch[1]}${((n >>> 16) & 0xffff).toString(16)}:${(n & 0xffff).toString(16)}`;
+  }
+
+  const halves = text.split("::");
+  if (halves.length > 2) return null;
+  const left = halves[0] ? halves[0].split(":").filter(Boolean) : [];
+  const right = halves[1] ? halves[1].split(":").filter(Boolean) : [];
+  const fill = halves.length === 2 ? 8 - left.length - right.length : 0;
+  if (fill < 0 || (halves.length === 1 && left.length !== 8)) return null;
+
+  const groups = [...left, ...Array(fill).fill("0"), ...right];
+  if (groups.length !== 8) return null;
+  const bytes: number[] = [];
+  for (const group of groups) {
+    if (!/^[0-9a-f]{1,4}$/.test(group)) return null;
+    const value = Number.parseInt(group, 16);
+    bytes.push((value >> 8) & 0xff, value & 0xff);
+  }
+  return bytes;
 }
 
 function htmlToText(html: string): string {
