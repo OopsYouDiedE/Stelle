@@ -7,10 +7,12 @@ import { BilibiliPlatformBridge } from "./bilibili.js";
 import { TikTokPlatformBridge } from "./tiktok.js";
 import { TwitchPlatformBridge } from "./twitch.js";
 import { YoutubePlatformBridge } from "./youtube.js";
+import { LivePlatformSupervisor } from "./supervisor.js";
 import type { LivePlatformBridge, LivePlatformStatus } from "./types.js";
 
 export class LivePlatformManager {
   private readonly bridges: LivePlatformBridge[];
+  private readonly supervisors: LivePlatformSupervisor[];
   private readonly deduper = new LiveEventDeduper(2 * 60_000, () => Date.now());
 
   constructor(config: RuntimeConfig, private readonly eventBus: StelleEventBus) {
@@ -22,14 +24,15 @@ export class LivePlatformManager {
       new YoutubePlatformBridge(platforms.youtube, onEvent),
       new TikTokPlatformBridge(platforms.tiktok, onEvent),
     ];
+    this.supervisors = this.bridges.map((bridge) => new LivePlatformSupervisor(bridge, this.eventBus));
   }
 
   async start(): Promise<void> {
-    await Promise.all(this.bridges.map((bridge) => bridge.start()));
+    for (const supervisor of this.supervisors) supervisor.start();
   }
 
   async stop(): Promise<void> {
-    await Promise.allSettled(this.bridges.map((bridge) => bridge.stop()));
+    await Promise.allSettled(this.supervisors.map((supervisor) => supervisor.stop()));
   }
 
   status(): LivePlatformStatus[] {
