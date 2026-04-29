@@ -93,6 +93,7 @@ const STAGE_OWNED_LIVE_TOOLS = new Set([
   "live.set_caption",
   "live.stream_caption",
   "live.stream_tts_caption",
+  "live.panel.push_event",
   "live.trigger_motion",
   "live.set_expression",
   "live.stop_output",

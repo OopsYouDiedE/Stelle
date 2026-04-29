@@ -69,6 +69,38 @@ describe("ToolRegistry Stage Protection", () => {
     expect(res.error?.code).toBe("stage_output_required");
   });
 
+  it("protects live.panel.push_event as stage-owned output", async () => {
+    const registry = new ToolRegistry();
+    const execute = vi.fn().mockResolvedValue({ ok: true, summary: "pushed" });
+    registry.register({
+      name: "live.panel.push_event",
+      title: "Panel",
+      description: "Panel",
+      authority: "external_write",
+      inputSchema: z.object({ text: z.string() }),
+      sideEffects: sideEffects(),
+      execute,
+    });
+
+    const cursorResult = await registry.execute("live.panel.push_event", { text: "incoming" }, {
+      caller: "cursor",
+      cwd: ".",
+      allowedAuthority: ["external_write"],
+      allowedTools: ["live.panel.push_event"],
+    });
+    expect(cursorResult.ok).toBe(false);
+    expect(cursorResult.error?.code).toBe("stage_output_required");
+
+    const stageResult = await registry.execute("live.panel.push_event", { text: "visible" }, {
+      caller: "stage_renderer",
+      cwd: ".",
+      allowedAuthority: ["external_write"],
+      allowedTools: ["live.panel.push_event"],
+    });
+    expect(stageResult.ok).toBe(true);
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
   it("blocks ordinary cursors from direct live.stream_tts_caption but allows stage_renderer", async () => {
     const registry = new ToolRegistry();
     const execute = vi.fn().mockResolvedValue({ ok: true, summary: "spoke" });
