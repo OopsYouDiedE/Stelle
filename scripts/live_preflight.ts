@@ -2,6 +2,7 @@ import "dotenv/config";
 import { access } from "node:fs/promises";
 import { constants } from "node:fs";
 import { fetchBilibiliDanmuInfo, resolveBilibiliRoom } from "../src/utils/bilibili_danmaku.js";
+import { TopicScriptRepository } from "../src/live/program/topic_script_repository.js";
 
 type CheckLevel = "pass" | "warn" | "fail";
 
@@ -18,6 +19,7 @@ const roomId = Number(process.env.BILIBILI_ROOM_ID || firstNumericArg());
 
 await checkEnv();
 await checkFiles();
+await checkTopicScripts();
 await checkRenderer();
 await checkBilibili();
 checkPlatformSupport();
@@ -51,6 +53,24 @@ async function checkFiles(): Promise<void> {
   if (process.env.LIVE_TTS_ENABLED === "false") return;
   const python = process.env.KOKORO_PYTHON ?? ".venv\\Scripts\\python.exe";
   await checkPath("Kokoro python", python, "install .venv or set LIVE_TTS_ENABLED=false for first dry run");
+}
+
+async function checkTopicScripts(): Promise<void> {
+  const required = process.env.STELLE_TOPIC_SCRIPT_REQUIRED === "true";
+  const repository = new TopicScriptRepository();
+  try {
+    const latest = await repository.latestApproved();
+    if (!latest) {
+      add(required ? "fail" : "warn", "topic script approved revision", required ? "no approved topic script found" : "no approved topic script found; runtime will continue without scripted hosting");
+      return;
+    }
+    const compiled = await repository.readCompiled(latest.scriptId, latest.revision);
+    const hasFallbacks = compiled.sections.length > 0 && compiled.sections.every(section => section.fallbackLines.length > 0);
+    add("pass", "topic script approved revision", `${latest.scriptId}#${latest.revision}, sections=${compiled.sections.length}`);
+    add(hasFallbacks ? "pass" : required ? "fail" : "warn", "topic script fallback lines", hasFallbacks ? "all sections have fallback lines" : "one or more sections are missing fallback lines");
+  } catch (error) {
+    add(required ? "fail" : "warn", "topic script compiled artifact", error instanceof Error ? error.message : String(error));
+  }
 }
 
 async function checkRenderer(): Promise<void> {
