@@ -15,17 +15,17 @@ export const CURSOR_CAPABILITIES = {
   live: {
     planTools: [
       "memory.read_recent", "memory.search", "memory.read_long_term",
-      "live.status", "obs.status", "basic.datetime",
+      "live.status", "obs.status", "basic.datetime", "scene.observe",
       "search.web_search", "search.web_read",
     ],
     stageTools: [
       "basic.datetime", "memory.read_long_term", "memory.write_recent", "memory.search",
       "memory.propose_write", "search.web_search", "search.web_read", "live.status",
-      "live.panel.push_event", "obs.status", "tts.live_speech", "tts.kokoro_speech",
+      "live.panel.push_event", "obs.status", "scene.observe", "tts.live_speech", "tts.kokoro_speech",
     ],
     executeTools: [
       "memory.read_recent", "memory.search", "memory.read_long_term",
-      "live.status", "live.panel.push_event", "obs.status", "basic.datetime",
+      "live.status", "live.panel.push_event", "obs.status", "basic.datetime", "scene.observe",
       "search.web_search", "search.web_read",
     ],
   },

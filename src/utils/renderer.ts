@@ -40,6 +40,11 @@ export interface LiveRendererDebugController {
 export interface LiveRendererLiveController {
   sendLiveRequest?(input: Record<string, unknown>): Promise<unknown> | unknown;
   sendLiveEvent?(input: Record<string, unknown>): Promise<unknown> | unknown;
+  getHealth?(): Promise<unknown> | unknown;
+  getJournal?(limit?: number): Promise<unknown> | unknown;
+  runControlCommand?(input: Record<string, unknown>): Promise<unknown> | unknown;
+  getViewerProfile?(platform: string, viewerId: string): Promise<unknown> | unknown;
+  deleteViewerProfile?(platform: string, viewerId: string): Promise<unknown> | unknown;
 }
 
 export interface LiveRendererCommand {
@@ -126,6 +131,10 @@ export class LiveRendererServer {
     this.io.emit("command", command);
   }
 
+  publishHealth(snapshot: unknown): void {
+    this.io.emit("health:update", snapshot);
+  }
+
   private setupSocketIO() {
     this.io.on("connection", (socket) => {
       // 客户端连接时主动推送最新状态
@@ -160,6 +169,7 @@ export class LiveRendererServer {
           reader.releaseLock();
         }
       } catch (error) {
+        this.publish({ type: "audio:status", status: "error", provider: req.params.provider, text: error instanceof Error ? error.message : String(error) });
         res.status(502).json({ ok: false, error: error instanceof Error ? error.message : String(error) });
       }
     });
@@ -191,6 +201,11 @@ export class LiveRendererServer {
     this.app.get("/_debug", (req, res) => {
       if (!this.debugAllowed(req, res)) return;
       res.send(debugHtml(this.options.debug?.requireToken !== false));
+    });
+
+    this.app.get("/control", (req, res) => {
+      if (!this.controlAllowed(req, res)) return;
+      res.send(controlHtml(this.options.control?.requireToken !== false));
     });
     
     this.app.get("/_debug/api/snapshot", async (req, res) => {
@@ -239,6 +254,44 @@ export class LiveRendererServer {
       if (!this.controlAllowed(req, res)) return;
       if (!this.options.liveController?.sendLiveRequest) return res.status(503).json({ ok: false, error: "unavailable" });
       try { res.json({ ok: true, result: await this.options.liveController.sendLiveRequest(req.body) }); }
+      catch(e) { res.status(500).json({ ok: false, error: String(e) }); }
+    });
+
+    this.app.get("/api/live/health", async (req, res) => {
+      if (!this.controlAllowed(req, res)) return;
+      if (!this.options.liveController?.getHealth) return res.status(503).json({ ok: false, error: "unavailable" });
+      try {
+        const snapshot = await this.options.liveController.getHealth();
+        this.publishHealth(snapshot);
+        res.json({ ok: true, snapshot });
+      } catch(e) { res.status(500).json({ ok: false, error: String(e) }); }
+    });
+
+    this.app.get("/api/live/journal", async (req, res) => {
+      if (!this.controlAllowed(req, res)) return;
+      if (!this.options.liveController?.getJournal) return res.status(503).json({ ok: false, error: "unavailable" });
+      try { res.json({ ok: true, journal: await this.options.liveController.getJournal(Number(req.query.limit ?? 40)) }); }
+      catch(e) { res.status(500).json({ ok: false, error: String(e) }); }
+    });
+
+    this.app.post("/api/live/control", async (req, res) => {
+      if (!this.controlAllowed(req, res)) return;
+      if (!this.options.liveController?.runControlCommand) return res.status(503).json({ ok: false, error: "unavailable" });
+      try { res.json({ ok: true, result: await this.options.liveController.runControlCommand(req.body) }); }
+      catch(e) { res.status(500).json({ ok: false, error: String(e) }); }
+    });
+
+    this.app.get("/api/live/viewer/:platform/:viewerId", async (req, res) => {
+      if (!this.controlAllowed(req, res)) return;
+      if (!this.options.liveController?.getViewerProfile) return res.status(503).json({ ok: false, error: "unavailable" });
+      try { res.json({ ok: true, profile: await this.options.liveController.getViewerProfile(req.params.platform, req.params.viewerId) }); }
+      catch(e) { res.status(500).json({ ok: false, error: String(e) }); }
+    });
+
+    this.app.delete("/api/live/viewer/:platform/:viewerId", async (req, res) => {
+      if (!this.controlAllowed(req, res)) return;
+      if (!this.options.liveController?.deleteViewerProfile) return res.status(503).json({ ok: false, error: "unavailable" });
+      try { res.json({ ok: true, result: await this.options.liveController.deleteViewerProfile(req.params.platform, req.params.viewerId) }); }
       catch(e) { res.status(500).json({ ok: false, error: String(e) }); }
     });
   }
@@ -294,5 +347,33 @@ function debugHtml(requireToken: boolean): string {
   return `<!doctype html><html><head><meta charset="utf-8"><title>Stelle Debug</title></head><body><h1>Stelle Debug</h1><pre id="out">loading...</pre><script>
 ${tokenScript}
 fetch('/_debug/api/snapshot' + qs).then(r=>r.json()).then(j=>{document.getElementById('out').textContent=JSON.stringify(j,null,2)}).catch(e=>{document.getElementById('out').textContent=String(e)})
+</script></body></html>`;
+}
+
+function controlHtml(requireToken: boolean): string {
+  const tokenScript = requireToken ? "const token = new URLSearchParams(location.search).get('token') || ''; const qs = token ? `?token=${encodeURIComponent(token)}` : '';" : "const qs = '';";
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Stelle Live Control</title><style>
+body{margin:0;background:#0b1118;color:#dbe7ef;font-family:Segoe UI,Microsoft YaHei,sans-serif}
+main{display:grid;grid-template-columns:1.2fr .8fr;gap:16px;padding:18px;min-height:100vh}
+section{border:1px solid #263746;background:#111a24;border-radius:8px;padding:14px;min-width:0}
+h1,h2{margin:0 0 12px} h1{font-size:20px} h2{font-size:15px;color:#f0bd6a}
+pre{white-space:pre-wrap;word-break:break-word;background:#081018;border:1px solid #22303c;border-radius:6px;padding:10px;max-height:42vh;overflow:auto}
+button,input{border:1px solid #33495c;background:#182635;color:#e8f1f7;border-radius:6px;padding:9px;margin:4px 4px 4px 0}
+button{cursor:pointer} .danger{border-color:#8f3b3b;background:#3a1818}.ok{color:#8ee0c2}.warn{color:#f0bd6a}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.wide{grid-column:1/-1}
+</style></head><body><main>
+<section><h1>Stelle Live Control</h1><div id="status" class="warn">loading</div><pre id="health"></pre></section>
+<section><h2>Stage Controls</h2><button class="danger" data-cmd="stop_output">Stop Output</button><button data-cmd="clear_queue">Clear Queue</button><button data-cmd="pause_auto_reply">Pause Auto Reply</button><button data-cmd="resume_auto_reply">Resume</button><button data-cmd="mute_tts">Mute TTS</button><button data-cmd="unmute_tts">Unmute TTS</button><h2>Direct Say</h2><input id="say" placeholder="一句要立刻说的话" style="width:75%"><button id="saybtn">Send</button><pre id="result"></pre></section>
+<section class="wide"><h2>Recent Journal</h2><pre id="journal"></pre></section>
+</main><script src="/socket.io/socket.io.js"></script><script>
+${tokenScript}
+const h=document.getElementById('health'),j=document.getElementById('journal'),r=document.getElementById('result'),s=document.getElementById('status');
+async function api(path,init){const res=await fetch(path+qs,{headers:{'content-type':'application/json'},...init});const data=await res.json().catch(()=>({ok:false,error:'bad json'}));if(!res.ok)throw new Error(data.error||res.statusText);return data}
+async function refresh(){try{const data=await api('/api/live/health');h.textContent=JSON.stringify(data.snapshot,null,2);s.textContent='connected';s.className='ok';const log=await api('/api/live/journal?limit=30');j.textContent=JSON.stringify(log.journal,null,2)}catch(e){s.textContent=String(e);s.className='warn'}}
+async function cmd(command,payload={}){try{r.textContent=JSON.stringify(await api('/api/live/control',{method:'POST',body:JSON.stringify({command,...payload})}),null,2);await refresh()}catch(e){r.textContent=String(e)}}
+document.querySelectorAll('button[data-cmd]').forEach(b=>b.onclick=()=>cmd(b.dataset.cmd));
+document.getElementById('saybtn').onclick=()=>cmd('direct_say',{text:document.getElementById('say').value});
+try{io().on('health:update',x=>{h.textContent=JSON.stringify(x,null,2)})}catch{}
+refresh();setInterval(refresh,5000);
 </script></body></html>`;
 }

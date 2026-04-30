@@ -9,6 +9,9 @@ import type { MemoryStore } from "../utils/memory.js";
 import type { RuntimeConfig } from "../utils/config_loader.js";
 import type { LiveRendererServer } from "../utils/renderer.js";
 import type { RuntimeState } from "../runtime_state.js";
+import type { LiveHealthService } from "../live/ops/health_service.js";
+import type { LiveEventJournal } from "../live/ops/event_journal.js";
+import type { ViewerProfileStore } from "../live/ops/viewer_profile.js";
 
 export interface RendererControllerDeps {
   renderer: LiveRendererServer;
@@ -22,6 +25,10 @@ export interface RendererControllerDeps {
   stageOutput: StageOutputArbiter;
   deviceAction: DeviceActionArbiter;
   eventBus: StelleEventBus;
+  health?: () => LiveHealthService | undefined;
+  journal?: () => LiveEventJournal | undefined;
+  viewerProfiles?: ViewerProfileStore;
+  runControlCommand?(input: Record<string, unknown>): Promise<unknown> | unknown;
   proposeSystemLiveOutput(source: "debug" | "system", input: Record<string, unknown>): Promise<unknown>;
   now: () => number;
 }
@@ -41,6 +48,19 @@ export function setupRendererControllers(deps: RendererControllerDeps): void {
         payload: { ...input },
       } as any);
       return { accepted: true, reason: "Forwarded to event bus", eventId };
+    },
+    getHealth: async () => deps.health?.()?.snapshot() ?? { unavailable: true },
+    getJournal: async (limit?: number) => deps.journal?.()?.getRecent(limit) ?? [],
+    runControlCommand: async (input: Record<string, unknown>) => {
+      if (!deps.runControlCommand) return { ok: false, reason: "control unavailable" };
+      return deps.runControlCommand(input);
+    },
+    getViewerProfile: async (platform: string, viewerId: string) => {
+      return deps.viewerProfiles?.read(platform as any, viewerId) ?? null;
+    },
+    deleteViewerProfile: async (platform: string, viewerId: string) => {
+      const deleted = await deps.viewerProfiles?.delete(platform as any, viewerId);
+      return { deleted: Boolean(deleted) };
     },
   };
 

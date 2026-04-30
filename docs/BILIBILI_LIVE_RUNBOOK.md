@@ -46,6 +46,11 @@ npm run live:preflight
 ```
 
 The preflight should have no `FAIL` rows. A renderer HTTP warning is acceptable before the renderer is started.
+For control-room integrations or automated checks, use structured output:
+
+```bash
+npm run live:preflight:json
+```
 
 ## Start Order
 
@@ -62,6 +67,14 @@ http://127.0.0.1:8787/live?autoplay=1
 ```
 
 `/live` is the real stage path. It does not generate sample danmaku; content enters through the live bridge and is arbitrated by `StageOutputArbiter`. Add `?panel=1` only for the local simulator/debug panel.
+
+Open the local control room in a normal browser tab:
+
+```text
+http://127.0.0.1:8787/control?token=<STELLE_CONTROL_TOKEN>
+```
+
+The control room shows live health, recent journal events, platform/OBS/TTS status, and stage output state. It can stop current output, clear queued speech, pause or resume automatic live replies, mute or unmute TTS, and force one direct line.
 
 ## Renderer Avatar Model
 
@@ -96,8 +109,26 @@ npm run live:bilibili -- --dry-run
 - Keep `OBS_CONTROL_ENABLED=false` unless OBS control is intentionally implemented and tested.
 - Keep `STELLE_DEBUG_ENABLED=false` for public streams.
 - If TTS fails, set `LIVE_TTS_ENABLED=false` and continue with captions.
+- Use `/control` stop output or pause auto reply if the model, TTS, or chat input becomes unsafe.
 - The live gateway hard-drops political/current-affairs content before it reaches the model.
+- The live gateway also classifies spam, abuse, privacy leakage, prompt-injection attempts, sexual content, and minor-safety risk before routing to the model.
 - The stage arbiter owns captions/TTS/motion, so cursors cannot directly fight over live output.
+
+## Replay and Incident Export
+
+During a live run, Stelle writes a JSONL journal under:
+
+```text
+artifacts/live-sessions/<sessionId>/events.jsonl
+```
+
+To package recent session data for debugging:
+
+```bash
+npm run live:export-logs
+```
+
+Viewer relationship profiles are stored locally under `memory/live/viewers/<platform>/<viewerId>.json`. The `/control` API can read and delete individual profiles; do not commit profile files.
 
 ## Known Limits
 

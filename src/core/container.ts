@@ -16,6 +16,8 @@ import { DesktopInputDriver } from "../device/drivers/desktop_input_driver.js";
 import { buildDeviceActionAllowlist } from "../device/action_allowlist.js";
 import { LiveRendererServer } from "../utils/renderer.js";
 import type { CursorContext } from "../cursor/types.js";
+import { ViewerProfileStore } from "../live/ops/viewer_profile.js";
+import { SceneObserver } from "../scene/observer.js";
 
 export interface RuntimeServices {
   config: RuntimeConfig;
@@ -28,6 +30,8 @@ export interface RuntimeServices {
   tools: ToolRegistry;
   stageOutput: StageOutputArbiter;
   deviceAction: DeviceActionArbiter;
+  viewerProfiles: ViewerProfileStore;
+  sceneObserver: SceneObserver;
 }
 
 export class StelleContainer {
@@ -35,6 +39,8 @@ export class StelleContainer {
     const state = new RuntimeState();
     const llm = new LlmClient(config.models);
     const eventBus = new StelleEventBus();
+    const viewerProfiles = new ViewerProfileStore(path.join(process.cwd(), "memory", "live", "viewers"));
+    const sceneObserver = new SceneObserver(config.sceneObservation, renderer);
     const memory = new MemoryStore({
       rootDir: path.join(process.cwd(), "memory"),
       recentLimit: 50,
@@ -44,10 +50,11 @@ export class StelleContainer {
     
     const live = new LiveRuntime(
       new ObsWebSocketController({ enabled: config.live.obsControlEnabled }),
-      renderer ? new LocalLiveRendererBridge(renderer) : undefined
+      renderer ? new LocalLiveRendererBridge(renderer) : undefined,
+      eventBus,
     );
     
-    const tools = createDefaultToolRegistry({ discord, live, memory, cwd: process.cwd() });
+    const tools = createDefaultToolRegistry({ discord, live, memory, cwd: process.cwd(), sceneObserver, eventBus });
     
     const stageOutput = new StageOutputArbiter({
       renderer: new StageOutputRenderer({
@@ -79,6 +86,8 @@ export class StelleContainer {
       tools,
       stageOutput,
       deviceAction,
+      viewerProfiles,
+      sceneObserver,
     };
   }
 
@@ -91,6 +100,7 @@ export class StelleContainer {
       eventBus: services.eventBus,
       stageOutput: services.stageOutput,
       deviceAction: services.deviceAction,
+      viewerProfiles: services.viewerProfiles,
       now: () => Date.now(),
     };
   }

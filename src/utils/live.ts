@@ -15,6 +15,7 @@ import crypto from "node:crypto";
 import type { LiveRendererCommand, LiveRendererServer } from "./renderer.js";
 import { sanitizeExternalText } from "./text.js";
 import { buildLiveTtsRequest } from "./tts.js";
+import type { StelleEventBus } from "./event_bus.js";
 
 export type LiveMotionPriority = "idle" | "normal" | "force";
 
@@ -106,7 +107,8 @@ export class LiveRuntime {
 
   constructor(
     readonly obs: ObsController = new ObsWebSocketController(),
-    private readonly renderer?: LiveRendererBridge
+    private readonly renderer?: LiveRendererBridge,
+    private readonly eventBus?: StelleEventBus,
   ) {}
 
   async getStatus(): Promise<LiveStatus> {
@@ -208,15 +210,28 @@ export class LiveRuntime {
     });
     const id = `${liveTts.provider}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const url = `/tts/${liveTts.provider}/${id}`;
+    this.publishTtsStatus("queued", liveTts.provider, caption);
     await this.renderer?.publish({ type: "audio:status", status: "streaming", provider: liveTts.provider, text: caption });
     await this.renderer?.publish({ type: "audio:stream", url, provider: liveTts.provider, request: liveTts.request, text: caption, speaker, rateMs });
+    this.publishTtsStatus("streaming", liveTts.provider, caption);
     return liveOk(`Queued live ${liveTts.provider} stream playback: ${url}.`, this.stage);
   }
 
   async stopAudio(): Promise<LiveActionResult> {
     await this.renderer?.publish({ type: "audio:status", status: "stopped" });
     await this.renderer?.publish({ type: "audio:stop" });
+    this.publishTtsStatus("stopped");
     return liveOk("Stopped live audio.", this.stage);
+  }
+
+  private publishTtsStatus(status: string, provider?: string, text?: string): void {
+    this.eventBus?.publish({
+      type: "live.tts.status",
+      source: "live_runtime",
+      id: `live-tts-${status}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      timestamp: Date.now(),
+      payload: { status, provider, text },
+    } as any);
   }
 }
 

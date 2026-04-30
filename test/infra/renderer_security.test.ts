@@ -173,4 +173,22 @@ describe("LiveRendererServer Security", () => {
 
     expect(response.status).toBe(403);
   });
+
+  it("protects /control with the control token", async () => {
+    server = new LiveRendererServer({
+      port,
+      control: {
+        requireToken: true,
+        token: "control-token",
+      },
+    });
+    const url = await server.start();
+
+    const rejected = await fetch(`${url}/control`);
+    const accepted = await fetch(`${url}/control?token=control-token`);
+
+    expect(rejected.status).toBe(401);
+    expect(accepted.status).toBe(200);
+    expect(await accepted.text()).toContain("Stelle Live Control");
+  });
 });

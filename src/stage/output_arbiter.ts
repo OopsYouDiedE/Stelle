@@ -2,6 +2,7 @@ import { applyOutputBudget } from "./output_budget.js";
 import { decideOutputPolicy } from "./output_policy.js";
 import { StageOutputQueue } from "./output_queue.js";
 import type { OutputIntent, StageOutputArbiterDeps, StageOutputDecision, StageOutputRecord, StageOutputState } from "./output_types.js";
+import { moderateLiveOutputText } from "../utils/live_event.js";
 
 export class StageOutputArbiter {
   private readonly queue: StageOutputQueue;
@@ -9,6 +10,8 @@ export class StageOutputArbiter {
   private state: StageOutputState;
   private processing = false;
   private currentAbortController?: AbortController;
+  private autoReplyPaused = false;
+  private ttsMuted = false;
 
   constructor(private readonly deps: StageOutputArbiterDeps) {
     this.queue = new StageOutputQueue(deps.maxQueueLength ?? 5, deps.now);
@@ -21,11 +24,45 @@ export class StageOutputArbiter {
       motionBusyUntil: 0,
       queueLength: 0,
       recentOutputs: [],
+      autoReplyPaused: false,
+      ttsMuted: false,
     };
   }
 
   async propose(input: OutputIntent): Promise<StageOutputDecision> {
-    const intent = applyOutputBudget(input);
+    if (this.autoReplyPaused && isAutoReplyIntent(input)) {
+      this.record({ id: input.id, cursorId: input.cursorId, lane: input.lane, text: input.text, status: "dropped", reason: "auto_reply_paused" });
+      this.publish("stage.output.dropped", input, { reason: "auto_reply_paused" });
+      return { status: "dropped", outputId: input.id, reason: "auto_reply_paused", intent: input };
+    }
+
+    const moderation = moderateLiveOutputText(input.text);
+    if (!moderation.allowed && input.lane !== "emergency") {
+      this.deps.eventBus?.publish({
+        type: "live.moderation.decision" as any,
+        source: "stage_output",
+        id: `stage-output-moderation-${input.id}`,
+        timestamp: this.deps.now(),
+        payload: {
+          eventId: input.sourceEventId ?? input.id,
+          outputId: input.id,
+          allowed: false,
+          action: moderation.action,
+          reason: moderation.reason,
+          category: moderation.category,
+          visibleToControlRoom: true,
+        },
+      });
+      const safeText = moderation.action === "hide" ? "这条内容我先不展开，我们换个安全一点的话题。" : "";
+      if (!safeText) {
+        this.record({ id: input.id, cursorId: input.cursorId, lane: input.lane, text: input.text, status: "dropped", reason: `output_${moderation.category ?? "moderation"}` });
+        this.publish("stage.output.dropped", input, { reason: `output_${moderation.category ?? "moderation"}` });
+        return { status: "dropped", outputId: input.id, reason: `output_${moderation.category ?? "moderation"}`, intent: input };
+      }
+      input = { ...input, text: safeText, summary: safeText, output: { ...input.output, tts: input.output.tts } };
+    }
+
+    const intent = applyOutputBudget(this.ttsMuted ? { ...input, output: { ...input.output, tts: false } } : input);
     this.publish("stage.output.received", intent, { reason: "proposed" });
 
     const now = this.deps.now();
@@ -106,11 +143,40 @@ export class StageOutputArbiter {
     return { cancelled, reason };
   }
 
+  clearQueue(reason = "control_clear_queue"): { cancelled: number; reason: string } {
+    const cancelled = this.queue.clear();
+    this.syncQueueLength();
+    return { cancelled, reason };
+  }
+
+  stopCurrent(reason = "control_stop_output"): { stopped: boolean; reason: string } {
+    const stopped = Boolean(this.state.currentOutputId);
+    this.currentAbortController?.abort();
+    void this.deps.renderer.stopCurrentOutput().catch(err => {
+      console.error("[StageOutputArbiter] renderer.stopCurrentOutput failed:", err);
+    });
+    return { stopped, reason };
+  }
+
+  setAutoReplyPaused(paused: boolean): { paused: boolean } {
+    this.autoReplyPaused = paused;
+    this.state = { ...this.state, autoReplyPaused: paused };
+    return { paused };
+  }
+
+  setTtsMuted(muted: boolean): { muted: boolean } {
+    this.ttsMuted = muted;
+    this.state = { ...this.state, ttsMuted: muted };
+    return { muted };
+  }
+
   snapshot(): StageOutputState {
     return {
       ...this.state,
       queueLength: this.queue.length(),
       recentOutputs: [...this.recentOutputs],
+      autoReplyPaused: this.autoReplyPaused,
+      ttsMuted: this.ttsMuted,
     };
   }
 
@@ -245,4 +311,9 @@ export class StageOutputArbiter {
       payload: { intent, ...extra },
     } as any);
   }
+}
+
+function isAutoReplyIntent(intent: OutputIntent): boolean {
+  if (intent.lane === "emergency" || intent.cursorId === "debug" || intent.cursorId === "system") return false;
+  return intent.cursorId === "live_danmaku" || intent.cursorId === "live_engagement" || intent.metadata?.source === "idle_task" || intent.metadata?.source === "schedule_task";
 }

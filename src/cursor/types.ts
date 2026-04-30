@@ -18,6 +18,7 @@ import type { StelleEventBus } from "../utils/event_bus.js";
 import type { StelleEvent } from "../utils/event_schema.js";
 import type { StageOutputArbiter } from "../stage/output_arbiter.js";
 import type { DeviceActionArbiter } from "../device/action_arbiter.js";
+import type { ViewerProfileStore } from "../live/ops/viewer_profile.js";
 
 export type { StelleEvent };
 
@@ -39,6 +40,7 @@ export interface CursorContext {
   eventBus: StelleEventBus;
   stageOutput: StageOutputArbiter;
   deviceAction?: DeviceActionArbiter;
+  viewerProfiles?: ViewerProfileStore;
   now: () => number;
 }
 

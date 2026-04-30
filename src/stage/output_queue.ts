@@ -64,6 +64,12 @@ export class StageOutputQueue {
     return before - this.items.length;
   }
 
+  clear(): number {
+    const count = this.items.length;
+    this.items.splice(0);
+    return count;
+  }
+
   length(): number {
     return this.items.length;
   }

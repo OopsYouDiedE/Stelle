@@ -30,6 +30,22 @@ export class LiveGateway {
     const aggregator = this.ensureAggregator();
     const event = normalizeLiveEvent(payload);
     const moderation = moderateLiveEvent(event);
+    this.context.eventBus.publish({
+      type: "live.moderation.decision",
+      source: "live_gateway",
+      id: `live-moderation-${event.id}`,
+      timestamp: this.context.now(),
+      payload: {
+        eventId: event.id,
+        platform: event.source,
+        kind: event.kind,
+        allowed: moderation.allowed,
+        action: moderation.action,
+        reason: moderation.reason,
+        category: moderation.category,
+        visibleToControlRoom: moderation.visibleToControlRoom ?? !moderation.allowed,
+      },
+    });
 
     if (!moderation.allowed) {
       this.publishDropped(event, "moderation_rejected", moderation.reason);

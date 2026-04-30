@@ -4,6 +4,7 @@ import type { NormalizedLiveEvent } from "../../utils/live_event.js";
 import type { CursorContext } from "../types.js";
 import type { LiveBatchDecision, LiveComposeInput, LiveEmotion } from "./types.js";
 import type { BehaviorPolicyOverlay } from "../policy_overlay_store.js";
+import type { ViewerProfileSummary } from "../../live/ops/viewer_profile.js";
 
 /**
  * 模块：Live Router (决策与思维)
@@ -19,6 +20,7 @@ export class LiveRouter {
     const focus = await this.context.memory?.readLongTerm("current_focus", "self_state").catch(() => null);
     const subconscious = await this.context.memory?.readLongTerm("global_subconscious", "self_state").catch(() => null);
     const safePolicies = filterLivePolicies(activePolicies, batch);
+    const relationshipSummaries = await this.context.viewerProfiles?.summariesForEvents(batch).catch(() => []);
 
     const directiveBlock = safePolicies.length 
       ? `\nCURRENT ACTIVE BEHAVIOR POLICIES:\n${safePolicies.map(p => {
@@ -44,7 +46,9 @@ export class LiveRouter {
       "- memory.read_recent: { limit: 10 } (Quick glance)",
       "- live.status: {} (Check stage)",
       "- obs.status: {} (Check OBS)",
+      "- scene.observe: {} (Read-only current scene/renderer observation; use only for screen/game/current-scene questions)",
       "- search.web_search: { query: '...' } (Web search)",
+      relationshipSummaries?.length ? `Viewer relationship summaries:\n${relationshipSummaries.map(formatRelationshipSummary).join("\n")}` : undefined,
       "\nReturn JSON with exactly this shape:",
       '{"action":"respond_to_crowd|respond_to_specific|drop_noise|generate_topic","emotion":"neutral|happy|laughing|sad|surprised|thinking|teasing","intensity":1-5,"script":"spoken reply in Simplified Chinese","reason":"short reason","tool_plan":{"calls":[{"tool":"memory.search","parameters":{"text":"..."}}]}}',
       "Language: reply in concise Simplified Chinese by default.",
@@ -185,6 +189,13 @@ export class LiveRouter {
       }
     );
   }
+}
+
+function formatRelationshipSummary(summary: ViewerProfileSummary): string {
+  const name = summary.displayName ?? summary.viewerId;
+  const recent = summary.recentMessages?.length ? ` Recent: ${summary.recentMessages.join(" / ")}` : "";
+  const roles = summary.roles?.length ? ` Roles: ${summary.roles.join(", ")}` : "";
+  return `- ${name} (${summary.platform}): ${summary.relationshipHint}.${roles}${recent}`;
 }
 
 function formatPolicy(p: BehaviorPolicyOverlay): string {

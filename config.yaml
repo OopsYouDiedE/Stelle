@@ -66,6 +66,9 @@ cursors:
       resources: ["default"]
       risks: ["readonly", "safe_interaction", "text_input"]
 
+sceneObservation:
+  enabled: false
+
 core:
   reflectionIntervalHours: 6
   reflectionAccumulationThreshold: 30

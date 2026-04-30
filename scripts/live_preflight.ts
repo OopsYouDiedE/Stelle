@@ -12,6 +12,7 @@ interface CheckResult {
 }
 
 const checks: CheckResult[] = [];
+const jsonMode = process.argv.includes("--json");
 const rendererUrl = (process.env.LIVE_RENDERER_URL ?? "http://127.0.0.1:8787").replace(/\/+$/, "");
 const roomId = Number(process.env.BILIBILI_ROOM_ID || firstNumericArg());
 
@@ -19,6 +20,7 @@ await checkEnv();
 await checkFiles();
 await checkRenderer();
 await checkBilibili();
+checkPlatformSupport();
 printReport();
 
 if (checks.some(check => check.level === "fail")) {
@@ -85,6 +87,16 @@ function add(level: CheckLevel, name: string, detail: string): void {
 }
 
 function printReport(): void {
+  if (jsonMode) {
+    console.log(JSON.stringify({
+      ok: !checks.some(check => check.level === "fail"),
+      generatedAt: new Date().toISOString(),
+      rendererUrl,
+      checks,
+      platforms: platformSupport(),
+    }, null, 2));
+    return;
+  }
   console.log("\nStelle live preflight\n");
   for (const check of checks) {
     const mark = check.level === "pass" ? "OK" : check.level === "warn" ? "WARN" : "FAIL";
@@ -96,6 +108,21 @@ function printReport(): void {
   console.log("2. npm run start:live");
   console.log("3. Open OBS Browser Source: http://127.0.0.1:8787/live");
   console.log("4. npm run live:bilibili");
+}
+
+function checkPlatformSupport(): void {
+  for (const platform of platformSupport()) {
+    add("pass", `${platform.platform} support level`, platform.level);
+  }
+}
+
+function platformSupport(): Array<{ platform: string; level: "stable" | "beta" | "experimental"; note: string }> {
+  return [
+    { platform: "bilibili", level: "stable", note: "Primary production target for this repo." },
+    { platform: "twitch", level: "beta", note: "IRC bridge exists; validate credentials and moderation before formal use." },
+    { platform: "youtube", level: "beta", note: "Data API polling bridge exists; quota and auth must be checked." },
+    { platform: "tiktok", level: "experimental", note: "Optional websocket/provider path; dependency/provider may be external." },
+  ];
 }
 
 function firstNumericArg(): string | undefined {

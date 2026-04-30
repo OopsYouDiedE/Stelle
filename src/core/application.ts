@@ -16,6 +16,9 @@ import { StelleContainer, type RuntimeServices } from "./container.js";
 import { LlmClient } from "../utils/llm.js";
 import { LivePlatformManager } from "../live/platforms/manager.js";
 import { LiveEngagementService } from "../live/engagement_service.js";
+import { LiveEventJournal } from "../live/ops/event_journal.js";
+import { LiveHealthService } from "../live/ops/health_service.js";
+import { LiveRelationshipService } from "../live/ops/relationship_service.js";
 
 export type StartMode = "runtime" | "discord" | "live";
 
@@ -26,6 +29,9 @@ export class StelleApplication {
   public cursors: StelleCursor[] = [];
   private livePlatforms?: LivePlatformManager;
   private liveEngagement?: LiveEngagementService;
+  private liveJournal?: LiveEventJournal;
+  private liveHealth?: LiveHealthService;
+  private liveRelationship?: LiveRelationshipService;
 
   constructor(private readonly mode: StartMode) {
     const config = loadRuntimeConfig();
@@ -62,8 +68,8 @@ export class StelleApplication {
 
     await this.setupCursors();
     this.setupEventRouting();
-    this.setupDebugController();
     await this.setupLiveServices();
+    this.setupDebugController();
 
     if (this.mode !== "live" && this.config.discord.token) {
       await this.connectDiscord();
@@ -118,11 +124,14 @@ export class StelleApplication {
     this.scheduler.stop();
     await Promise.allSettled([
       ...this.cursors.map(c => c.stop?.()),
+      this.liveHealth?.stop(),
+      this.liveJournal?.stop(),
       this.livePlatforms?.stop(),
       this.discord.destroy(),
       this.renderer?.stop(),
     ]);
     this.liveEngagement?.stop();
+    this.liveRelationship?.stop();
     this.state.updateDiscord({ connected: false });
     this.state.updateRenderer({ connected: false });
     this.state.record("runtime_stopped", "Runtime stopped.");
@@ -169,6 +178,10 @@ export class StelleApplication {
       stageOutput: this.stageOutput,
       deviceAction: this.deviceAction,
       eventBus: this.eventBus,
+      health: () => this.liveHealth,
+      journal: () => this.liveJournal,
+      viewerProfiles: this.services.viewerProfiles,
+      runControlCommand: (input) => this.runLiveControlCommand(input),
       proposeSystemLiveOutput: (source, input) => this.proposeSystemLiveOutput(source, input),
       now: () => Date.now(),
     });
@@ -185,12 +198,62 @@ export class StelleApplication {
     });
     this.liveEngagement.start();
 
+    this.liveJournal = new LiveEventJournal(this.eventBus);
+    await this.liveJournal.start();
+    this.liveRelationship = new LiveRelationshipService(this.eventBus, this.services.viewerProfiles);
+    this.liveRelationship.start();
     this.livePlatforms = new LivePlatformManager(this.config, this.eventBus);
     await this.livePlatforms.start();
+    this.liveHealth = new LiveHealthService({
+      sessionId: this.liveJournal.sessionId,
+      eventBus: this.eventBus,
+      stageOutput: this.stageOutput,
+      live: this.services.live,
+      renderer: this.renderer,
+      platforms: this.livePlatforms,
+    });
+    this.liveHealth.start();
     const enabled = this.livePlatforms.status().filter(status => status.enabled).map(status => `${status.platform}:${status.connected ? "connected" : status.lastError ?? "idle"}`);
     if (enabled.length) {
       console.log(`[Stelle] Live platform bridges: ${enabled.join(", ")}`);
     }
+  }
+
+  private async runLiveControlCommand(input: Record<string, unknown>) {
+    const command = String(input.command ?? "");
+    this.eventBus.publish({
+      type: "live.control.command",
+      source: "control",
+      id: `live-control-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      timestamp: Date.now(),
+      payload: { command, input },
+    } as any);
+
+    if (command === "stop_output") {
+      const stopped = this.stageOutput.stopCurrent("control_stop_output");
+      return { command, ...stopped };
+    }
+    if (command === "clear_queue") {
+      return { command, ...this.stageOutput.clearQueue("control_clear_queue") };
+    }
+    if (command === "pause_auto_reply") {
+      return { command, ...this.stageOutput.setAutoReplyPaused(true) };
+    }
+    if (command === "resume_auto_reply") {
+      return { command, ...this.stageOutput.setAutoReplyPaused(false) };
+    }
+    if (command === "mute_tts") {
+      return { command, ...this.stageOutput.setTtsMuted(true) };
+    }
+    if (command === "unmute_tts") {
+      return { command, ...this.stageOutput.setTtsMuted(false) };
+    }
+    if (command === "direct_say") {
+      const text = String(input.text ?? "").trim();
+      if (!text) return { command, accepted: false, reason: "empty_text" };
+      return this.proposeSystemLiveOutput("system", { text, directSay: true });
+    }
+    return { command, accepted: false, reason: "unknown_command" };
   }
 
   private async proposeSystemLiveOutput(source: "debug" | "system", input: Record<string, unknown>) {

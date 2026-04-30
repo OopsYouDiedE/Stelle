@@ -237,12 +237,17 @@ export function buildLiveTtsRequest(text: string, options: TtsSynthesisOptions =
 
 export async function fetchLiveTtsAudio(provider: string, request: Record<string, unknown>): Promise<Response> {
   const normalized = normalizeTtsProvider(provider);
+  const cacheKey = `${normalized}:${JSON.stringify(request)}`;
+  const cached = liveTtsCache.get(cacheKey);
+  if (cached && Date.now() - cached.createdAt < liveTtsCacheTtlMs()) {
+    return new Response(toExactArrayBuffer(cached.bytes), { headers: { "content-type": cached.mimeType } });
+  }
   if (normalized === "dashscope") {
     const apiKey = process.env.DASHSCOPE_API_KEY;
     if (!apiKey) throw new Error("Missing DASHSCOPE_API_KEY for DashScope Qwen-TTS.");
-    return fetchDashScopeAudio(request, { apiKey });
+    return cacheResponse(cacheKey, await fetchDashScopeAudio(request, { apiKey }));
   }
-  return fetchKokoroAudio(request);
+  return cacheResponse(cacheKey, await fetchKokoroAudio(request));
 }
 
 export function buildKokoroSpeechRequest(text: string, options: {
@@ -293,6 +298,7 @@ async function fetchKokoroAudio(request: Record<string, unknown>): Promise<Respo
     method: "POST",
     headers,
     body: JSON.stringify(request),
+    signal: AbortSignal.timeout(liveTtsTimeoutMs()),
   });
   if (!response.ok) throw new Error(`Kokoro TTS failed: ${response.status} ${response.statusText}`);
   return response;
@@ -310,6 +316,7 @@ async function fetchDashScopeAudio(request: Record<string, unknown>, options: { 
       ...(stream ? { "X-DashScope-SSE": "enable" } : {}),
     },
     body: JSON.stringify(request),
+    signal: AbortSignal.timeout(liveTtsTimeoutMs()),
   });
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
@@ -330,7 +337,7 @@ async function fetchDashScopeAudio(request: Record<string, unknown>, options: { 
   const audio = payload?.output?.audio;
   const audioUrl = typeof audio?.url === "string" ? audio.url : undefined;
   if (audioUrl) {
-    const audioResponse = await fetch(audioUrl);
+    const audioResponse = await fetch(audioUrl, { signal: AbortSignal.timeout(liveTtsTimeoutMs()) });
     if (!audioResponse.ok) throw new Error(`DashScope audio download failed: ${audioResponse.status} ${audioResponse.statusText}`);
     return audioResponse;
   }
@@ -341,6 +348,35 @@ async function fetchDashScopeAudio(request: Record<string, unknown>, options: { 
     });
   }
   throw new Error("DashScope Qwen-TTS response did not include output.audio.url or output.audio.data.");
+}
+
+const liveTtsCache = new Map<string, { bytes: Uint8Array; mimeType: string; createdAt: number }>();
+
+async function cacheResponse(cacheKey: string, response: Response): Promise<Response> {
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  const mimeType = response.headers.get("content-type")?.split(";")[0]?.trim() || "audio/wav";
+  liveTtsCache.set(cacheKey, { bytes, mimeType, createdAt: Date.now() });
+  while (liveTtsCache.size > liveTtsCacheMaxEntries()) {
+    const oldest = liveTtsCache.keys().next().value;
+    if (!oldest) break;
+    liveTtsCache.delete(oldest);
+  }
+  return new Response(toExactArrayBuffer(bytes), { status: response.status, headers: { "content-type": mimeType } });
+}
+
+function liveTtsTimeoutMs(): number {
+  const value = Number(process.env.LIVE_TTS_TIMEOUT_MS ?? 15_000);
+  return Number.isFinite(value) ? Math.max(1000, value) : 15_000;
+}
+
+function liveTtsCacheTtlMs(): number {
+  const value = Number(process.env.LIVE_TTS_CACHE_TTL_MS ?? 10 * 60_000);
+  return Number.isFinite(value) ? Math.max(0, value) : 10 * 60_000;
+}
+
+function liveTtsCacheMaxEntries(): number {
+  const value = Number(process.env.LIVE_TTS_CACHE_MAX_ENTRIES ?? 80);
+  return Number.isFinite(value) ? Math.max(0, value) : 80;
 }
 
 function parseDashScopeSsePcm(text: string): Buffer {

@@ -19,6 +19,8 @@ import type { LiveRuntime } from "./utils/live.js";
 import type { MemoryStore } from "./utils/memory.js";
 import { createConfiguredTtsProvider, getConfiguredTtsProviderName, type StreamingTtsProvider } from "./utils/tts.js";
 import { sanitizeExternalText } from "./utils/text.js";
+import type { SceneObserver } from "./scene/observer.js";
+import type { StelleEventBus } from "./utils/event_bus.js";
 
 export type ToolAuthority = "readonly" | "safe_write" | "network_read" | "external_write" | "system";
 export type ToolCaller = "cursor" | "runtime" | "debug" | "system" | "core" | "stage_renderer";
@@ -208,6 +210,8 @@ export interface ToolRegistryDeps {
   live?: LiveRuntime;
   memory?: MemoryStore;
   tts?: StreamingTtsProvider;
+  sceneObserver?: SceneObserver;
+  eventBus?: StelleEventBus;
 }
 
 export function createDefaultToolRegistry(deps: ToolRegistryDeps = {}): ToolRegistry {
@@ -218,11 +222,37 @@ export function createDefaultToolRegistry(deps: ToolRegistryDeps = {}): ToolRegi
     ...createSearchTools(),
     ...createMemoryTools(deps),
     ...createLiveTools(deps),
+    ...createSceneTools(deps),
     ...createTtsTools(deps.tts ?? createConfiguredTtsProvider()),
   ]) {
     registry.register(tool);
   }
   return registry;
+}
+
+function createSceneTools(deps: ToolRegistryDeps): ToolDefinition[] {
+  return [
+    {
+      name: "scene.observe",
+      title: "Observe Scene",
+      description: "Read a structured, read-only observation of the current live scene.",
+      authority: "readonly",
+      inputSchema: z.object({}),
+      sideEffects: sideEffects(),
+      async execute() {
+        if (!deps.sceneObserver) return fail("scene_unavailable", "Scene observer is not configured.");
+        const observation = await deps.sceneObserver.observe();
+        deps.eventBus?.publish({
+          type: "scene.observation.received",
+          source: "scene",
+          id: `scene-observation-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          timestamp: observation.timestamp,
+          payload: observation as any,
+        } as any);
+        return ok("Scene observed.", { observation });
+      },
+    },
+  ];
 }
 
 function createCoreTools(): ToolDefinition[] {

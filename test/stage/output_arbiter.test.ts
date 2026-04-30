@@ -346,4 +346,53 @@ describe("StageOutputArbiter", () => {
     expect(decision.reason).toBe("debug_disabled");
     expect(mockRenderer.render).not.toHaveBeenCalled();
   });
+
+  it("pauses automatic live replies but allows system direct output", async () => {
+    arbiter.setAutoReplyPaused(true);
+
+    const liveDecision = await arbiter.propose({
+      id: "live-auto",
+      cursorId: "live_danmaku",
+      lane: "direct_response",
+      priority: 60,
+      salience: "medium",
+      text: "auto",
+      ttlMs: 5000,
+      interrupt: "none",
+      output: { caption: true },
+    });
+    const systemDecision = await arbiter.propose({
+      id: "system-direct",
+      cursorId: "system",
+      lane: "direct_response",
+      priority: 80,
+      salience: "high",
+      text: "manual",
+      ttlMs: 5000,
+      interrupt: "none",
+      output: { caption: true },
+    });
+
+    expect(liveDecision.status).toBe("dropped");
+    expect(liveDecision.reason).toBe("auto_reply_paused");
+    expect(systemDecision.status).toBe("accepted");
+  });
+
+  it("mutes TTS on accepted intents", async () => {
+    arbiter.setTtsMuted(true);
+
+    await arbiter.propose({
+      id: "tts-muted",
+      cursorId: "system",
+      lane: "direct_response",
+      priority: 80,
+      salience: "high",
+      text: "manual",
+      ttlMs: 5000,
+      interrupt: "none",
+      output: { caption: true, tts: true },
+    });
+
+    expect(mockRenderer.render).toHaveBeenCalledWith(expect.objectContaining({ output: expect.objectContaining({ tts: false }) }), expect.any(AbortSignal));
+  });
 });

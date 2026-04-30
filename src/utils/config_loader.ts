@@ -127,6 +127,10 @@ export interface AndroidConfig {
   };
 }
 
+export interface SceneObservationConfig {
+  enabled: boolean;
+}
+
 export interface RuntimeConfig {
   models: ModelConfig;
   discord: DiscordConfig;
@@ -134,6 +138,7 @@ export interface RuntimeConfig {
   browser: BrowserConfig;
   desktopInput: DesktopInputConfig;
   android: AndroidConfig;
+  sceneObservation: SceneObservationConfig;
   core: CoreConfig;
   debug: DebugConfig;
   control: ControlConfig;
@@ -151,6 +156,7 @@ export function loadRuntimeConfig(): RuntimeConfig {
   const browserCursor = asRecord(cursors.browser);
   const desktopInputCursor = asRecord(cursors.desktop_input || cursors.desktopInput);
   const androidCursor = asRecord(cursors.android || cursors.android_device || cursors.androidDevice);
+  const sceneObservation = asRecord(rawYaml.sceneObservation || rawYaml.scene_observation);
   
   const core = asRecord(rawYaml.core);
   const debug = asRecord(rawYaml.debug);
@@ -221,6 +227,9 @@ export function loadRuntimeConfig(): RuntimeConfig {
     android: {
       enabled: androidCursor.enabled === true || process.env.ANDROID_DEVICE_ENABLED === "true",
       allowlist: asRecord(androidCursor.allowlist) as any,
+    },
+    sceneObservation: {
+      enabled: sceneObservation.enabled === true || process.env.SCENE_OBSERVATION_ENABLED === "true",
     },
     core: {
       reflectionIntervalHours: clamp(core.reflectionIntervalHours, 1, 168, 6),

@@ -81,6 +81,8 @@ export interface StageOutputState {
     expiresAt: number;
     interruptPolicy: "none" | "direct_only" | "allow_higher_priority";
   };
+  autoReplyPaused?: boolean;
+  ttsMuted?: boolean;
 }
 
 export interface StageOutputRendererDeps {

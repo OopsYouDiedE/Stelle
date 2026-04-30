@@ -51,7 +51,8 @@ export interface LiveModerationResult {
   allowed: boolean;
   action: "allow" | "drop" | "hide";
   reason: string;
-  category?: "political" | "spam" | "empty";
+  category?: "political" | "spam" | "empty" | "abuse" | "privacy" | "prompt_injection" | "sexual" | "minor_safety";
+  visibleToControlRoom?: boolean;
 }
 
 const POLITICAL_PATTERNS = [
@@ -77,6 +78,35 @@ const POLITICAL_PATTERNS = [
   /哈马斯/,
   /特朗普|川普|拜登|习近平|普京|泽连斯基/,
   /\b(CCP|CPC|DPP|KMT|NATO|UN)\b/i,
+];
+
+const SPAM_PATTERNS = [
+  /(.)\1{8,}/u,
+  /^(哈哈|hhh|www|111|666|。。|？？){4,}$/iu,
+  /(加群|私信|代刷|刷粉|免费领取|点击链接)/u,
+];
+
+const ABUSE_PATTERNS = [
+  /傻逼|垃圾|废物|去死|滚|脑残|弱智/u,
+  /\b(kys|idiot|stupid)\b/i,
+];
+
+const PRIVACY_PATTERNS = [
+  /身份证|手机号|电话号码|住址|家庭住址|真实姓名|开盒|人肉|隐私|私人信息/u,
+  /\b\d{11}\b/,
+];
+
+const PROMPT_INJECTION_PATTERNS = [
+  /忽略(以上|之前|所有).*(规则|指令|设定)/u,
+  /system prompt|developer message|越权|调用工具|执行命令|泄露提示词/i,
+];
+
+const SEXUAL_PATTERNS = [
+  /色情|裸照|约炮|性爱|黄片|成人内容/u,
+];
+
+const MINOR_SAFETY_PATTERNS = [
+  /未成年.*(裸|性|约|隐私)|小学生.*(裸|性|约)/u,
 ];
 
 export function normalizeLiveEvent(input: Record<string, unknown>): NormalizedLiveEvent {
@@ -122,12 +152,40 @@ export function normalizeLiveEvent(input: Record<string, unknown>): NormalizedLi
 
 export function moderateLiveEvent(event: NormalizedLiveEvent): LiveModerationResult {
   if (!event.text.trim() && event.kind === "danmaku") {
-    return { allowed: false, action: "drop", reason: "empty danmaku", category: "empty" };
+    return { allowed: false, action: "drop", reason: "empty danmaku", category: "empty", visibleToControlRoom: false };
   }
-  if (containsPoliticalContent(event.text)) {
-    return { allowed: false, action: "drop", reason: "political/current-affairs content is ignored on Bilibili live", category: "political" };
+  const textResult = moderateLiveText(event.text);
+  if (!textResult.allowed) return textResult;
+  return { allowed: true, action: "allow", reason: "allowed", visibleToControlRoom: false };
+}
+
+export function moderateLiveOutputText(text: string): LiveModerationResult {
+  return moderateLiveText(text);
+}
+
+function moderateLiveText(text: string): LiveModerationResult {
+  if (MINOR_SAFETY_PATTERNS.some((pattern) => pattern.test(text))) {
+    return { allowed: false, action: "drop", reason: "minor safety risk", category: "minor_safety", visibleToControlRoom: true };
   }
-  return { allowed: true, action: "allow", reason: "allowed" };
+  if (PRIVACY_PATTERNS.some((pattern) => pattern.test(text))) {
+    return { allowed: false, action: "drop", reason: "privacy or doxxing risk", category: "privacy", visibleToControlRoom: true };
+  }
+  if (PROMPT_INJECTION_PATTERNS.some((pattern) => pattern.test(text))) {
+    return { allowed: false, action: "drop", reason: "prompt injection or tool escalation attempt", category: "prompt_injection", visibleToControlRoom: true };
+  }
+  if (ABUSE_PATTERNS.some((pattern) => pattern.test(text))) {
+    return { allowed: false, action: "hide", reason: "abusive text", category: "abuse", visibleToControlRoom: true };
+  }
+  if (SEXUAL_PATTERNS.some((pattern) => pattern.test(text))) {
+    return { allowed: false, action: "drop", reason: "sexual content", category: "sexual", visibleToControlRoom: true };
+  }
+  if (SPAM_PATTERNS.some((pattern) => pattern.test(text.trim()))) {
+    return { allowed: false, action: "drop", reason: "spam text", category: "spam", visibleToControlRoom: true };
+  }
+  if (containsPoliticalContent(text)) {
+    return { allowed: false, action: "drop", reason: "political/current-affairs content is ignored on Bilibili live", category: "political", visibleToControlRoom: true };
+  }
+  return { allowed: true, action: "allow", reason: "allowed", visibleToControlRoom: false };
 }
 
 export function formatLiveEventForPrompt(event: NormalizedLiveEvent): string {
