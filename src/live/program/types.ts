@@ -95,6 +95,7 @@ export interface TopicOrchestratorOptions {
   topicId?: string;
   title?: string;
   mode?: ProgramMode;
+  templateId?: string;
   currentQuestion?: string;
   nextQuestion?: string;
   maxSamples?: number;

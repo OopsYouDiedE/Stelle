@@ -3,6 +3,7 @@ import { sanitizeExternalText, truncateText } from "../../utils/text.js";
 import type { PublicRoomMemory } from "./public_memory.js";
 import type { WorldCanonEntry } from "./world_canon.js";
 import type { PromptLabExperiment } from "./prompt_lab.js";
+import { getProgramTemplate } from "./templates.js";
 import type {
   ChatCluster,
   ChatClusterLabel,
@@ -36,10 +37,11 @@ export class TopicOrchestrator {
     this.now = options.now ?? (() => Date.now());
     this.maxSamples = options.maxSamples ?? 120;
     this.maxPendingQuestions = options.maxPendingQuestions ?? 8;
-    const mode = options.mode ?? "observation";
+    const template = getProgramTemplate(options.templateId);
+    const mode = options.mode ?? template.mode;
     this.state = {
       topicId: options.topicId ?? `topic-${this.now()}`,
-      title: options.title ?? DEFAULT_TOPIC,
+      title: options.title ?? (template.id === "human_behavior_observation" ? DEFAULT_TOPIC : template.title),
       mode,
       phase: "opening",
       currentQuestion: options.currentQuestion ?? DEFAULT_QUESTION,
