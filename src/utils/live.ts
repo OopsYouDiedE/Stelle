@@ -24,6 +24,7 @@ export interface LiveStageState {
   background?: string;
   caption?: string;
   speaker?: string;
+  scene?: string;
   expression?: string;
   lastMotion?: {
     group: string;
@@ -187,6 +188,22 @@ export class LiveRuntime {
     this.stage = { ...this.stage, background: source };
     await this.renderer?.publish({ type: "background:set", source });
     return liveOk("Updated live background.", this.stage);
+  }
+
+  async updateTopic(state: Record<string, unknown>): Promise<LiveActionResult> {
+    await this.renderer?.publish({ type: "topic:update", state });
+    return liveOk("Updated live topic widget.", this.stage);
+  }
+
+  async updateWidget(widget: string, state: unknown): Promise<LiveActionResult> {
+    await this.renderer?.publish({ type: "widget:update", widget, state });
+    return liveOk(`Updated live widget ${widget}.`, this.stage);
+  }
+
+  async setSceneMode(scene: string, background?: string): Promise<LiveActionResult> {
+    this.stage = { ...this.stage, scene: sanitizeExternalText(scene), background: background ?? this.stage.background };
+    await this.renderer?.publish({ type: "scene:set", scene: this.stage.scene, background });
+    return liveOk(`Set live scene mode ${this.stage.scene}.`, this.stage);
   }
 
   async playAudio(url: string, text?: string): Promise<LiveActionResult> {

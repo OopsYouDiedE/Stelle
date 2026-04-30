@@ -18,6 +18,32 @@ interface RendererCommand {
   source?: string;
   status?: string;
   provider?: string;
+  widget?: ProgramWidgetName;
+  scene?: string;
+  background?: string;
+}
+
+type ProgramWidgetName =
+  | "topic_compass"
+  | "chat_cluster"
+  | "conclusion_board"
+  | "question_queue"
+  | "public_memory_wall"
+  | "stage_status"
+  | "world_canon"
+  | "prompt_lab"
+  | "anonymous_community_map";
+
+interface TopicState {
+  title?: string;
+  mode?: string;
+  phase?: string;
+  currentQuestion?: string;
+  nextQuestion?: string;
+  clusters?: Array<{ label: string; count: number; representative?: string }>;
+  conclusions?: string[];
+  pendingQuestions?: string[];
+  scene?: string;
 }
 
 interface BilibiliFixtureEvent {
@@ -40,6 +66,14 @@ const avatarStatus = document.querySelector<HTMLParagraphElement>("#avatar-statu
 const audioStatus = document.querySelector<HTMLParagraphElement>("#audio-status");
 const liveCanvas = document.querySelector<HTMLCanvasElement>("#live2d-canvas");
 const feed = document.querySelector<HTMLOListElement>("#event-log");
+const programTopicTitle = document.querySelector<HTMLHeadingElement>("#program-topic-title");
+const programTopicPhase = document.querySelector<HTMLParagraphElement>("#program-topic-phase");
+const programCurrentQuestion = document.querySelector<HTMLParagraphElement>("#program-current-question");
+const programNextQuestion = document.querySelector<HTMLParagraphElement>("#program-next-question");
+const programClusters = document.querySelector<HTMLOListElement>("#program-clusters");
+const programConclusions = document.querySelector<HTMLOListElement>("#program-conclusions");
+const programQuestions = document.querySelector<HTMLOListElement>("#program-questions");
+const programStageStatus = document.querySelector<HTMLDListElement>("#program-stage-status");
 const simulateForm = document.querySelector<HTMLFormElement>("#simulate-form");
 const simulateName = document.querySelector<HTMLInputElement>("#simulate-name");
 const simulateText = document.querySelector<HTMLInputElement>("#simulate-text");
@@ -116,6 +150,18 @@ function applyCommand(command: RendererCommand): void {
     applyBackground(String(command.source ?? ""));
     return;
   }
+  if (command.type === "topic:update") {
+    applyTopicState(asRecord(command.state));
+    return;
+  }
+  if (command.type === "widget:update") {
+    applyWidgetState(command.widget, command.state);
+    return;
+  }
+  if (command.type === "scene:set") {
+    applyProgramScene(String(command.scene ?? "observation"), typeof command.background === "string" ? command.background : undefined);
+    return;
+  }
   if (command.type === "route:decision") {
     pushFeed({
       lane: "system",
@@ -161,6 +207,103 @@ function applyCommand(command: RendererCommand): void {
     setSpeaker(command.state?.speaker ?? "runtime state");
     if (command.state?.background) applyBackground(command.state.background);
   }
+}
+
+function applyTopicState(raw: Record<string, unknown>): void {
+  const state = raw as TopicState;
+  if (programTopicTitle) programTopicTitle.textContent = String(state.title ?? "今日议题");
+  if (programTopicPhase) programTopicPhase.textContent = [state.mode, state.phase].filter(Boolean).join(" / ") || "opening";
+  if (programCurrentQuestion) programCurrentQuestion.textContent = String(state.currentQuestion ?? "");
+  if (programNextQuestion) programNextQuestion.textContent = state.nextQuestion ? `下一问：${state.nextQuestion}` : "";
+  if (state.scene) applyProgramScene(String(state.scene));
+  renderClusterList(state.clusters ?? []);
+  renderTextList(programConclusions, state.conclusions ?? [], "暂未形成结论");
+  renderTextList(programQuestions, state.pendingQuestions ?? [], "暂无待回答问题");
+}
+
+function applyWidgetState(widget: ProgramWidgetName | undefined, state: unknown): void {
+  const raw = asRecord(state);
+  if (widget === "topic_compass") applyTopicState(raw);
+  if (widget === "chat_cluster") renderClusterList(Array.isArray(raw.clusters) ? raw.clusters as any[] : []);
+  if (widget === "conclusion_board") renderTextList(programConclusions, stringArray(raw.conclusions), "暂未形成结论");
+  if (widget === "question_queue") renderTextList(programQuestions, stringArray(raw.pendingQuestions), "暂无待回答问题");
+  if (widget === "stage_status") renderStageStatus(raw);
+}
+
+function renderClusterList(clusters: Array<{ label?: string; count?: number; representative?: string }>): void {
+  if (!programClusters) return;
+  programClusters.innerHTML = "";
+  const visible = clusters.filter(item => Number(item.count ?? 0) > 0).slice(0, 6);
+  if (!visible.length) {
+    appendListItem(programClusters, "等待弹幕采样");
+    return;
+  }
+  for (const cluster of visible) {
+    const body = [clusterLabel(String(cluster.label ?? "other")), `${Number(cluster.count ?? 0)} 条`, cluster.representative].filter(Boolean).join(" · ");
+    appendListItem(programClusters, body);
+  }
+}
+
+function renderTextList(target: HTMLOListElement | null, items: string[], emptyText: string): void {
+  if (!target) return;
+  target.innerHTML = "";
+  const visible = items.map(item => item.trim()).filter(Boolean).slice(0, 5);
+  if (!visible.length) {
+    appendListItem(target, emptyText);
+    return;
+  }
+  for (const item of visible) appendListItem(target, item);
+}
+
+function renderStageStatus(raw: Record<string, unknown>): void {
+  if (!programStageStatus) return;
+  programStageStatus.innerHTML = "";
+  const stage = asRecord(raw.stage);
+  const health = asRecord(raw.health);
+  const entries = {
+    stage: String(stage.status ?? asRecord(health.stageOutput).status ?? "unknown"),
+    lane: String(stage.lane ?? asRecord(health.stageOutput).currentLane ?? "none"),
+    queue: String(asRecord(health.stageOutput).queueLength ?? "0"),
+    tts: String(asRecord(health.tts).lastError ? "error" : asRecord(health.tts).lastProvider ?? "idle"),
+  };
+  for (const [key, value] of Object.entries(entries)) {
+    const dt = document.createElement("dt");
+    dt.textContent = key;
+    const dd = document.createElement("dd");
+    dd.textContent = value;
+    programStageStatus.append(dt, dd);
+  }
+}
+
+function appendListItem(target: HTMLOListElement, text: string): void {
+  const li = document.createElement("li");
+  li.textContent = text;
+  target.append(li);
+}
+
+function applyProgramScene(scene: string, background?: string): void {
+  document.body.dataset.programScene = scene || "observation";
+  if (background) applyBackground(background);
+}
+
+function clusterLabel(value: string): string {
+  const labels: Record<string, string> = {
+    question: "问题",
+    opinion: "观点",
+    joke: "吐槽",
+    setting_suggestion: "设定建议",
+    challenge: "挑战",
+    other: "其他",
+  };
+  return labels[value] ?? value;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.map(item => String(item)) : [];
 }
 
 async function streamCaption(text: string, source: string, rateMs = 34): Promise<void> {

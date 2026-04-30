@@ -58,6 +58,31 @@
               <div class="live2d-wrap">
                 <canvas id="live2d-canvas" aria-label="Live2D canvas"></canvas>
               </div>
+              <div class="program-layer" aria-label="Live program widgets">
+                <section class="program-widget topic-compass">
+                  <p class="program-label">今日议题</p>
+                  <h2 id="program-topic-title">AI 主播应不应该记住观众？</h2>
+                  <p id="program-topic-phase" class="program-meta">opening</p>
+                  <p id="program-current-question" class="program-body">如果可以一键让 Stelle 忘记你，你会更愿意互动吗？</p>
+                  <p id="program-next-question" class="program-next"></p>
+                </section>
+                <section class="program-widget chat-cluster">
+                  <p class="program-label">弹幕样本池</p>
+                  <ol id="program-clusters" class="program-list"></ol>
+                </section>
+                <section class="program-widget conclusion-board">
+                  <p class="program-label">阶段结论</p>
+                  <ol id="program-conclusions" class="program-list"></ol>
+                </section>
+                <section class="program-widget question-queue">
+                  <p class="program-label">待回答问题</p>
+                  <ol id="program-questions" class="program-list"></ol>
+                </section>
+                <section class="program-widget stage-status-widget">
+                  <p class="program-label">系统状态</p>
+                  <dl id="program-stage-status" class="program-status"></dl>
+                </section>
+              </div>
             </div>
 
             <footer class="caption-box">
