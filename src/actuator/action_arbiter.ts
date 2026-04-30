@@ -1,23 +1,25 @@
-import { DeviceActionRenderer } from "./action_renderer.js";
-import { DeviceActionIntentSchema } from "./action_types.js";
-import { validateDeviceActionPolicy } from "./action_policy.js";
+import { DeviceActionRenderer } from "../device/action_renderer.js";
+import { DeviceActionIntentSchema } from "../device/action_types.js";
+import { validateDeviceActionPolicy } from "../device/action_policy.js";
 import type { 
   DeviceActionArbiterDeps, 
   DeviceActionArbiterSnapshot,
   DeviceActionDecision, 
   DeviceActionIntent
-} from "./action_types.js";
+} from "../device/action_types.js";
+import { BaseArbiter } from "./base_arbiter.js";
 
 interface ResourceLease {
   cursorId: string;
   expiresAt: number;
 }
 
-export class DeviceActionArbiter {
+export class DeviceActionArbiter extends BaseArbiter<DeviceActionIntent, DeviceActionDecision, DeviceActionArbiterSnapshot> {
   private readonly renderer: DeviceActionRenderer;
   private readonly leases = new Map<string, ResourceLease>(); // resourceId -> lease
 
-  constructor(private readonly deps: DeviceActionArbiterDeps) {
+  constructor(deps: DeviceActionArbiterDeps) {
+    super("device_action", deps);
     this.renderer = new DeviceActionRenderer(deps.drivers ?? []);
   }
 
@@ -46,7 +48,7 @@ export class DeviceActionArbiter {
     }
 
     // 3. Static action policy: resource support, risk, allowlist, payload.
-    const policyDecision = validateDeviceActionPolicy(intent, this.deps.allowlist);
+    const policyDecision = validateDeviceActionPolicy(intent, (this.deps as DeviceActionArbiterDeps).allowlist);
     if (!policyDecision.allowed) {
       this.publish("device.action.rejected", intent, { reason: policyDecision.reason });
       return { status: "rejected", reason: policyDecision.reason, intent };
@@ -91,19 +93,10 @@ export class DeviceActionArbiter {
       if (lease.expiresAt <= now) this.leases.delete(resourceId);
     }
     return {
-      allowlistConfigured: Boolean(this.deps.allowlist),
+      allowlistConfigured: Boolean((this.deps as DeviceActionArbiterDeps).allowlist),
       drivers: this.renderer.driverKinds(),
       leases: [...this.leases.entries()].map(([resourceId, lease]) => ({ resourceId, ...lease })),
     };
   }
-
-  private publish(type: string, intent: DeviceActionIntent, extra: Record<string, unknown>): void {
-    this.deps.eventBus?.publish({
-      type: type as any,
-      source: "device_action",
-      id: `${type}-${intent.id}`,
-      timestamp: this.deps.now(),
-      payload: { intent, ...extra },
-    } as any);
-  }
 }
+

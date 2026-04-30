@@ -1,4 +1,4 @@
-import type { StageOutputArbiter } from "../../stage/output_arbiter.js";
+import type { StageOutputArbiter } from "../../actuator/output_arbiter.js";
 import type { OutputIntent } from "../../stage/output_types.js";
 import type { StelleEventBus } from "../../utils/event_bus.js";
 import { normalizeLiveEvent } from "../../utils/live_event.js";

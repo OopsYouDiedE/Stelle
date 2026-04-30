@@ -17,5 +17,5 @@ export type { StartMode, StelleApplication } from "./core/application.js";
 export type { RuntimeStateSnapshot } from "./runtime_state.js";
 export type { ToolAuthority, ToolContext, ToolDefinition, ToolResult } from "./tool.js";
 export type { CursorSnapshot, StelleCursor } from "./cursor/types.js";
-export type { RuntimeConfig } from "./utils/config_loader.js";
-export type { MemoryStore } from "./utils/memory.js";
+export type { RuntimeConfig } from "./config/index.js";
+export type { MemoryStore } from "./memory/memory.js";

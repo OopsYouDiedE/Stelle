@@ -2,10 +2,10 @@
 
 ## Project Overview
 Stelle is a modular, event-driven VTuber/Streamer AI runtime (V2 Architecture). It focuses on creating a "living presence" rather than a simple chatbot. 
-- **Core Architecture**: Based on a multi-cursor design (`InnerCursor`, `DiscordCursor`, `LiveCursor`) handled by a central `StelleApplication` container.
+- **Core Architecture**: Based on a modular multi-cursor design handled by a central `StelleApplication` and domain-isolated `ModuleRegistrars`.
 - **Communication**: Uses a global `StelleEventBus` (EventEmitter) for internal decoupling and **Express + Socket.io** for real-time frontend-backend communication.
 - **Identity**: Personas evolve based on "Reflection Pressure Valves" (impact and salience-driven reflection) and long-term memory.
-- **Technologies**: TypeScript, Node.js, Discord.js, Socket.io, Express, Vitest, Gemini/Dashscope APIs.
+- **Unified Actuators**: All speech and actions flow through standard `Arbiters` for coordination and safety.
 
 ## Building and Running
 - **Install Dependencies**: `npm install`
@@ -22,15 +22,13 @@ The project maintains two distinct testing environments:
    - Run: `npm run test:eval`
    - Reports are generated in `evals/logs/` in Markdown format.
 
-When expanding either layer, follow [`docs/TEST_AND_EVALS_GUIDE_FOR_GEMINI.md`](docs/TEST_AND_EVALS_GUIDE_FOR_GEMINI.md). In particular, keep deterministic tests free of real network/LLM calls, and build evals from sanitized, curated material rather than ad hoc prompt snippets.
-
 ## Development Conventions
-- **Event-Driven**: Avoid direct calls between Cursors. Use `eventBus.publish(StelleEvent)` and `eventBus.subscribe(type, listener)`.
-- **Memory Management**: Use `MemoryStore` for both recent (JSONL) and long-term (Markdown) storage.
-- **Lifecycle**: All major components must be managed within `src/core/application.ts`.
-- **Config**: Static settings in `config.yaml`, sensitive keys in `.env`.
-- **Code Style**: Functional reactivity within classes, strict typing, and comprehensive error recording in `RuntimeState`.
+- **Event-Driven**: Avoid direct calls between domains or cursors. Use `eventBus.publish(StelleEvent)` and `eventBus.subscribe(type, listener)`.
+- **Domain Isolation**: Logic is grouped into `src/memory`, `src/actuator`, `src/cursor`, and `src/live`.
+- **Modular Lifecycle**: Major components are managed via `ModuleRegistrar` implementations in `src/core/modules/`.
+- **Base Cursor**: New cursors should extend `BaseStatefulCursor` to benefit from the standardized thinking lifecycle.
+- **Config**: Static settings in `config.yaml`, sensitive keys in `.env`. Access via `src/config/index.ts`.
 
 ## Research & Memory
 - **Research Topics**: Stelle can set individuals or behaviors as "Research Topics" in `ResearchLog` to build deep personality profiles over time.
-- **Archeology**: Use `memory.search` and history traceback to understand community trajectory.
+- **Memory Store**: Unified access to recent (JSONL) and long-term (Markdown) storage via `src/memory/memory.ts`.

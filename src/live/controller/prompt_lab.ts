@@ -1,4 +1,4 @@
-import type { LlmClient } from "../../utils/llm.js";
+import type { LlmClient } from "../../memory/llm.js";
 import { moderateLiveOutputText } from "../../utils/live_event.js";
 import { sanitizeExternalText, truncateText } from "../../utils/text.js";
 

@@ -1,5 +1,5 @@
-import { safeErrorMessage } from "./json.js";
-import type { ModelConfig, ModelProviderConfig, LlmProviderType } from "./config_loader.js";
+import { safeErrorMessage } from "../utils/json.js";
+import type { ModelConfig, ModelProviderConfig, LlmProviderType } from "../config/index.js";
 
 export type LlmRole = "primary" | "secondary";
 

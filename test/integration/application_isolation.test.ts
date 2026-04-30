@@ -3,7 +3,7 @@ import { StelleApplication } from "../../src/core/application.js";
 import { DiscordRuntime } from "../../src/utils/discord.js";
 
 // Mock entire modules that start servers or have side effects
-vi.mock("../../src/utils/renderer.js", () => ({
+vi.mock("../../src/live/infra/renderer_server.js", () => ({
   LiveRendererServer: class {
     start = vi.fn().mockResolvedValue("http://127.0.0.1:8787");
     stop = vi.fn().mockResolvedValue(undefined);

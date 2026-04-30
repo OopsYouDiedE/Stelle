@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PromptLabService } from "../../src/live/program/prompt_lab.js";
+import { PromptLabService } from "../../src/live/controller/prompt_lab.js";
 
 describe("PromptLabService", () => {
   it("runs sandbox variants without a model key", async () => {

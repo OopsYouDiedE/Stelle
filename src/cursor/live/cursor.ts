@@ -4,6 +4,7 @@
 
 import { truncateText } from "../../utils/text.js";
 import type { CursorContext, CursorSnapshot, StelleEvent, StelleCursor } from "../types.js";
+import { BaseStatefulCursor } from "../base_stateful_cursor.js";
 import { LiveGateway } from "./gateway.js";
 import { LiveRouter } from "./router.js";
 import { LiveExecutor } from "./executor.js";
@@ -22,13 +23,10 @@ Formal live reset: do not adopt a catgirl, cat, "meow/喵", or snack-themed pers
 Treat old roleplay tests and stale live directives as historical noise unless the current live chat explicitly asks for a brief one-off bit.
 `;
 
-export class LiveDanmakuCursor implements StelleCursor {
+export class LiveDanmakuCursor extends BaseStatefulCursor {
   readonly id = "live_danmaku";
   readonly kind = "live_danmaku";
   readonly displayName = "Live Danmaku Cursor";
-
-  private status: CursorSnapshot["status"] = "idle";
-  private summary = "Live stream engine refactored.";
 
   private readonly gateway: LiveGateway;
   private readonly router: LiveRouter;
@@ -42,19 +40,16 @@ export class LiveDanmakuCursor implements StelleCursor {
   private readonly maxPendingBatches = 8;
   private readonly maxEventsPerMergedBatch = 30;
   private currentEmotion: LiveEmotion = "neutral";
-  
-  private readonly policyStore: PolicyOverlayStore;
-  private unsubscribes: (() => void)[] = [];
 
-  constructor(private readonly context: CursorContext) {
+  constructor(context: CursorContext) {
+    super(context);
     this.gateway = new LiveGateway(context);
     this.router = new LiveRouter(context, LIVE_PERSONA);
     this.executor = new LiveExecutor(context, this.id);
     this.responder = new LiveResponder(context, this.id);
-    this.policyStore = new PolicyOverlayStore(context);
   }
 
-  async initialize(): Promise<void> {
+  protected async onInitialize(): Promise<void> {
     this.unsubscribes.push(this.context.eventBus.subscribe("live.tick", () => {
       void this.tick().catch(e => console.error("[LiveCursor] Tick error:", e));
     }));
@@ -85,13 +80,26 @@ export class LiveDanmakuCursor implements StelleCursor {
       }
     }));
 
-    this.unsubscribes.push(this.policyStore.subscribe((summary) => { this.summary = summary; }));
+    this.unsubscribes.push(this.context.eventBus.subscribe("live.output.proposal", (event) => {
+      void this.receiveProposal(event.payload).catch(e => console.error("[LiveCursor] Proposal error:", e));
+    }));
   }
 
-  async stop(): Promise<void> {
-    for (const unsub of this.unsubscribes) unsub();
-    this.unsubscribes = [];
+  protected async onStop(): Promise<void> {
     this.gateway.clear();
+  }
+
+  private async receiveProposal(payload: { intent: any; cursorId: string }) {
+    const { intent, cursorId } = payload;
+    await this.context.stageOutput.propose({
+      ...intent,
+      id: `prop-exec-${this.context.now()}-${Math.random().toString(36).slice(2, 5)}`,
+      cursorId: cursorId || "live_stage_director",
+      output: {
+        caption: true,
+        tts: Boolean(this.context.config.live.ttsEnabled),
+      }
+    });
   }
 
   /**
@@ -104,7 +112,7 @@ export class LiveDanmakuCursor implements StelleCursor {
     if (text) {
       const decisions = await this.responder.enqueue(forceTopic ? "topic" : "response", text, "neutral", { sourceEventId: event.id });
       this.summary = `[Live:Dispatch] ${truncateText(text, 50)}`;
-      if (allDropped(decisions)) this.summary = `[Live:Dispatch Dropped] ${dropReasons(decisions)}`;
+      if (this.allDropped(decisions)) this.summary = `[Live:Dispatch Dropped] ${this.getDropReasons(decisions)}`;
       await this.reportReflection("dispatch", text, 8, "high");
     }
     return { accepted: true, reason: "Accepted", eventId: event.id };
@@ -267,8 +275,8 @@ export class LiveDanmakuCursor implements StelleCursor {
           sourceEventId: events.at(-1)?.id,
         });
         console.log(`[LiveCursor] stage output ${decisions.map(item => item.status).join(",") || "none"}: ${truncateText(decision.script, 80)}`);
-        this.summary = allDropped(decisions)
-          ? `[Live:${decision.action}:dropped] ${dropReasons(decisions)}`
+        this.summary = this.allDropped(decisions)
+          ? `[Live:${decision.action}:dropped] ${this.getDropReasons(decisions)}`
           : `[Live:${decision.action}] ${truncateText(decision.script, 50)}`;
         await this.reportReflection(decision.action, decision.script, 4, "medium");
       }
@@ -291,16 +299,6 @@ export class LiveDanmakuCursor implements StelleCursor {
     // second autonomous LLM loop from speaking over real danmaku.
   }
 
-  private async reportReflection(intent: string, summary: string, impactScore: number, salience: "low" | "medium" | "high") {
-    this.context.eventBus.publish({
-      type: "cursor.reflection",
-      source: "live_danmaku",
-      id: `refl-${Date.now()}`,
-      timestamp: this.context.now(),
-      payload: { intent, summary, impactScore, salience }
-    });
-  }
-
   snapshot(): CursorSnapshot {
     const stage = this.context.stageOutput.snapshot();
     return {
@@ -319,10 +317,3 @@ export class LiveDanmakuCursor implements StelleCursor {
 
 export { LiveDanmakuCursor as LiveCursor };
 
-function allDropped(decisions: StageOutputDecision[]): boolean {
-  return decisions.length > 0 && decisions.every(decision => decision.status === "dropped");
-}
-
-function dropReasons(decisions: StageOutputDecision[]): string {
-  return decisions.map(decision => decision.reason).filter(Boolean).join(", ") || "stage_output_dropped";
-}

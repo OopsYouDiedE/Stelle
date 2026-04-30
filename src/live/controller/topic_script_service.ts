@@ -1,4 +1,4 @@
-import type { LlmClient } from "../../utils/llm.js";
+import type { LlmClient } from "../../memory/llm.js";
 import { getProgramTemplate } from "./templates.js";
 import { compileTopicScriptDraft } from "./topic_script_compiler.js";
 import type { TopicScriptDraft, TopicScriptSection } from "./topic_script_schema.js";

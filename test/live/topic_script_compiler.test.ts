@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { compileTopicScriptDraft, compileTopicScriptMarkdown, TopicScriptCompileError } from "../../src/live/program/topic_script_compiler.js";
-import type { TopicScriptDraft } from "../../src/live/program/topic_script_schema.js";
+import { compileTopicScriptDraft, compileTopicScriptMarkdown, TopicScriptCompileError } from "../../src/live/controller/topic_script_compiler.js";
+import type { TopicScriptDraft } from "../../src/live/controller/topic_script_schema.js";
 
 describe("topic script compiler", () => {
   it("compiles markdown frontmatter and sections into runtime AST", () => {

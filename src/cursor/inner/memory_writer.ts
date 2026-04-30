@@ -1,5 +1,5 @@
 import type { ResearchAgendaUpdate, SelfModelUpdate, IdentityProposal } from "./types.js";
-import type { MemoryStore } from "../../utils/memory.js";
+import type { MemoryStore } from "../../memory/memory.js";
 import type { ToolRegistry } from "../../tool.js";
 
 export interface InnerMemoryWriter {

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { DeviceActionArbiter } from "../../src/device/action_arbiter.js";
+import { DeviceActionArbiter } from "../../src/actuator/action_arbiter.js";
 import { MockDeviceActionDriver } from "../../src/device/drivers/mock_driver.js";
 import { DiscordTextChannelCursor } from "../../src/cursor/discord/cursor.js";
 import { LiveDanmakuCursor } from "../../src/cursor/live/cursor.js";

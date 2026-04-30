@@ -4,7 +4,7 @@ import type { NormalizedLiveEvent } from "../../utils/live_event.js";
 import type { CursorContext } from "../types.js";
 import type { LiveBatchDecision, LiveComposeInput, LiveEmotion } from "./types.js";
 import type { BehaviorPolicyOverlay } from "../policy_overlay_store.js";
-import type { ViewerProfileSummary } from "../../live/ops/viewer_profile.js";
+import type { ViewerProfileSummary } from "../../live/controller/viewer_profile.js";
 
 /**
  * 模块：Live Router (决策与思维)

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { LiveRendererServer, type LiveRendererLiveController, type LiveRendererMemoryController } from "../../src/utils/renderer.js";
+import { LiveRendererServer, type LiveRendererLiveController, type LiveRendererMemoryController } from "../../src/live/infra/renderer_server.js";
 import { HttpLiveRendererBridge } from "../../src/utils/live.js";
 
 describe("LiveRendererServer Security", () => {

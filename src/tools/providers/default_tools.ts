@@ -5,7 +5,7 @@ import path from "node:path";
 import { safeErrorMessage } from "../../utils/json.js";
 import type { DiscordRuntime } from "../../utils/discord.js";
 import type { LiveRuntime } from "../../utils/live.js";
-import { MEMORY_LAYERS, type MemoryStore } from "../../utils/memory.js";
+import { MEMORY_LAYERS, type MemoryStore } from "../../memory/memory.js";
 import { getConfiguredTtsProviderName, type StreamingTtsProvider } from "../../utils/tts.js";
 import { sanitizeExternalText } from "../../utils/text.js";
 import type { SceneObserver } from "../../scene/observer.js";

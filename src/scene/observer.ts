@@ -1,4 +1,4 @@
-import type { LiveRendererServer } from "../utils/renderer.js";
+import type { LiveRendererServer } from "../live/infra/renderer_server.js";
 import { truncateText } from "../utils/text.js";
 
 export interface SceneObservationConfig {

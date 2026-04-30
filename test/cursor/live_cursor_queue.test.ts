@@ -98,6 +98,38 @@ describe("LiveDanmakuCursor pending batch queue", () => {
       stageCurrentLane: "direct_response",
     });
   });
+
+  it("routes addressable danmaku responses through StageOutput as direct_response", async () => {
+    const generateJson = vi.fn().mockImplementation(async (_prompt, _schema, normalize) => normalize({
+      action: "respond_to_specific",
+      emotion: "happy",
+      intensity: 3,
+      script: "小星，能看到，你这条弹幕进来了。",
+      reason: "viewer question",
+    }));
+    const stageOutput = {
+      propose: vi.fn().mockImplementation(async intent => ({ status: "accepted", outputId: intent.id, reason: "ok", intent })),
+      snapshot: () => ({ status: "idle", queueLength: 0 }),
+    };
+    const cursor = new LiveDanmakuCursor(fakeContext({
+      llm: { generateJson, generateText: vi.fn() },
+      stageOutput,
+    }));
+
+    await (cursor as any).processBatch([{
+      ...event("q-1"),
+      text: "能看到我的弹幕吗？",
+      user: { id: "u1", name: "小星" },
+    }]);
+
+    expect(stageOutput.propose).toHaveBeenCalledWith(expect.objectContaining({
+      cursorId: "live_danmaku",
+      lane: "direct_response",
+      priority: 60,
+      text: "小星，能看到，你这条弹幕进来了。",
+      output: expect.objectContaining({ caption: true, tts: false }),
+    }));
+  });
 });
 
 function fakeContext(overrides: Record<string, unknown> = {}): any {

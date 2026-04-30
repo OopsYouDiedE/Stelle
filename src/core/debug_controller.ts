@@ -1,17 +1,18 @@
 import type { StelleCursor } from "../cursor/types.js";
-import type { DeviceActionArbiter } from "../device/action_arbiter.js";
-import type { StageOutputArbiter } from "../stage/output_arbiter.js";
+import type { DeviceActionArbiter } from "../actuator/action_arbiter.js";
+import type { StageOutputArbiter } from "../actuator/output_arbiter.js";
 import type { ToolRegistry } from "../tool.js";
 import type { DiscordRuntime } from "../utils/discord.js";
 import type { StelleEventBus } from "../utils/event_bus.js";
 import type { LiveRuntime } from "../utils/live.js";
-import type { MemoryStore } from "../utils/memory.js";
-import type { RuntimeConfig } from "../utils/config_loader.js";
-import type { LiveRendererServer } from "../utils/renderer.js";
+import type { MemoryStore } from "../memory/memory.js";
+import type { RuntimeConfig } from "../config/index.js";
+import type { LiveRendererServer } from "../live/infra/renderer_server.js";
 import type { RuntimeState } from "../runtime_state.js";
-import type { LiveHealthService } from "../live/ops/health_service.js";
-import type { LiveEventJournal } from "../live/ops/event_journal.js";
-import type { ViewerProfileStore } from "../live/ops/viewer_profile.js";
+import type { LiveHealthService } from "../live/controller/health_service.js";
+import type { LiveEventJournal } from "../live/controller/event_journal.js";
+import type { ViewerProfileStore } from "../live/controller/viewer_profile.js";
+import { normalizeLiveEvent } from "../utils/live_event.js";
 
 export interface RendererControllerDeps {
   renderer: LiveRendererServer;
@@ -40,12 +41,21 @@ export function setupRendererControllers(deps: RendererControllerDeps): void {
     },
     sendLiveEvent: (input: Record<string, unknown>) => {
       const eventId = `live-event-${deps.now()}`;
+      const payload = { id: eventId, ...input };
+      const event = normalizeLiveEvent(payload);
+      deps.eventBus.publish({
+        type: "live.event.received",
+        source: "system",
+        id: eventId,
+        timestamp: deps.now(),
+        payload: event,
+      } as any);
       deps.eventBus.publish({
         type: "live.danmaku.received",
         source: "system",
         id: eventId,
         timestamp: deps.now(),
-        payload: { ...input },
+        payload: event,
       } as any);
       return { accepted: true, reason: "Forwarded to event bus", eventId };
     },

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { LivePlatformSupervisor } from "../../src/live/platforms/supervisor.js";
-import type { LivePlatformBridge, LivePlatformStatus } from "../../src/live/platforms/types.js";
+import { LivePlatformSupervisor } from "../../src/live/adapters/supervisor.js";
+import type { LivePlatformBridge, LivePlatformStatus } from "../../src/live/adapters/types.js";
 import { StelleEventBus } from "../../src/utils/event_bus.js";
 
 describe("LivePlatformSupervisor", () => {

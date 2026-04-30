@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { LiveBatchAggregator, type DropReason, type FlushReason } from "../../src/live/ingress/live_batch_aggregator.js";
+import { LiveBatchAggregator, type DropReason, type FlushReason } from "../../src/live/adapters/live_batch_aggregator.js";
 import type { NormalizedLiveEvent } from "../../src/utils/live_event.js";
 
 describe("LiveBatchAggregator", () => {

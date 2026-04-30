@@ -1,22 +1,20 @@
-import { LiveEngagementService } from "../live/engagement_service.js";
-import { LiveEventJournal } from "../live/ops/event_journal.js";
-import { LiveHealthService } from "../live/ops/health_service.js";
-import { LiveRelationshipService } from "../live/ops/relationship_service.js";
-import { LivePlatformManager } from "../live/platforms/manager.js";
-import { LiveProgramService } from "../live/program/service.js";
-import { PromptLabService } from "../live/program/prompt_lab.js";
-import { TopicScriptRuntimeService } from "../live/program/topic_script_runtime.js";
-import { TopicScriptReviewService } from "../live/program/topic_script_review.js";
-import { TopicScriptRepository } from "../live/program/topic_script_repository.js";
+import { LiveStageDirector } from "../live/controller/stage_director.js";
+import { LiveEventJournal } from "../live/controller/event_journal.js";
+import { LiveHealthService } from "../live/controller/health_service.js";
+import { LiveRelationshipService } from "../live/controller/relationship_service.js";
+import { LivePlatformManager } from "../live/adapters/manager.js";
+import { PromptLabService } from "../live/controller/prompt_lab.js";
+import { TopicScriptRuntimeService } from "../live/controller/topic_script_runtime.js";
+import { TopicScriptReviewService } from "../live/controller/topic_script_review.js";
+import { TopicScriptRepository } from "../live/controller/topic_script_repository.js";
 import type { RuntimeServices } from "./container.js";
-import type { LiveRendererServer } from "../utils/renderer.js";
+import type { LiveRendererServer } from "../live/infra/renderer_server.js";
 
 export class LiveRuntimeServices {
-  private liveEngagement?: LiveEngagementService;
+  private liveStageDirector?: LiveStageDirector;
   private liveJournal?: LiveEventJournal;
   private liveHealth?: LiveHealthService;
   private liveRelationship?: LiveRelationshipService;
-  private liveProgram?: LiveProgramService;
   private topicScriptRuntime?: TopicScriptRuntimeService;
   private topicScriptReview?: TopicScriptReviewService;
   private livePlatforms?: LivePlatformManager;
@@ -31,13 +29,15 @@ export class LiveRuntimeServices {
   get topicScripts(): TopicScriptRuntimeService | undefined { return this.topicScriptRuntime; }
 
   async start(): Promise<void> {
-    this.liveEngagement = new LiveEngagementService({
+    this.liveStageDirector = new LiveStageDirector({
       config: this.services.config,
       eventBus: this.services.eventBus,
+      live: this.services.live,
       stageOutput: this.services.stageOutput,
+      promptLab: new PromptLabService(this.services.llm),
       now: () => Date.now(),
     });
-    this.liveEngagement.start();
+    this.liveStageDirector.start();
 
     this.liveJournal = new LiveEventJournal(this.services.eventBus);
     await this.liveJournal.start();
@@ -54,13 +54,7 @@ export class LiveRuntimeServices {
       platforms: this.livePlatforms,
     });
     this.liveHealth.start();
-    this.liveProgram = new LiveProgramService({
-      eventBus: this.services.eventBus,
-      live: this.services.live,
-      stageOutput: this.services.stageOutput,
-      promptLab: new PromptLabService(this.services.llm),
-    });
-    this.liveProgram.start();
+
     const topicScriptRepository = new TopicScriptRepository();
     this.topicScriptReview = new TopicScriptReviewService({ repository: topicScriptRepository });
     this.topicScriptRuntime = new TopicScriptRuntimeService({
@@ -79,12 +73,11 @@ export class LiveRuntimeServices {
   async stop(): Promise<void> {
     await Promise.allSettled([
       this.liveHealth?.stop(),
-      this.liveProgram?.stop(),
+      this.liveStageDirector?.stop(),
       this.topicScriptRuntime?.stop(),
       this.liveJournal?.stop(),
       this.livePlatforms?.stop(),
     ]);
-    this.liveEngagement?.stop();
     this.liveRelationship?.stop();
   }
 

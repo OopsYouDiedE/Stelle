@@ -1,6 +1,6 @@
-import type { RuntimeConfig } from "../utils/config_loader.js";
+import type { RuntimeConfig } from "../config/index.js";
 import type { StelleEventBus } from "../utils/event_bus.js";
-import type { StageOutputArbiter } from "../stage/output_arbiter.js";
+import type { StageOutputArbiter } from "../actuator/output_arbiter.js";
 
 export interface LiveControlServiceDeps {
   config: RuntimeConfig;

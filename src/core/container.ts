@@ -1,22 +1,22 @@
 import path from "node:path";
-import { type RuntimeConfig } from "../utils/config_loader.js";
-import { LlmClient } from "../utils/llm.js";
+import { type RuntimeConfig } from "../config/index.js";
+import { LlmClient } from "../memory/llm.js";
 import { LiveRuntime, ObsWebSocketController, LocalLiveRendererBridge } from "../utils/live.js";
 import { DiscordRuntime } from "../utils/discord.js";
-import { MemoryStore } from "../utils/memory.js";
+import { MemoryStore } from "../memory/memory.js";
 import { createDefaultToolRegistry, type ToolRegistry } from "../tool.js";
 import { RuntimeState } from "../runtime_state.js";
 import { StelleEventBus } from "../utils/event_bus.js";
-import { StageOutputArbiter } from "../stage/output_arbiter.js";
+import { StageOutputArbiter } from "../actuator/output_arbiter.js";
 import { StageOutputRenderer } from "../stage/output_renderer.js";
-import { DeviceActionArbiter } from "../device/action_arbiter.js";
+import { DeviceActionArbiter } from "../actuator/action_arbiter.js";
 import { AndroidAdbDriver } from "../device/drivers/android_adb_driver.js";
 import { BrowserCdpDriver } from "../device/drivers/browser_cdp_driver.js";
 import { DesktopInputDriver } from "../device/drivers/desktop_input_driver.js";
 import { buildDeviceActionAllowlist } from "../device/action_allowlist.js";
-import { LiveRendererServer } from "../utils/renderer.js";
+import { LiveRendererServer } from "../live/infra/renderer_server.js";
 import type { CursorContext } from "../cursor/types.js";
-import { ViewerProfileStore } from "../live/ops/viewer_profile.js";
+import { ViewerProfileStore } from "../live/controller/viewer_profile.js";
 import { SceneObserver } from "../scene/observer.js";
 
 export interface RuntimeServices {

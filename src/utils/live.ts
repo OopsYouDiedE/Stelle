@@ -12,7 +12,7 @@
  * - `ObsWebSocketController`：OBS 状态/控制接口占位。
  */
 import crypto from "node:crypto";
-import type { LiveRendererCommand, LiveRendererServer } from "./renderer.js";
+import type { LiveRendererCommand, LiveRendererServer } from "../live/infra/renderer_server.js";
 import { sanitizeExternalText } from "./text.js";
 import { buildLiveTtsRequest } from "./tts.js";
 import type { StelleEventBus } from "./event_bus.js";

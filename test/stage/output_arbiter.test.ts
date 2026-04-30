@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { StageOutputArbiter } from "../../src/stage/output_arbiter.js";
+import { StageOutputArbiter } from "../../src/actuator/output_arbiter.js";
 import type { OutputIntent, StageOutputRenderer } from "../../src/stage/output_types.js";
 import { StelleEventBus } from "../../src/utils/event_bus.js";
 

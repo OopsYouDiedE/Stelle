@@ -12,8 +12,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import express from "express";
 import { Server as SocketIOServer } from "socket.io";
-import { fetchLiveTtsAudio, normalizeTtsProvider, type TtsProviderName } from "./tts.js";
-import type { MemoryLayer, MemoryProposalStatus, MemoryScope } from "./memory.js";
+import { fetchLiveTtsAudio, normalizeTtsProvider, type TtsProviderName } from "../../utils/tts.js";
+import type { MemoryLayer, MemoryProposalStatus, MemoryScope } from "../../memory/memory.js";
 
 export interface LiveRendererServerOptions {
   host?: string;

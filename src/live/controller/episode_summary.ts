@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { readLiveJournal, type LiveJournalRecord } from "../ops/event_journal.js";
+import { readLiveJournal, type LiveJournalRecord } from "./event_journal.js";
 import { normalizeLiveEvent } from "../../utils/live_event.js";
 import { classifyText } from "./orchestrator.js";
 import { PublicRoomMemoryStore } from "./public_memory.js";

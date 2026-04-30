@@ -102,6 +102,14 @@ export const LiveEventReceivedSchema = z.union([
   LiveEventReceivedBaseSchema.extend({ type: z.literal("live.control.command") }),
   LiveEventReceivedBaseSchema.extend({ type: z.literal("live.program.updated") }),
   LiveEventReceivedBaseSchema.extend({ type: z.literal("scene.observation.received") }),
+  EventMetadataSchema.extend({
+    type: z.literal("live.output.proposal"),
+    source: z.string(),
+    payload: z.object({
+      intent: z.record(z.any()),
+      cursorId: z.string(),
+    }),
+  }),
 ]);
 
 export const BrowserObservationReceivedSchema = EventMetadataSchema.extend({

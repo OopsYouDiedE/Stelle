@@ -1,8 +1,8 @@
-import type { RuntimeConfig } from "../../utils/config_loader.js";
+import type { RuntimeConfig } from "../../config/index.js";
 import type { StelleEventBus } from "../../utils/event_bus.js";
 import type { NormalizedLiveEvent } from "../../utils/live_event.js";
-import { LiveEventDeduper } from "../ingress/live_event_deduper.js";
-import { applyLiveEventIdentity } from "../ingress/live_event_identity.js";
+import { LiveEventDeduper } from "./live_event_deduper.js";
+import { applyLiveEventIdentity } from "./live_event_identity.js";
 import { BilibiliPlatformBridge } from "./bilibili.js";
 import { TikTokPlatformBridge } from "./tiktok.js";
 import { TwitchPlatformBridge } from "./twitch.js";

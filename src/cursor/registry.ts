@@ -4,7 +4,7 @@ import { liveDanmakuCursorModule } from "./modules/live-danmaku/manifest.js";
 import { browserCursorModule } from "./modules/browser/manifest.js";
 import { desktopInputCursorModule } from "./modules/desktop-input/manifest.js";
 import type { StartMode } from "../core/application.js";
-import type { RuntimeConfig } from "../utils/config_loader.js";
+import type { RuntimeConfig } from "../config/index.js";
 import type { CursorModuleDefinition } from "./manifest.js";
 
 export const cursorModules: CursorModuleDefinition[] = [

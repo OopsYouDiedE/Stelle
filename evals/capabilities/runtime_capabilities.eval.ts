@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { buildDeviceActionAllowlist } from "../../src/device/action_allowlist.js";
-import { DeviceActionArbiter } from "../../src/device/action_arbiter.js";
+import { DeviceActionArbiter } from "../../src/actuator/action_arbiter.js";
 import type { DeviceActionDriver, DeviceActionIntent } from "../../src/device/action_types.js";
 import { LiveResponder } from "../../src/cursor/live/responder.js";
 import { DefaultMemoryWriter } from "../../src/cursor/inner/memory_writer.js";

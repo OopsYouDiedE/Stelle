@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { readdir } from "node:fs/promises";
 import path from "node:path";
-import { generateEpisodeSummary } from "../src/live/program/episode_summary.js";
+import { generateEpisodeSummary } from "../src/live/controller/episode_summary.js";
 
 const sessionsRoot = path.resolve("artifacts/live-sessions");
 const sessionId = process.argv.find(arg => arg.startsWith("--session="))?.split("=")[1] ?? await latestSessionId();

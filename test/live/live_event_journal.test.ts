@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { LiveEventJournal, readLiveJournal } from "../../src/live/ops/event_journal.js";
+import { LiveEventJournal, readLiveJournal } from "../../src/live/controller/event_journal.js";
 import { StelleEventBus } from "../../src/utils/event_bus.js";
 
 describe("LiveEventJournal", () => {

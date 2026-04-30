@@ -660,7 +660,7 @@ body[data-scene="standalone"] .stage-scene {
 }
 
 body[data-scene="standalone"] .stage-topbar {
-  align-items: flex-start;
+  display: none;
 }
 
 body[data-scene="standalone"] .stage-eyebrow {
@@ -684,6 +684,10 @@ body[data-scene="standalone"] .audio-chip {
 
 body[data-scene="standalone"] .stage-center {
   min-height: 0;
+}
+
+body[data-scene="standalone"] .program-layer {
+  display: none;
 }
 
 body[data-scene="standalone"] .halo {

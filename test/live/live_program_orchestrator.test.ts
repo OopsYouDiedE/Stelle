@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TopicOrchestrator } from "../../src/live/program/orchestrator.js";
+import { TopicOrchestrator } from "../../src/live/controller/orchestrator.js";
 import type { NormalizedLiveEvent } from "../../src/utils/live_event.js";
 
 describe("TopicOrchestrator", () => {

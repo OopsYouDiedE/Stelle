@@ -1,5 +1,5 @@
 import { moderateLiveEvent, normalizeLiveEvent, type NormalizedLiveEvent } from "../../utils/live_event.js";
-import { LiveBatchAggregator, type DropReason, type FlushReason, type LiveBatchAggregatorPolicy } from "../../live/ingress/live_batch_aggregator.js";
+import { LiveBatchAggregator, type DropReason, type FlushReason, type LiveBatchAggregatorPolicy } from "../../live/adapters/live_batch_aggregator.js";
 import type { CursorContext } from "../types.js";
 
 const DEFAULT_BATCH_POLICY: LiveBatchAggregatorPolicy = {

@@ -2,7 +2,7 @@ import "dotenv/config";
 import { access } from "node:fs/promises";
 import { constants } from "node:fs";
 import { fetchBilibiliDanmuInfo, resolveBilibiliRoom } from "../src/utils/bilibili_danmaku.js";
-import { TopicScriptRepository } from "../src/live/program/topic_script_repository.js";
+import { TopicScriptRepository } from "../src/live/controller/topic_script_repository.js";
 
 type CheckLevel = "pass" | "warn" | "fail";
 

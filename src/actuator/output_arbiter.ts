@@ -1,10 +1,11 @@
-import { applyOutputBudget } from "./output_budget.js";
-import { decideOutputPolicy } from "./output_policy.js";
-import { StageOutputQueue } from "./output_queue.js";
-import type { OutputIntent, StageOutputArbiterDeps, StageOutputDecision, StageOutputRecord, StageOutputState } from "./output_types.js";
+import { applyOutputBudget } from "../stage/output_budget.js";
+import { decideOutputPolicy } from "../stage/output_policy.js";
+import { StageOutputQueue } from "../stage/output_queue.js";
+import type { OutputIntent, StageOutputArbiterDeps, StageOutputDecision, StageOutputRecord, StageOutputState } from "../stage/output_types.js";
 import { moderateLiveOutputText } from "../utils/live_event.js";
+import { BaseArbiter } from "./base_arbiter.js";
 
-export class StageOutputArbiter {
+export class StageOutputArbiter extends BaseArbiter<OutputIntent, StageOutputDecision, StageOutputState> {
   private readonly queue: StageOutputQueue;
   private readonly recentOutputs: StageOutputRecord[] = [];
   private state: StageOutputState;
@@ -13,7 +14,8 @@ export class StageOutputArbiter {
   private autoReplyPaused = false;
   private ttsMuted = false;
 
-  constructor(private readonly deps: StageOutputArbiterDeps) {
+  constructor(deps: StageOutputArbiterDeps) {
+    super("stage_output", deps);
     this.queue = new StageOutputQueue(deps.maxQueueLength ?? 5, deps.now);
     this.state = {
       id: "stage_output",
@@ -70,8 +72,8 @@ export class StageOutputArbiter {
       intent,
       state: this.state,
       now,
-      debugEnabled: Boolean(this.deps.debugEnabled),
-      quietIntervalMs: this.deps.quietIntervalMs ?? 6_000,
+      debugEnabled: Boolean((this.deps as StageOutputArbiterDeps).debugEnabled),
+      quietIntervalMs: (this.deps as StageOutputArbiterDeps).quietIntervalMs ?? 6_000,
     });
 
     if (policy.action === "drop") {
@@ -91,22 +93,23 @@ export class StageOutputArbiter {
       return { status: "queued", outputId: intent.id, reason: qRes.status === "merged" ? "merged" : policy.reason, intent, queueLength: this.queue.length() };
     }
 
-    if (policy.action === "interrupt") {
+    if (policy.action === "interrupt" || (policy as any).action === "accept_now") {
+      const isInterrupt = policy.action === "interrupt";
       const isHard = intent.interrupt === "hard";
       
-      if (isHard) {
+      if (isHard && isInterrupt) {
         if (this.state.currentOutputId) {
           this.currentAbortController?.abort();
           this.publish("stage.output.interrupted", intent, { reason: policy.reason });
           
           // Requirement: must await renderer stop_output BEFORE starting new output
-          await this.deps.renderer.stopCurrentOutput().catch(err => {
+          await (this.deps as StageOutputArbiterDeps).renderer.stopCurrentOutput().catch(err => {
              console.error("[StageOutputArbiter] renderer.stopCurrentOutput failed:", err);
           });
         }
         void this.start(intent);
         return { status: "interrupted", outputId: intent.id, reason: policy.reason, intent };
-      } else {
+      } else if (isInterrupt) {
         const qRes = this.queue.enqueue(intent);
         this.syncQueueLength();
         this.processQueueResults(qRes);
@@ -152,7 +155,7 @@ export class StageOutputArbiter {
   stopCurrent(reason = "control_stop_output"): { stopped: boolean; reason: string } {
     const stopped = Boolean(this.state.currentOutputId);
     this.currentAbortController?.abort();
-    void this.deps.renderer.stopCurrentOutput().catch(err => {
+    void (this.deps as StageOutputArbiterDeps).renderer.stopCurrentOutput().catch(err => {
       console.error("[StageOutputArbiter] renderer.stopCurrentOutput failed:", err);
     });
     return { stopped, reason };
@@ -220,7 +223,7 @@ export class StageOutputArbiter {
       if (signal.aborted) throw new Error("interrupted");
       
       const startTime = this.deps.now();
-      await this.deps.renderer.render(intent, signal);
+      await (this.deps as StageOutputArbiterDeps).renderer.render(intent, signal);
       
       if (signal.aborted) throw new Error("interrupted");
 
@@ -301,16 +304,6 @@ export class StageOutputArbiter {
     }
     this.state = { ...this.state, recentOutputs: [...this.recentOutputs] };
   }
-
-  private publish(type: string, intent: OutputIntent, extra: { reason: string }): void {
-    this.deps.eventBus?.publish({
-      type: type as any,
-      source: "stage_output",
-      id: `${type}-${intent.id}`,
-      timestamp: this.deps.now(),
-      payload: { intent, ...extra },
-    } as any);
-  }
 }
 
 function isAutoReplyIntent(intent: OutputIntent): boolean {
@@ -321,3 +314,4 @@ function isAutoReplyIntent(intent: OutputIntent): boolean {
     || intent.metadata?.source === "idle_task"
     || intent.metadata?.source === "schedule_task";
 }
+

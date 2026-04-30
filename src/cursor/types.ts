@@ -10,15 +10,15 @@
  * - `StelleEvent`：跨 Cursor / Core 的内部事件协议。
  * - `StelleCursor`：所有 Cursor 必须实现的最小接口。
  */
-import type { LlmClient } from "../utils/llm.js";
-import type { RuntimeConfig } from "../utils/config_loader.js";
+import type { LlmClient } from "../memory/llm.js";
+import type { RuntimeConfig } from "../config/index.js";
 import type { ToolRegistry } from "../tool.js";
-import type { MemoryStore } from "../utils/memory.js";
+import type { MemoryStore } from "../memory/memory.js";
 import type { StelleEventBus } from "../utils/event_bus.js";
 import type { StelleEvent } from "../utils/event_schema.js";
-import type { StageOutputArbiter } from "../stage/output_arbiter.js";
-import type { DeviceActionArbiter } from "../device/action_arbiter.js";
-import type { ViewerProfileStore } from "../live/ops/viewer_profile.js";
+import type { StageOutputArbiter } from "../actuator/output_arbiter.js";
+import type { DeviceActionArbiter } from "../actuator/action_arbiter.js";
+import type { ViewerProfileStore } from "../live/controller/viewer_profile.js";
 
 export type { StelleEvent };
 

@@ -1,4 +1,4 @@
-import type { RuntimeConfig } from "../utils/config_loader.js";
+import type { RuntimeConfig } from "../config/index.js";
 import type { DeviceActionAllowlist, DeviceActionRisk } from "./action_types.js";
 
 export function buildDeviceActionAllowlist(config: RuntimeConfig): DeviceActionAllowlist | undefined {

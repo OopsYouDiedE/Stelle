@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { normalizeBilibiliCommand } from "../../src/live/platforms/bilibili.js";
-import { LivePlatformManager } from "../../src/live/platforms/manager.js";
-import { normalizeTikTokPayload } from "../../src/live/platforms/tiktok.js";
-import { normalizeTwitchIrcLine } from "../../src/live/platforms/twitch.js";
-import { normalizeYoutubeMessage } from "../../src/live/platforms/youtube.js";
+import { normalizeBilibiliCommand } from "../../src/live/adapters/bilibili.js";
+import { LivePlatformManager } from "../../src/live/adapters/manager.js";
+import { normalizeTikTokPayload } from "../../src/live/adapters/tiktok.js";
+import { normalizeTwitchIrcLine } from "../../src/live/adapters/twitch.js";
+import { normalizeYoutubeMessage } from "../../src/live/adapters/youtube.js";
 import { StelleEventBus } from "../../src/utils/event_bus.js";
 import type { NormalizedLiveEvent } from "../../src/utils/live_event.js";
 

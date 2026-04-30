@@ -15,7 +15,7 @@
  */
 import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { sanitizeExternalText, truncateText } from "./text.js";
+import { sanitizeExternalText, truncateText } from "../utils/text.js";
 
 export type MemoryScope =
   | { kind: "discord_channel"; channelId: string; guildId?: string | null }

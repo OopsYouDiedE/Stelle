@@ -1,8 +1,8 @@
-import { loadRuntimeConfig, type RuntimeConfig } from "../utils/config_loader.js";
-import { LiveRendererServer } from "../utils/renderer.js";
+import { loadRuntimeConfig, type RuntimeConfig } from "../config/index.js";
+import { LiveRendererServer } from "../live/infra/renderer_server.js";
 import { LiveRuntime, LocalLiveRendererBridge } from "../utils/live.js";
 import { DiscordRuntime } from "../utils/discord.js";
-import { MemoryStore } from "../utils/memory.js";
+import { MemoryStore } from "../memory/memory.js";
 import { type ToolRegistry } from "../tool.js";
 import { RuntimeState } from "../runtime_state.js";
 import type { StelleCursor } from "../cursor/types.js";
@@ -10,12 +10,16 @@ import { selectCursorModules } from "../cursor/registry.js";
 import { StelleEventBus } from "../utils/event_bus.js";
 import { StelleScheduler } from "./scheduler.js";
 import { setupRendererControllers } from "./debug_controller.js";
-import { StageOutputArbiter } from "../stage/output_arbiter.js";
-import { DeviceActionArbiter } from "../device/action_arbiter.js";
+import { StageOutputArbiter } from "../actuator/output_arbiter.js";
+import { DeviceActionArbiter } from "../actuator/action_arbiter.js";
 import { StelleContainer, type RuntimeServices } from "./container.js";
-import { LlmClient } from "../utils/llm.js";
+import { LlmClient } from "../memory/llm.js";
 import { LiveControlService } from "./live_control_service.js";
-import { LiveRuntimeServices } from "./live_services.js";
+import { CoreModule } from "./modules/core_module.js";
+import { DiscordModule } from "./modules/discord_module.js";
+import { LiveModule } from "./modules/live_module.js";
+import { ActuatorModule } from "./modules/actuator_module.js";
+import type { ModuleRegistrar } from "./registrar.js";
 
 export type StartMode = "runtime" | "discord" | "live";
 
@@ -24,7 +28,8 @@ export class StelleApplication {
   public readonly scheduler: StelleScheduler;
   public renderer?: LiveRendererServer;
   public cursors: StelleCursor[] = [];
-  private liveRuntimeServices?: LiveRuntimeServices;
+  private modules: ModuleRegistrar[] = [];
+  private liveModule?: LiveModule;
   private liveControl: LiveControlService;
 
   constructor(private readonly mode: StartMode) {
@@ -67,20 +72,35 @@ export class StelleApplication {
     }
 
     await this.setupCursors();
-    this.setupEventRouting();
-    await this.setupLiveServices();
+    this.setupModules();
     this.setupDebugController();
 
     if (this.mode !== "live" && this.config.discord.token) {
       await this.connectDiscord();
-    } else if (this.mode !== "live") {
-      console.warn("[Stelle] DISCORD_TOKEN is not set; Discord runtime will not connect.");
+    }
+
+    for (const module of this.modules) {
+      await module.start?.();
     }
 
     this.scheduler.start();
     this.state.updateCursors(this.cursors.map(c => c.snapshot()));
     this.state.record("runtime_started", `Runtime started in ${this.mode} mode.`);
     console.log(`[Stelle] Runtime started in ${this.mode} mode.`);
+  }
+
+  private setupModules(): void {
+    this.liveModule = new LiveModule(this.mode, this.renderer);
+    this.modules = [
+      new CoreModule(this.scheduler),
+      new ActuatorModule(),
+      new DiscordModule(this.cursors),
+      this.liveModule,
+    ];
+
+    for (const module of this.modules) {
+      module.register(this.services);
+    }
   }
 
   private async startRenderer(): Promise<void> {
@@ -123,7 +143,7 @@ export class StelleApplication {
     this.scheduler.stop();
     await Promise.allSettled([
       ...this.cursors.map(c => c.stop?.()),
-      this.liveRuntimeServices?.stop(),
+      ...this.modules.map(m => m.stop?.()),
       this.discord.destroy(),
       this.renderer?.stop(),
     ]);
@@ -138,24 +158,6 @@ export class StelleApplication {
       .map(module => module.create(context));
 
     await Promise.all(this.cursors.map(c => c.initialize?.()));
-
-    this.discord.onMessage((message) => {
-      this.eventBus.publish({
-        type: "discord.text.message.received",
-        source: "discord",
-        payload: { message }
-      });
-    });
-  }
-
-  private setupEventRouting(): void {
-    this.scheduler.onTick((type, reason) => {
-      this.eventBus.publish({ type: type as any, source: "scheduler", reason });
-    });
-
-    this.eventBus.subscribe("cursor.reflection", (event) => {
-      this.state.record("cursor_reflection", event.payload.summary, event.payload);
-    });
   }
 
   private setupDebugController(): void {
@@ -173,8 +175,8 @@ export class StelleApplication {
       stageOutput: this.stageOutput,
       deviceAction: this.deviceAction,
       eventBus: this.eventBus,
-      health: () => this.liveRuntimeServices?.health,
-      journal: () => this.liveRuntimeServices?.journal,
+      health: () => this.liveModule?.health,
+      journal: () => this.liveModule?.journal,
       viewerProfiles: this.services.viewerProfiles,
       runControlCommand: (input) => this.runLiveControlCommand(input),
       proposeSystemLiveOutput: (source, input) => this.liveControl.proposeSystemLiveOutput(source, input),
@@ -185,15 +187,9 @@ export class StelleApplication {
   private async runLiveControlCommand(input: Record<string, unknown>): Promise<unknown> {
     const action = String(input.action ?? input.type ?? "");
     if (action.startsWith("topic_script.")) {
-      return this.liveRuntimeServices?.runTopicScriptCommand(input) ?? { ok: false, reason: "live_runtime_services_unavailable" };
+      return this.liveModule?.runTopicScriptCommand(input) ?? { ok: false, reason: "live_module_unavailable" };
     }
     return this.liveControl.runCommand(input);
   }
-
-  private async setupLiveServices(): Promise<void> {
-    if (this.mode !== "runtime" && this.mode !== "live") return;
-
-    this.liveRuntimeServices = new LiveRuntimeServices(this.services, this.renderer);
-    await this.liveRuntimeServices.start();
-  }
 }
+

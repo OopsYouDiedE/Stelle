@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { LiveHealthService } from "../../src/live/ops/health_service.js";
-import { StageOutputArbiter } from "../../src/stage/output_arbiter.js";
+import { LiveHealthService } from "../../src/live/controller/health_service.js";
+import { StageOutputArbiter } from "../../src/actuator/output_arbiter.js";
 import type { StageOutputRenderer } from "../../src/stage/output_types.js";
 import { LiveRuntime } from "../../src/utils/live.js";
 import { StelleEventBus } from "../../src/utils/event_bus.js";

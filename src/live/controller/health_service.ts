@@ -1,7 +1,7 @@
-import type { LivePlatformStatus } from "../platforms/types.js";
-import type { LivePlatformManager } from "../platforms/manager.js";
-import type { StageOutputArbiter } from "../../stage/output_arbiter.js";
-import type { LiveRendererServer } from "../../utils/renderer.js";
+import type { LivePlatformStatus } from "../adapters/types.js";
+import type { LivePlatformManager } from "../adapters/manager.js";
+import type { StageOutputArbiter } from "../../actuator/output_arbiter.js";
+import type { LiveRendererServer } from "../infra/renderer_server.js";
 import type { LiveRuntime, ObsStatus } from "../../utils/live.js";
 import type { StelleEventBus } from "../../utils/event_bus.js";
 

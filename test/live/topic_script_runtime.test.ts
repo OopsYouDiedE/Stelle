@@ -2,14 +2,30 @@ import os from "node:os";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import type { StageOutputArbiter } from "../../src/stage/output_arbiter.js";
+import type { StageOutputArbiter } from "../../src/actuator/output_arbiter.js";
 import type { OutputIntent } from "../../src/stage/output_types.js";
 import { StelleEventBus } from "../../src/utils/event_bus.js";
-import { TopicScriptRepository } from "../../src/live/program/topic_script_repository.js";
-import { TopicScriptService } from "../../src/live/program/topic_script_service.js";
-import { TopicScriptRuntimeService } from "../../src/live/program/topic_script_runtime.js";
+import { TopicScriptRepository } from "../../src/live/controller/topic_script_repository.js";
+import { TopicScriptService } from "../../src/live/controller/topic_script_service.js";
+import { TopicScriptRuntimeService } from "../../src/live/controller/topic_script_runtime.js";
 
 describe("topic script runtime", () => {
+  it("stays idle without output when no approved script exists", async () => {
+    const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "stelle-topic-runtime-empty-"));
+    const intents: OutputIntent[] = [];
+    const runtime = new TopicScriptRuntimeService({
+      eventBus: new StelleEventBus(),
+      repository: new TopicScriptRepository({ rootDir, now: () => 1000 }),
+      stageOutput: fakeStageOutput(intents),
+      now: () => 1000,
+    });
+
+    await runtime.start();
+
+    expect(runtime.snapshot().status).toBe("idle");
+    expect(intents).toHaveLength(0);
+  });
+
   it("loads the latest approved script and proposes the first section through StageOutput", async () => {
     const { repository } = await approvedRepository();
     const intents: OutputIntent[] = [];
@@ -48,7 +64,50 @@ describe("topic script runtime", () => {
     await Promise.resolve();
 
     expect(intents.some(intent => intent.lane === "direct_response" && intent.text.includes("为什么"))).toBe(true);
+    expect(intents.find(intent => intent.lane === "direct_response")).toMatchObject({
+      cursorId: "topic_script_runtime",
+      priority: 72,
+      interrupt: "soft",
+      metadata: expect.objectContaining({
+        source: "viewer_interrupt",
+        section_id: "opening_1",
+      }),
+    });
     expect(runtime.snapshot().interruptedCount).toBe(1);
+  });
+
+  it("does not advance the Markdown section when an interrupt response completes before section duration", async () => {
+    const { repository } = await approvedRepository();
+    const eventBus = new StelleEventBus();
+    const intents: OutputIntent[] = [];
+    const runtime = new TopicScriptRuntimeService({
+      eventBus,
+      repository,
+      stageOutput: fakeStageOutput(intents),
+      now: () => 1000,
+    });
+    await runtime.start();
+
+    eventBus.publish({
+      type: "live.event.received",
+      source: "fixture",
+      payload: { id: "q1", source: "fixture", cmd: "DANMU_MSG", text: "为什么要记住观众？" },
+    });
+    await Promise.resolve();
+    const interruptIntent = intents.find(intent => intent.lane === "direct_response");
+
+    eventBus.publish({
+      type: "stage.output.completed",
+      source: "fixture",
+      payload: { intent: interruptIntent },
+    });
+    await Promise.resolve();
+
+    expect(runtime.snapshot()).toMatchObject({
+      status: "running",
+      sectionId: "opening_1",
+      sectionIndex: 0,
+    });
   });
 });
 
