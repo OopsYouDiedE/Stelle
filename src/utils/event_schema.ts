@@ -100,6 +100,7 @@ export const LiveEventReceivedSchema = z.union([
   LiveEventReceivedBaseSchema.extend({ type: z.literal("live.moderation.decision") }),
   LiveEventReceivedBaseSchema.extend({ type: z.literal("live.health.updated") }),
   LiveEventReceivedBaseSchema.extend({ type: z.literal("live.control.command") }),
+  LiveEventReceivedBaseSchema.extend({ type: z.literal("live.program.updated") }),
   LiveEventReceivedBaseSchema.extend({ type: z.literal("scene.observation.received") }),
 ]);
 
