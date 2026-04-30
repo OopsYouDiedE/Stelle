@@ -209,6 +209,20 @@ export const StagePolicyOverlayEventSchema = EventMetadataSchema.extend({
   payload: z.record(z.any()),
 });
 
+export const TopicScriptEventSchema = EventMetadataSchema.extend({
+  type: z.enum([
+    "topic_script.generated",
+    "topic_script.compiled",
+    "topic_script.approved",
+    "topic_script.section_started",
+    "topic_script.section_completed",
+    "topic_script.interrupted",
+    "topic_script.fallback_used",
+  ]),
+  source: z.string(),
+  payload: z.record(z.any()),
+});
+
 import { DeviceActionIntentSchema } from "../device/action_types.js";
 
 const DeviceActionEventBaseSchema = EventMetadataSchema.extend({
@@ -282,6 +296,7 @@ export const StelleEventSchema = z.union([
   LiveRequestEventSchema,
   StageOutputEventSchema,
   StagePolicyOverlayEventSchema,
+  TopicScriptEventSchema,
   DeviceActionEventSchema,
   DirectiveEventSchema,
   SystemEventSchema,

@@ -176,10 +176,18 @@ export class StelleApplication {
       health: () => this.liveRuntimeServices?.health,
       journal: () => this.liveRuntimeServices?.journal,
       viewerProfiles: this.services.viewerProfiles,
-      runControlCommand: (input) => this.liveControl.runCommand(input),
+      runControlCommand: (input) => this.runLiveControlCommand(input),
       proposeSystemLiveOutput: (source, input) => this.liveControl.proposeSystemLiveOutput(source, input),
       now: () => Date.now(),
     });
+  }
+
+  private async runLiveControlCommand(input: Record<string, unknown>): Promise<unknown> {
+    const action = String(input.action ?? input.type ?? "");
+    if (action.startsWith("topic_script.")) {
+      return this.liveRuntimeServices?.runTopicScriptCommand(input) ?? { ok: false, reason: "live_runtime_services_unavailable" };
+    }
+    return this.liveControl.runCommand(input);
   }
 
   private async setupLiveServices(): Promise<void> {
