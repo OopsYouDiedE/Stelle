@@ -5,6 +5,7 @@ import { LiveRelationshipService } from "../live/ops/relationship_service.js";
 import { LivePlatformManager } from "../live/platforms/manager.js";
 import { LiveProgramService } from "../live/program/service.js";
 import { PromptLabService } from "../live/program/prompt_lab.js";
+import { TopicScriptRuntimeService } from "../live/program/topic_script_runtime.js";
 import type { RuntimeServices } from "./container.js";
 import type { LiveRendererServer } from "../utils/renderer.js";
 
@@ -14,6 +15,7 @@ export class LiveRuntimeServices {
   private liveHealth?: LiveHealthService;
   private liveRelationship?: LiveRelationshipService;
   private liveProgram?: LiveProgramService;
+  private topicScriptRuntime?: TopicScriptRuntimeService;
   private livePlatforms?: LivePlatformManager;
 
   constructor(
@@ -23,6 +25,7 @@ export class LiveRuntimeServices {
 
   get health(): LiveHealthService | undefined { return this.liveHealth; }
   get journal(): LiveEventJournal | undefined { return this.liveJournal; }
+  get topicScripts(): TopicScriptRuntimeService | undefined { return this.topicScriptRuntime; }
 
   async start(): Promise<void> {
     this.liveEngagement = new LiveEngagementService({
@@ -55,6 +58,11 @@ export class LiveRuntimeServices {
       promptLab: new PromptLabService(this.services.llm),
     });
     this.liveProgram.start();
+    this.topicScriptRuntime = new TopicScriptRuntimeService({
+      eventBus: this.services.eventBus,
+      stageOutput: this.services.stageOutput,
+    });
+    await this.topicScriptRuntime.start();
 
     const enabled = this.livePlatforms.status()
       .filter(status => status.enabled)
@@ -66,6 +74,7 @@ export class LiveRuntimeServices {
     await Promise.allSettled([
       this.liveHealth?.stop(),
       this.liveProgram?.stop(),
+      this.topicScriptRuntime?.stop(),
       this.liveJournal?.stop(),
       this.livePlatforms?.stop(),
     ]);
