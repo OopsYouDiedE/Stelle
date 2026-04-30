@@ -76,6 +76,7 @@ const programQuestions = document.querySelector<HTMLOListElement>("#program-ques
 const programStageStatus = document.querySelector<HTMLDListElement>("#program-stage-status");
 const programPublicMemories = document.querySelector<HTMLOListElement>("#program-public-memories");
 const programWorldCanon = document.querySelector<HTMLOListElement>("#program-world-canon");
+const programPromptLab = document.querySelector<HTMLOListElement>("#program-prompt-lab");
 const simulateForm = document.querySelector<HTMLFormElement>("#simulate-form");
 const simulateName = document.querySelector<HTMLInputElement>("#simulate-name");
 const simulateText = document.querySelector<HTMLInputElement>("#simulate-text");
@@ -232,6 +233,7 @@ function applyWidgetState(widget: ProgramWidgetName | undefined, state: unknown)
   if (widget === "stage_status") renderStageStatus(raw);
   if (widget === "public_memory_wall") renderPublicMemories(raw);
   if (widget === "world_canon") renderWorldCanon(raw);
+  if (widget === "prompt_lab") renderPromptLab(raw);
 }
 
 function renderClusterList(clusters: Array<{ label?: string; count?: number; representative?: string }>): void {
@@ -308,6 +310,22 @@ function renderWorldCanon(raw: Record<string, unknown>): void {
     const status = String(record.status ?? "proposed");
     const title = String(record.title ?? "设定");
     appendListItem(programWorldCanon, `[${status}] ${title}`);
+  }
+}
+
+function renderPromptLab(raw: Record<string, unknown>): void {
+  if (!programPromptLab) return;
+  programPromptLab.innerHTML = "";
+  const experiments = Array.isArray(raw.experiments) ? raw.experiments.slice(0, 2) : [];
+  if (!experiments.length) {
+    appendListItem(programPromptLab, "暂无沙盒实验");
+    return;
+  }
+  for (const item of experiments) {
+    const record = asRecord(item);
+    const question = String(record.question ?? "实验");
+    const variants = Array.isArray(record.variants) ? record.variants.length : 0;
+    appendListItem(programPromptLab, `${question} · ${variants} 个风格`);
   }
 }
 

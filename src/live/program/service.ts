@@ -4,6 +4,7 @@ import type { StelleEventBus } from "../../utils/event_bus.js";
 import { TopicOrchestrator } from "./orchestrator.js";
 import { PublicRoomMemoryStore, type PublicRoomMemory } from "./public_memory.js";
 import { WorldCanonStore, type WorldCanonEntry } from "./world_canon.js";
+import { PromptLabService, type PromptLabExperiment } from "./prompt_lab.js";
 import type { ProgramWidgetState, TopicOrchestratorOptions, TopicState } from "./types.js";
 
 export interface LiveProgramServiceDeps {
@@ -12,6 +13,7 @@ export interface LiveProgramServiceDeps {
   stageOutput?: StageOutputArbiter;
   publicMemory?: PublicRoomMemoryStore;
   worldCanon?: WorldCanonStore;
+  promptLab?: PromptLabService;
   orchestrator?: TopicOrchestrator;
   options?: TopicOrchestratorOptions;
 }
@@ -30,6 +32,7 @@ export class LiveProgramService {
   private lastHostedConclusion = "";
   private publicMemories: PublicRoomMemory[] = [];
   private worldCanonEntries: WorldCanonEntry[] = [];
+  private promptLabExperiments: PromptLabExperiment[] = [];
 
   constructor(private readonly deps: LiveProgramServiceDeps) {
     this.orchestrator = deps.orchestrator ?? new TopicOrchestrator(deps.options);
@@ -72,7 +75,7 @@ export class LiveProgramService {
   snapshot(): LiveProgramSnapshot {
     return {
       topic: this.orchestrator.snapshot(),
-      widgets: this.orchestrator.widgetState(this.publicMemories, this.worldCanonEntries),
+      widgets: this.orchestrator.widgetState(this.publicMemories, this.worldCanonEntries, this.promptLabExperiments),
     };
   }
 
@@ -88,6 +91,13 @@ export class LiveProgramService {
     await this.refreshWorldCanon();
     this.publishProgramUpdate("world_canon");
     return entry;
+  }
+
+  async runPromptLab(question: string): Promise<PromptLabExperiment> {
+    const experiment = await this.promptLabService().run(question);
+    this.promptLabExperiments = this.promptLabService().list();
+    this.publishProgramUpdate("prompt_lab");
+    return experiment;
   }
 
   private publishProgramUpdate(reason: string): void {
@@ -115,6 +125,7 @@ export class LiveProgramService {
       this.deps.live?.updateWidget("stage_status", snapshot.widgets.stage_status),
       this.deps.live?.updateWidget("public_memory_wall", snapshot.widgets.public_memory_wall),
       this.deps.live?.updateWidget("world_canon", snapshot.widgets.world_canon),
+      this.deps.live?.updateWidget("prompt_lab", snapshot.widgets.prompt_lab),
     ]);
     await this.deps.live?.setSceneMode(snapshot.topic.scene);
   }
@@ -176,5 +187,10 @@ export class LiveProgramService {
 
   private async refreshWorldCanon(): Promise<void> {
     this.worldCanonEntries = await this.canonStore().list(8).catch(() => []);
+  }
+
+  private promptLabService(): PromptLabService {
+    if (!this.deps.promptLab) this.deps.promptLab = new PromptLabService();
+    return this.deps.promptLab;
   }
 }

@@ -1,6 +1,7 @@
 import type { LiveEventKind, LiveEventSource } from "../../utils/live_event.js";
 import type { PublicRoomMemory } from "./public_memory.js";
 import type { WorldCanonEntry } from "./world_canon.js";
+import type { PromptLabExperiment } from "./prompt_lab.js";
 
 export type ProgramMode =
   | "observation"
@@ -87,6 +88,7 @@ export interface ProgramWidgetState {
   stage_status: StageStatusWidgetState;
   public_memory_wall: { memories: PublicRoomMemory[]; updatedAt: number };
   world_canon: { entries: WorldCanonEntry[]; updatedAt: number };
+  prompt_lab: { experiments: PromptLabExperiment[]; updatedAt: number };
 }
 
 export interface TopicOrchestratorOptions {

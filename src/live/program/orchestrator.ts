@@ -2,6 +2,7 @@ import { moderateLiveEvent, normalizeLiveEvent, type NormalizedLiveEvent } from 
 import { sanitizeExternalText, truncateText } from "../../utils/text.js";
 import type { PublicRoomMemory } from "./public_memory.js";
 import type { WorldCanonEntry } from "./world_canon.js";
+import type { PromptLabExperiment } from "./prompt_lab.js";
 import type {
   ChatCluster,
   ChatClusterLabel,
@@ -118,7 +119,7 @@ export class TopicOrchestrator {
     };
   }
 
-  widgetState(publicMemories: PublicRoomMemory[] = [], worldCanon: WorldCanonEntry[] = []): ProgramWidgetState {
+  widgetState(publicMemories: PublicRoomMemory[] = [], worldCanon: WorldCanonEntry[] = [], promptLab: PromptLabExperiment[] = []): ProgramWidgetState {
     const updatedAt = this.now();
     return {
       topic_compass: this.snapshot(),
@@ -128,6 +129,7 @@ export class TopicOrchestrator {
       stage_status: { ...this.stageStatus },
       public_memory_wall: { memories: publicMemories, updatedAt },
       world_canon: { entries: worldCanon, updatedAt },
+      prompt_lab: { experiments: promptLab, updatedAt },
     };
   }
 

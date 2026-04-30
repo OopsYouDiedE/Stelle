@@ -20,6 +20,7 @@ import { LiveEventJournal } from "../live/ops/event_journal.js";
 import { LiveHealthService } from "../live/ops/health_service.js";
 import { LiveRelationshipService } from "../live/ops/relationship_service.js";
 import { LiveProgramService } from "../live/program/service.js";
+import { PromptLabService } from "../live/program/prompt_lab.js";
 
 export type StartMode = "runtime" | "discord" | "live";
 
@@ -220,6 +221,7 @@ export class StelleApplication {
       eventBus: this.eventBus,
       live: this.services.live,
       stageOutput: this.stageOutput,
+      promptLab: new PromptLabService(this.llm),
     });
     this.liveProgram.start();
     const enabled = this.livePlatforms.status().filter(status => status.enabled).map(status => `${status.platform}:${status.connected ? "connected" : status.lastError ?? "idle"}`);
