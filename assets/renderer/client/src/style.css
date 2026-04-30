@@ -400,6 +400,14 @@ button {
   width: min(24rem, 100%);
 }
 
+.community-map-widget {
+  grid-column: 2;
+  grid-row: 2;
+  align-self: end;
+  justify-self: center;
+  width: min(24rem, 100%);
+}
+
 .program-label {
   margin: 0 0 0.45rem;
   color: var(--accent);
@@ -556,7 +564,8 @@ body[data-program-scene="archive"] .program-widget {
   .stage-status-widget,
   .public-memory-wall,
   .world-canon-widget,
-  .prompt-lab-widget {
+  .prompt-lab-widget,
+  .community-map-widget {
     grid-column: 2;
   }
 }
@@ -596,7 +605,8 @@ body[data-program-scene="archive"] .program-widget {
   .stage-status-widget,
   .public-memory-wall,
   .world-canon-widget,
-  .prompt-lab-widget {
+  .prompt-lab-widget,
+  .community-map-widget {
     grid-column: 1;
     grid-row: auto;
   }

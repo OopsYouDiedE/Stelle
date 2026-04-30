@@ -2,6 +2,7 @@ import type { LiveEventKind, LiveEventSource } from "../../utils/live_event.js";
 import type { PublicRoomMemory } from "./public_memory.js";
 import type { WorldCanonEntry } from "./world_canon.js";
 import type { PromptLabExperiment } from "./prompt_lab.js";
+import type { AnonymousCommunityMapState } from "./community_map.js";
 
 export type ProgramMode =
   | "observation"
@@ -89,6 +90,7 @@ export interface ProgramWidgetState {
   public_memory_wall: { memories: PublicRoomMemory[]; updatedAt: number };
   world_canon: { entries: WorldCanonEntry[]; updatedAt: number };
   prompt_lab: { experiments: PromptLabExperiment[]; updatedAt: number };
+  anonymous_community_map: AnonymousCommunityMapState;
 }
 
 export interface TopicOrchestratorOptions {

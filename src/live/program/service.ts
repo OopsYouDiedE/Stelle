@@ -126,6 +126,7 @@ export class LiveProgramService {
       this.deps.live?.updateWidget("public_memory_wall", snapshot.widgets.public_memory_wall),
       this.deps.live?.updateWidget("world_canon", snapshot.widgets.world_canon),
       this.deps.live?.updateWidget("prompt_lab", snapshot.widgets.prompt_lab),
+      this.deps.live?.updateWidget("anonymous_community_map", snapshot.widgets.anonymous_community_map),
     ]);
     await this.deps.live?.setSceneMode(snapshot.topic.scene);
   }

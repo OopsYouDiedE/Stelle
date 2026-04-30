@@ -77,6 +77,7 @@ const programStageStatus = document.querySelector<HTMLDListElement>("#program-st
 const programPublicMemories = document.querySelector<HTMLOListElement>("#program-public-memories");
 const programWorldCanon = document.querySelector<HTMLOListElement>("#program-world-canon");
 const programPromptLab = document.querySelector<HTMLOListElement>("#program-prompt-lab");
+const programCommunityMap = document.querySelector<HTMLOListElement>("#program-community-map");
 const simulateForm = document.querySelector<HTMLFormElement>("#simulate-form");
 const simulateName = document.querySelector<HTMLInputElement>("#simulate-name");
 const simulateText = document.querySelector<HTMLInputElement>("#simulate-text");
@@ -234,6 +235,7 @@ function applyWidgetState(widget: ProgramWidgetName | undefined, state: unknown)
   if (widget === "public_memory_wall") renderPublicMemories(raw);
   if (widget === "world_canon") renderWorldCanon(raw);
   if (widget === "prompt_lab") renderPromptLab(raw);
+  if (widget === "anonymous_community_map") renderCommunityMap(raw);
 }
 
 function renderClusterList(clusters: Array<{ label?: string; count?: number; representative?: string }>): void {
@@ -326,6 +328,20 @@ function renderPromptLab(raw: Record<string, unknown>): void {
     const question = String(record.question ?? "实验");
     const variants = Array.isArray(record.variants) ? record.variants.length : 0;
     appendListItem(programPromptLab, `${question} · ${variants} 个风格`);
+  }
+}
+
+function renderCommunityMap(raw: Record<string, unknown>): void {
+  if (!programCommunityMap) return;
+  programCommunityMap.innerHTML = "";
+  const heat = Array.isArray(raw.heat) ? raw.heat.slice(0, 6) : [];
+  if (!heat.length) {
+    appendListItem(programCommunityMap, "等待匿名热度样本");
+    return;
+  }
+  for (const item of heat) {
+    const record = asRecord(item);
+    appendListItem(programCommunityMap, `${clusterLabel(String(record.label ?? "other"))} · ${record.count ?? 0} · ${record.intensity ?? 0}%`);
   }
 }
 

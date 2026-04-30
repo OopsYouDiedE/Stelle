@@ -3,6 +3,7 @@ import { sanitizeExternalText, truncateText } from "../../utils/text.js";
 import type { PublicRoomMemory } from "./public_memory.js";
 import type { WorldCanonEntry } from "./world_canon.js";
 import type { PromptLabExperiment } from "./prompt_lab.js";
+import { buildAnonymousCommunityMap } from "./community_map.js";
 import { getProgramTemplate } from "./templates.js";
 import type {
   ChatCluster,
@@ -132,6 +133,7 @@ export class TopicOrchestrator {
       public_memory_wall: { memories: publicMemories, updatedAt },
       world_canon: { entries: worldCanon, updatedAt },
       prompt_lab: { experiments: promptLab, updatedAt },
+      anonymous_community_map: buildAnonymousCommunityMap({ clusters: this.clusters(), samples: this.samples.slice(-40), now: this.now }),
     };
   }
 
