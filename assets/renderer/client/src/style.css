@@ -376,6 +376,14 @@ button {
   align-self: end;
 }
 
+.public-memory-wall {
+  grid-column: 2;
+  grid-row: 3;
+  align-self: end;
+  justify-self: center;
+  width: min(24rem, 100%);
+}
+
 .program-label {
   margin: 0 0 0.45rem;
   color: var(--accent);
@@ -529,7 +537,8 @@ body[data-program-scene="archive"] .program-widget {
 
   .chat-cluster,
   .conclusion-board,
-  .stage-status-widget {
+  .stage-status-widget,
+  .public-memory-wall {
     grid-column: 2;
   }
 }
@@ -566,7 +575,8 @@ body[data-program-scene="archive"] .program-widget {
   .chat-cluster,
   .conclusion-board,
   .question-queue,
-  .stage-status-widget {
+  .stage-status-widget,
+  .public-memory-wall {
     grid-column: 1;
     grid-row: auto;
   }

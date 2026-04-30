@@ -1,5 +1,6 @@
 import { moderateLiveEvent, normalizeLiveEvent, type NormalizedLiveEvent } from "../../utils/live_event.js";
 import { sanitizeExternalText, truncateText } from "../../utils/text.js";
+import type { PublicRoomMemory } from "./public_memory.js";
 import type {
   ChatCluster,
   ChatClusterLabel,
@@ -116,7 +117,7 @@ export class TopicOrchestrator {
     };
   }
 
-  widgetState(): ProgramWidgetState {
+  widgetState(publicMemories: PublicRoomMemory[] = []): ProgramWidgetState {
     const updatedAt = this.now();
     return {
       topic_compass: this.snapshot(),
@@ -124,6 +125,7 @@ export class TopicOrchestrator {
       conclusion_board: { conclusions: [...this.conclusions], updatedAt },
       question_queue: { pendingQuestions: [...this.pendingQuestions], updatedAt },
       stage_status: { ...this.stageStatus },
+      public_memory_wall: { memories: publicMemories, updatedAt },
     };
   }
 

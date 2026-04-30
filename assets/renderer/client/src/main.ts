@@ -74,6 +74,7 @@ const programClusters = document.querySelector<HTMLOListElement>("#program-clust
 const programConclusions = document.querySelector<HTMLOListElement>("#program-conclusions");
 const programQuestions = document.querySelector<HTMLOListElement>("#program-questions");
 const programStageStatus = document.querySelector<HTMLDListElement>("#program-stage-status");
+const programPublicMemories = document.querySelector<HTMLOListElement>("#program-public-memories");
 const simulateForm = document.querySelector<HTMLFormElement>("#simulate-form");
 const simulateName = document.querySelector<HTMLInputElement>("#simulate-name");
 const simulateText = document.querySelector<HTMLInputElement>("#simulate-text");
@@ -228,6 +229,7 @@ function applyWidgetState(widget: ProgramWidgetName | undefined, state: unknown)
   if (widget === "conclusion_board") renderTextList(programConclusions, stringArray(raw.conclusions), "暂未形成结论");
   if (widget === "question_queue") renderTextList(programQuestions, stringArray(raw.pendingQuestions), "暂无待回答问题");
   if (widget === "stage_status") renderStageStatus(raw);
+  if (widget === "public_memory_wall") renderPublicMemories(raw);
 }
 
 function renderClusterList(clusters: Array<{ label?: string; count?: number; representative?: string }>): void {
@@ -272,6 +274,22 @@ function renderStageStatus(raw: Record<string, unknown>): void {
     const dd = document.createElement("dd");
     dd.textContent = value;
     programStageStatus.append(dt, dd);
+  }
+}
+
+function renderPublicMemories(raw: Record<string, unknown>): void {
+  if (!programPublicMemories) return;
+  programPublicMemories.innerHTML = "";
+  const memories = Array.isArray(raw.memories) ? raw.memories.slice(0, 6) : [];
+  if (!memories.length) {
+    appendListItem(programPublicMemories, "暂无公开节目记忆");
+    return;
+  }
+  for (const item of memories) {
+    const record = asRecord(item);
+    const title = String(record.title ?? "节目记忆");
+    const summary = String(record.summary ?? "");
+    appendListItem(programPublicMemories, summary ? `${title}：${summary}` : title);
   }
 }
 

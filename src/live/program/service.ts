@@ -2,12 +2,14 @@ import type { StageOutputArbiter } from "../../stage/output_arbiter.js";
 import type { LiveRuntime } from "../../utils/live.js";
 import type { StelleEventBus } from "../../utils/event_bus.js";
 import { TopicOrchestrator } from "./orchestrator.js";
+import { PublicRoomMemoryStore, type PublicRoomMemory } from "./public_memory.js";
 import type { ProgramWidgetState, TopicOrchestratorOptions, TopicState } from "./types.js";
 
 export interface LiveProgramServiceDeps {
   eventBus: StelleEventBus;
   live?: LiveRuntime;
   stageOutput?: StageOutputArbiter;
+  publicMemory?: PublicRoomMemoryStore;
   orchestrator?: TopicOrchestrator;
   options?: TopicOrchestratorOptions;
 }
@@ -24,12 +26,14 @@ export class LiveProgramService {
   private lastHostOutputAt = 0;
   private lastHostedPhase = "";
   private lastHostedConclusion = "";
+  private publicMemories: PublicRoomMemory[] = [];
 
   constructor(private readonly deps: LiveProgramServiceDeps) {
     this.orchestrator = deps.orchestrator ?? new TopicOrchestrator(deps.options);
   }
 
   start(): void {
+    void this.refreshPublicMemories();
     this.unsubscribes.push(this.deps.eventBus.subscribe("live.event.received", (event) => {
       const result = this.orchestrator.ingestLivePayload(event.payload);
       if (result.updated) {
@@ -64,8 +68,15 @@ export class LiveProgramService {
   snapshot(): LiveProgramSnapshot {
     return {
       topic: this.orchestrator.snapshot(),
-      widgets: this.orchestrator.widgetState(),
+      widgets: this.orchestrator.widgetState(this.publicMemories),
     };
+  }
+
+  async addPublicMemory(input: Omit<PublicRoomMemory, "id" | "createdAt" | "sensitivity">): Promise<PublicRoomMemory> {
+    const memory = await this.memoryStore().append(input);
+    await this.refreshPublicMemories();
+    this.publishProgramUpdate("public_memory");
+    return memory;
   }
 
   private publishProgramUpdate(reason: string): void {
@@ -91,6 +102,7 @@ export class LiveProgramService {
       this.deps.live?.updateWidget("conclusion_board", snapshot.widgets.conclusion_board),
       this.deps.live?.updateWidget("question_queue", snapshot.widgets.question_queue),
       this.deps.live?.updateWidget("stage_status", snapshot.widgets.stage_status),
+      this.deps.live?.updateWidget("public_memory_wall", snapshot.widgets.public_memory_wall),
     ]);
     await this.deps.live?.setSceneMode(snapshot.topic.scene);
   }
@@ -134,5 +146,14 @@ export class LiveProgramService {
       },
       metadata: { source: "live_program", phase: topic.phase },
     });
+  }
+
+  private memoryStore(): PublicRoomMemoryStore {
+    if (!this.deps.publicMemory) this.deps.publicMemory = new PublicRoomMemoryStore();
+    return this.deps.publicMemory;
+  }
+
+  private async refreshPublicMemories(): Promise<void> {
+    this.publicMemories = await this.memoryStore().list(8).catch(() => []);
   }
 }

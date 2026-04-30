@@ -1,4 +1,5 @@
 import type { LiveEventKind, LiveEventSource } from "../../utils/live_event.js";
+import type { PublicRoomMemory } from "./public_memory.js";
 
 export type ProgramMode =
   | "observation"
@@ -83,6 +84,7 @@ export interface ProgramWidgetState {
   conclusion_board: { conclusions: string[]; updatedAt: number };
   question_queue: { pendingQuestions: string[]; updatedAt: number };
   stage_status: StageStatusWidgetState;
+  public_memory_wall: { memories: PublicRoomMemory[]; updatedAt: number };
 }
 
 export interface TopicOrchestratorOptions {
