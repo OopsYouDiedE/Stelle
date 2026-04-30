@@ -25,11 +25,19 @@ describe("StelleApplication Isolation", () => {
     const app1 = new StelleApplication("runtime");
     (app1 as any).config.discord.token = "test-token";
     (app1 as any).config.models.apiKey = "test-key";
+    const app1EventBusBefore = app1.eventBus;
+    const app1MemoryBefore = app1.memory;
+    const app1ToolsBefore = app1.tools;
+    const app1DiscordBefore = app1.discord;
     
     vi.spyOn(app1.memory, "start").mockResolvedValue(undefined);
 
     await app1.start();
     const eventBus1 = app1.eventBus;
+    expect(app1.eventBus).toBe(app1EventBusBefore);
+    expect(app1.memory).toBe(app1MemoryBefore);
+    expect(app1.tools).toBe(app1ToolsBefore);
+    expect(app1.discord).toBe(app1DiscordBefore);
     
     expect(app1.cursors.length).toBeGreaterThan(0);
 

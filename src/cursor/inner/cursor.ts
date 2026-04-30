@@ -11,6 +11,7 @@ import { DefaultSelfModel } from "./self_model.js";
 import { DefaultInnerObserver } from "./observer.js";
 import { DefaultPressureValve } from "./pressure.js";
 import { DefaultDirectivePlanner } from "./directive_planner.js";
+import { DefaultMemoryWriter, type InnerMemoryWriter } from "./memory_writer.js";
 import type { CognitiveSignal, SelfModelSnapshot, FieldNote, CursorDirectiveEnvelope, ResearchAgendaUpdate } from "./types.js";
 
 export interface RuntimeDecision {
@@ -63,6 +64,7 @@ export class InnerCursor implements StelleCursor {
   private readonly selfModel: DefaultSelfModel;
   private readonly pressure: DefaultPressureValve;
   private readonly directivePlanner: DefaultDirectivePlanner;
+  private readonly memoryWriter?: InnerMemoryWriter;
   private recentFieldNotes: FieldNote[] = [];
   private recommendedLiveFocus?: string;
 
@@ -76,6 +78,7 @@ export class InnerCursor implements StelleCursor {
       idleReflectionMs: 30 * 60 * 1000,
     });
     this.directivePlanner = new DefaultDirectivePlanner();
+    this.memoryWriter = context.memory ? new DefaultMemoryWriter(context.memory, context.tools) : undefined;
     this.fieldSampler = new DefaultFieldSampler({ maxNotes: 12, now: () => this.context.now() });
     this.selfModel = new DefaultSelfModel({
       mood: this.currentGlobalMood,
@@ -239,12 +242,8 @@ export class InnerCursor implements StelleCursor {
       const focus = await this.context.llm.generateText(prompt, { role: "secondary", temperature: 0.5, maxOutputTokens: 240 });
       if (focus) {
         this.currentFocus = truncateText(focus, 1200);
-        await this.context.tools.execute("memory.write_long_term", 
-          { key: "current_focus", value: this.currentFocus, layer: "self_state" },
-          { caller: "core", cwd: process.cwd(), allowedAuthority: ["safe_write"], allowedTools: ["memory.write_long_term"] }
-        ).catch(() => {});
-
-        await this.context.memory.appendResearchLog({
+        await this.writeSelfState("current_focus", this.currentFocus);
+        await this.appendResearchLog({
           focus: this.currentFocus,
           process: [`Scheduled reflection`, `Previous focus: ${truncateText(previousFocus ?? "(none)", 240)}`],
           conclusion: this.currentFocus,
@@ -334,7 +333,7 @@ export class InnerCursor implements StelleCursor {
 
     if (this.context.memory) {
       for (const topic of agendaUpdate.addedTopics) {
-        await this.context.memory.appendResearchLog({
+        await this.appendResearchLog({
           focus: topic.title,
           process: [
             `Topic created: ${topic.title}`,
@@ -344,7 +343,7 @@ export class InnerCursor implements StelleCursor {
         }).catch(() => {});
       }
       for (const topic of agendaUpdate.updatedTopics) {
-        await this.context.memory.appendResearchLog({
+        await this.appendResearchLog({
           focus: topic.title,
           process: [
             `Topic updated: ${topic.title}`,
@@ -354,18 +353,14 @@ export class InnerCursor implements StelleCursor {
         }).catch(() => {});
       }
       for (const topic of agendaUpdate.closedTopics) {
-        await this.context.memory.appendResearchLog({
+        await this.appendResearchLog({
           focus: topic.title,
           process: [`Topic closed: ${topic.title}`],
           conclusion: `Closed research topic: ${topic.id}`,
         }).catch(() => {});
       }
 
-      // Persist active agenda
-      await this.context.tools.execute("memory.write_long_term",
-        { key: "research_agenda", value: JSON.stringify(this.agenda.activeTopics()), layer: "self_state" },
-        { caller: "core", cwd: process.cwd(), allowedAuthority: ["safe_write"], allowedTools: ["memory.write_long_term"] }
-      ).catch(() => {});
+      await this.writeSelfState("research_agenda", JSON.stringify(this.agenda.activeTopics()));
     }
     return agendaUpdate;
   }
@@ -375,19 +370,9 @@ export class InnerCursor implements StelleCursor {
     this.applySelfModelSnapshot(selfUpdate.snapshot);
 
     if (this.context.memory && selfUpdate.changes.length > 0) {
-      await this.context.tools.execute("memory.write_long_term",
-        { key: "self_model", value: JSON.stringify(selfUpdate.snapshot), layer: "self_state" },
-        { caller: "core", cwd: process.cwd(), allowedAuthority: ["safe_write"], allowedTools: ["memory.write_long_term"] }
-      ).catch(() => {});
-      await this.context.tools.execute("memory.write_long_term",
-        { key: "current_focus", value: this.currentFocus, layer: "self_state" },
-        { caller: "core", cwd: process.cwd(), allowedAuthority: ["safe_write"], allowedTools: ["memory.write_long_term"] }
-      ).catch(() => {});
-      await this.context.memory.appendResearchLog({
-        focus: this.currentFocus,
-        process: selfUpdate.changes.slice(0, 6),
-        conclusion: `Self model updated: mood=${selfUpdate.snapshot.mood}`,
-      }).catch(() => {});
+      await this.writeSelfState("self_model", JSON.stringify(selfUpdate.snapshot));
+      await this.writeSelfState("current_focus", this.currentFocus);
+      await this.memoryWriter?.writeResearchLog(selfUpdate).catch(() => {});
     }
   }
 
@@ -401,13 +386,10 @@ export class InnerCursor implements StelleCursor {
     this.recommendedLiveFocus = samplingResult.recommendedFocus;
 
     if (this.context.memory) {
-      await this.context.tools.execute("memory.write_long_term",
-        { key: "field_notes", value: JSON.stringify(this.recentFieldNotes), layer: "self_state" },
-        { caller: "core", cwd: process.cwd(), allowedAuthority: ["safe_write"], allowedTools: ["memory.write_long_term"] }
-      ).catch(() => {});
+      await this.writeSelfState("field_notes", JSON.stringify(this.recentFieldNotes));
 
       if (this.recentFieldNotes.length > 0) {
-        await this.context.memory.appendResearchLog({
+        await this.appendResearchLog({
           focus: "Field Sampling",
           process: [
             `Sampled ${this.recentFieldNotes.length} field notes.`,
@@ -504,10 +486,7 @@ export class InnerCursor implements StelleCursor {
         activeConvictions: this.coreConvictions.map(c => ({ topic: c.topic, stance: c.stance, confidence: 1 })),
       });
       if (this.context.memory) {
-        await this.context.tools.execute("memory.write_long_term", 
-          { key: "core_convictions", value: JSON.stringify(this.coreConvictions), layer: "self_state" },
-          { caller: "core", cwd: process.cwd(), allowedAuthority: ["safe_write"], allowedTools: ["memory.write_long_term"] }
-        ).catch(() => {});
+        await this.writeSelfState("core_convictions", JSON.stringify(this.coreConvictions));
       }
     }
 
@@ -525,16 +504,23 @@ export class InnerCursor implements StelleCursor {
     }
 
     if (this.context.memory) {
-      await this.context.tools.execute("memory.write_long_term", 
-        { key: "global_subconscious", value: this.buildContextBlock(), layer: "self_state" },
-        { caller: "core", cwd: process.cwd(), allowedAuthority: ["safe_write"], allowedTools: ["memory.write_long_term"] }
-      ).catch(() => {});
+      await this.writeSelfState("global_subconscious", this.buildContextBlock());
     }
   }
 
   private addReflection(text: string): void {
     this.reflections.push(`[${new Date().toLocaleTimeString()}] ${text}`);
     while (this.reflections.length > 50) this.reflections.shift();
+  }
+
+  private async writeSelfState(key: string, value: string): Promise<void> {
+    if (!this.context.memory) return;
+    await this.memoryWriter?.writeSelfState(key, value).catch(() => {});
+  }
+
+  private async appendResearchLog(input: { focus: string; process: string[]; conclusion: string }): Promise<void> {
+    if (!this.context.memory) return;
+    await this.memoryWriter?.appendResearchLog(input).catch(() => {});
   }
 
   buildContextBlock(callerSource?: "discord" | "discord_text_channel" | "live" | "live_danmaku"): string {

@@ -108,9 +108,13 @@ export class LiveRuntime {
 
   constructor(
     readonly obs: ObsController = new ObsWebSocketController(),
-    private readonly renderer?: LiveRendererBridge,
+    private renderer?: LiveRendererBridge,
     private readonly eventBus?: StelleEventBus,
   ) {}
+
+  setRendererBridge(renderer?: LiveRendererBridge): void {
+    this.renderer = renderer;
+  }
 
   async getStatus(): Promise<LiveStatus> {
     return { active: this.active, stage: clone(this.stage), obs: await this.obs.getStatus() };

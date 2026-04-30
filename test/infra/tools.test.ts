@@ -39,6 +39,15 @@ describe("ToolRegistry & Single Call Test", () => {
     expect(registry.get("obs.set_scene")).toBeDefined();
   });
 
+  it("keeps default registry compatibility after tool module split", () => {
+    const registry = createDefaultToolRegistry({ live: {} as any, discord: {} as any, memory: {} as any });
+    expect(registry.get("basic.datetime")?.authority).toBe("readonly");
+    expect(registry.get("memory.write_long_term")?.authority).toBe("safe_write");
+    expect(registry.get("discord.reply_message")?.authority).toBe("external_write");
+    expect(registry.get("live.stream_tts_caption")?.authority).toBe("external_write");
+    expect(registry.get("search.web_read")?.authority).toBe("network_read");
+  });
+
   it("requires cursor/core callers to whitelist system.run_command", async () => {
     const registry = createDefaultToolRegistry();
 

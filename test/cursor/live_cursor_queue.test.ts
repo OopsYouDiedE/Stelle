@@ -77,16 +77,41 @@ describe("LiveDanmakuCursor pending batch queue", () => {
     expect(pending.some(batch => batch.some(item => item.id === "urgent"))).toBe(true);
     expect(pending.flat().map(item => item.id)).toEqual(["ordinary-1", "ordinary-2", "urgent", "ordinary-3"]);
   });
+
+  it("reports stage queue state from StageOutputArbiter snapshot", () => {
+    const cursor = new LiveDanmakuCursor(fakeContext({
+      stageOutput: {
+        propose: vi.fn(),
+        snapshot: () => ({
+          status: "queued",
+          queueLength: 2,
+          currentOutputId: "out-1",
+          currentLane: "direct_response",
+        }),
+      },
+    }));
+
+    expect(cursor.snapshot().state).toMatchObject({
+      stageStatus: "queued",
+      stageQueueLength: 2,
+      stageCurrentOutputId: "out-1",
+      stageCurrentLane: "direct_response",
+    });
+  });
 });
 
-function fakeContext(): any {
+function fakeContext(overrides: Record<string, unknown> = {}): any {
   return {
     config: { live: { ttsEnabled: false } },
     eventBus: new StelleEventBus(),
     now: () => Date.now(),
     tools: {},
     llm: {},
-    stageOutput: { propose: vi.fn() },
+    stageOutput: {
+      propose: vi.fn(),
+      snapshot: () => ({ status: "idle", queueLength: 0 }),
+    },
+    ...overrides,
   };
 }
 

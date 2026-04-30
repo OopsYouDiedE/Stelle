@@ -302,13 +302,15 @@ export class LiveDanmakuCursor implements StelleCursor {
   }
 
   snapshot(): CursorSnapshot {
-    const stats = this.responder.getQueueStats();
+    const stage = this.context.stageOutput.snapshot();
     return {
       id: this.id, kind: this.kind, status: this.status, summary: this.summary,
       state: {
         bufferSize: this.gateway.getBufferSize(),
-        topicQueue: stats.topic,
-        responseQueue: stats.response,
+        stageStatus: stage.status,
+        stageQueueLength: stage.queueLength,
+        stageCurrentOutputId: stage.currentOutputId,
+        stageCurrentLane: stage.currentLane,
         currentEmotion: this.currentEmotion
       }
     };

@@ -41,4 +41,30 @@ describe("DefaultMemoryWriter", () => {
       conclusion: expect.stringContaining("+1"),
     }));
   });
+
+  it("uses the tool registry path when provided", async () => {
+    const memory = {
+      writeLongTerm: vi.fn().mockResolvedValue(undefined),
+      proposeMemory: vi.fn().mockResolvedValue("prop-1"),
+      appendResearchLog: vi.fn().mockResolvedValue("log-1"),
+    };
+    const tools = { execute: vi.fn().mockResolvedValue({ ok: true, summary: "ok" }) };
+    const writer = new DefaultMemoryWriter(memory as any, tools as any, "/workspace");
+
+    await writer.writeSelfState("current_focus", "focus");
+    await writer.appendResearchLog({ focus: "f", process: ["p"], conclusion: "c" });
+
+    expect(memory.writeLongTerm).not.toHaveBeenCalled();
+    expect(memory.appendResearchLog).not.toHaveBeenCalled();
+    expect(tools.execute).toHaveBeenCalledWith(
+      "memory.write_long_term",
+      { key: "current_focus", value: "focus", layer: "self_state" },
+      expect.objectContaining({ caller: "core", cwd: "/workspace", allowedTools: ["memory.write_long_term"] }),
+    );
+    expect(tools.execute).toHaveBeenCalledWith(
+      "memory.append_research_log",
+      { focus: "f", process: ["p"], conclusion: "c" },
+      expect.objectContaining({ caller: "core", cwd: "/workspace", allowedTools: ["memory.append_research_log"] }),
+    );
+  });
 });

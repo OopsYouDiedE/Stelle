@@ -1,92 +1,55 @@
-# Stelle V2 Architecture Standards
+# Stelle Architecture
 
-This document defines the hard architectural constraints for Stelle. All development (human or AI) must adhere to these rules to maintain system integrity.
+Stelle is a TypeScript runtime built around event-driven cursors, a guarded tool layer, and explicit arbiters for scarce output or device resources.
 
-## 1. Modular Cursor Pattern (SRP)
-Cursors MUST NOT become monolithic "god objects". A Cursor should act as an **Orchestrator** over decomposed sub-modules:
-- **Gateway**: Physical I/O, event buffering, and low-level filtering (e.g., Discord API, Socket.io).
-- **Router**: Logic & Decision making. Transforms incoming events into internal intentions or tool calls.
-- **Executor**: Tool handling. Manages sequence and parallel execution of capabilities.
-- **Responder**: Expression & State updating. Formulates the final output for the user.
+## Runtime Shape
 
-*Example: See `src/cursor/discord/` for the reference implementation.*
+- `src/core/application.ts` owns startup order, cursor creation, event wiring, debug wiring, and shutdown.
+- `src/core/container.ts` creates shared runtime services once. Renderer startup attaches a renderer bridge to the existing `LiveRuntime`; it must not recreate the whole service graph.
+- `src/core/live_services.ts` owns live platform, health, journal, relationship, engagement, and program service lifecycle.
+- `src/core/live_control_service.ts` owns live control commands and system/debug output proposals.
+- `src/config/` owns config parsing. `src/utils/config_loader.ts` is only a compatibility export.
 
-A Cursor is a domain-specific cognitive context window and intention producer.
+## Cursor Boundary
 
-A Cursor owns:
-- perception of its domain;
-- local session context;
-- routing and decision logic;
-- tool planning for non-stage operations;
-- generation of `OutputIntent`.
+Cursors observe one domain and produce decisions. They may use:
 
-A Cursor does not own:
-- live-stage output timing;
-- TTS scheduling;
-- caption occupancy;
-- motion/expression overwrite priority;
-- global stage attention budget.
+- `StelleEventBus` for cross-domain communication.
+- `ToolRegistry` for allowed tools.
+- `StageOutputArbiter` for live stage output.
+- `DeviceActionArbiter` for browser, desktop, or Android actions.
 
-## 2. Event-Driven Communication
-- **Direct Calls Forbidden**: Cursors must not call methods on other Cursors. Communication is strictly via the `StelleEventBus`.
-- **Event Schema**: All events MUST be defined in `src/utils/event_schema.ts` using Zod.
-- **Directives**: Cognitive control from `InnerCursor` to other Cursors MUST use `cursor.directive` events with targets: `discord`, `live`, or `global`.
+Cursors must not directly call another cursor. Cross-cursor influence goes through events, especially `cursor.directive`.
 
-## 3. Stage Output Ownership
-Live stage output is a scarce global resource. Cursors MUST NOT directly own or compete for live output resources.
+## Tool Boundary
 
-The following resources are controlled by `StageOutputArbiter`:
-- live caption
-- TTS speech
-- Live2D / VRM expression
-- Live2D / VRM motion
-- viewer attention budget
+The public tool API is exported from `src/tool.ts`, which re-exports `src/tools/`.
 
-Cursors are domain-specific cognitive context windows. They may observe, reason, route, and produce `OutputIntent`, but they MUST NOT directly call live output tools.
+- `src/tools/types.ts`: tool contracts and result helpers.
+- `src/tools/registry.ts`: authority, whitelist, audit, and stage-owned tool checks.
+- `src/tools/security.ts`: public HTTP URL validation for network-read tools.
+- `src/tools/factory.ts` and `src/tools/providers/`: default tool registration and implementations.
 
-Forbidden from Cursor code:
-- `live.set_caption`
-- `live.stream_caption`
-- `live.stream_tts_caption`
-- `live.trigger_motion`
-- `live.set_expression`
+Cursor and core callers that use `safe_write`, `external_write`, or `system` tools must provide an explicit `allowedTools` whitelist.
 
-All live-stage output MUST go through:
+## Output And Device Ownership
+
+Live stage output must flow through:
 
 `Cursor -> OutputIntent -> StageOutputArbiter -> StageOutputRenderer -> ToolRegistry -> LiveRuntime`
 
-`StageOutputArbiter` is not a `StelleCursor`. It is a runtime service.
+Stage-owned live tools such as captions, TTS, motion, and expressions must not be called directly by cursors.
 
-`EventBus` routes events.  
-`StageOutputArbiter` schedules scarce live output resources.  
-`DeviceActionArbiter` secures and leases device-level resources (browser, desktop, etc.).
-`ToolRegistry` validates authority and input schemas.  
-`StageOutputArbiter` validates timing, priority, interruption, TTL, and attention budget.
+Device actions must flow through:
 
-Discord internal replies are not live-stage output. A `DiscordCursor` may still reply inside Discord through `DiscordResponder`. However, if a Discord-originated response should appear on the live stage, it MUST be submitted to `StageOutputArbiter`.
+`Cursor -> DeviceActionIntent -> DeviceActionArbiter -> DeviceActionRenderer -> Driver`
 
-## 4. Tool Security & Validation
-- **Zod Enforcement**: Every tool `inputSchema` MUST be a `z.ZodObject`. No manual parsing allowed in `execute()`.
-- **Authority Tiers**:
-    - `readonly`: No side effects.
-    - `network_read`: Outbound requests (requires SSRF protection).
-    - `safe_write`: Local workspace modifications.
-    - `external_write`: User-visible side effects (Discord messages, Live captions).
-    - `system`: Full shell/process access.
-- **SSRF Protection**: Any tool performing HTTP requests MUST use `validatePublicHttpUrl` to block private IP ranges.
-- **Live Output Tool Ownership**: Live external-write tools are stage-owned tools. Even if a Cursor has `external_write` authority, it MUST NOT directly call live-stage output tools. Live-stage output tools may only be called by `StageOutputRenderer` or explicitly approved runtime services.
+Device actions require an allowlist and are denied by default.
 
-## 5. Layered Credibility Memory
-Memory is partitioned into layers. Do not mix raw data with verified facts.
-- `observations`: Raw logs, recent chat history. Unverified.
-- `user_facts`: Information confirmed by the owner/trusted users.
-- `self_state`: Internal ego state, moods, and active convictions.
-- `core_identity`: Hard-coded or long-term behavioral baselines.
-- `research_logs`: Periodic reflection outputs from `InnerCursor`.
+## Forbidden Paths
 
-*Rule: Writing to `user_facts` or `self_state` requires `safe_write` authority.*
-
-## 6. Coding Standards
-- **Strict Typing**: No `any` unless absolutely necessary for generic transformation. Use `asRecord` or `asString` helpers for unknown JSON.
-- **Graceful Degradation**: LLM calls MUST implement the structure-aware fallback (Primary -> Secondary -> Fallback).
-- **Atomic Writes**: All file system modifications MUST use `atomicWrite` to prevent corruption during crashes.
+- Cursor-to-cursor direct method calls.
+- Cursor direct calls to live stage tools.
+- Runtime service graph recreation after renderer startup.
+- New tool execution paths that bypass `ToolRegistry`.
+- Writes to long-term memory that bypass the memory writer or tool whitelist path.

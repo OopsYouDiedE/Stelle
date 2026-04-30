@@ -148,9 +148,9 @@ describe("InnerCursor Full Logic Coverage", () => {
 
     await new Promise(r => setTimeout(r, 50)); // wait for async synthesis
 
-    expect(context.memory.appendResearchLog).toHaveBeenCalledWith(expect.objectContaining({
+    expect(context.tools.execute).toHaveBeenCalledWith("memory.append_research_log", expect.objectContaining({
       conclusion: expect.stringContaining("New research agenda item")
-    }));
+    }), expect.any(Object));
 
     expect(context.tools.execute).toHaveBeenCalledWith("memory.write_long_term", expect.objectContaining({
       key: "research_agenda"
@@ -226,9 +226,9 @@ describe("InnerCursor Full Logic Coverage", () => {
     });
     await new Promise(r => setTimeout(r, 50));
 
-    expect(context.memory.appendResearchLog).toHaveBeenCalledWith(expect.objectContaining({
+    expect(context.tools.execute).toHaveBeenCalledWith("memory.append_research_log", expect.objectContaining({
       conclusion: expect.stringContaining("Updated research topic")
-    }));
+    }), expect.any(Object));
   });
 
   it("should perform field sampling during cognitive synthesis and publish live directive", async () => {

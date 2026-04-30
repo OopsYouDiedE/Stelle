@@ -15,10 +15,18 @@ export interface SceneObservation {
 }
 
 export class SceneObserver {
+  private renderer?: LiveRendererServer;
+
   constructor(
     private readonly config: SceneObservationConfig,
-    private readonly renderer?: LiveRendererServer,
-  ) {}
+    renderer?: LiveRendererServer,
+  ) {
+    this.renderer = renderer;
+  }
+
+  setRenderer(renderer?: LiveRendererServer): void {
+    this.renderer = renderer;
+  }
 
   async observe(): Promise<SceneObservation> {
     if (!this.config.enabled) {
