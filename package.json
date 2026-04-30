@@ -14,6 +14,7 @@
     "live:preflight:json": "tsx scripts/live_preflight.ts --json",
     "live:bilibili": "tsx scripts/bilibili_danmaku_bridge.ts",
     "live:export-logs": "tsx scripts/live_export_logs.ts",
+    "live:episode-summary": "tsx scripts/live_episode_summary.ts",
     "live:terminal": "npm run build && npm run live:preflight && node scripts/start_all.js live --built --bilibili",
     "live:terminal:dry": "npm run build && npm run live:preflight && node scripts/start_all.js live --built --bilibili --bilibili-dry-run",
     "dev:live": "node scripts/start_all.js live --watch",
