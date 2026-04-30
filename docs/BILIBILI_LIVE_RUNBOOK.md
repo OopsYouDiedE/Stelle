@@ -76,6 +76,8 @@ http://127.0.0.1:8787/control?token=<STELLE_CONTROL_TOKEN>
 
 The control room shows live health, recent journal events, platform/OBS/TTS status, and stage output state. It can stop current output, clear queued speech, pause or resume automatic live replies, mute or unmute TTS, and force one direct line.
 
+The `/live` stage also includes the Live Program Layer widgets: topic compass, anonymous chat clusters, conclusions, question queue, public memory wall, world canon, prompt lab status, anonymous community heat, and real stage status. See `docs/LIVE_PROGRAM_LAYER.md` for the safety rules and template list.
+
 ## Renderer Avatar Model
 
 The Live2D renderer currently uses the bundled `白-免费版` model:
