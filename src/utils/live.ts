@@ -190,7 +190,7 @@ export class LiveRuntime {
     return liveOk("Updated live background.", this.stage);
   }
 
-  async updateTopic(state: Record<string, unknown>): Promise<LiveActionResult> {
+  async updateTopic(state: unknown): Promise<LiveActionResult> {
     await this.renderer?.publish({ type: "topic:update", state });
     return liveOk("Updated live topic widget.", this.stage);
   }

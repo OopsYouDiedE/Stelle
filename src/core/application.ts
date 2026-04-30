@@ -19,6 +19,7 @@ import { LiveEngagementService } from "../live/engagement_service.js";
 import { LiveEventJournal } from "../live/ops/event_journal.js";
 import { LiveHealthService } from "../live/ops/health_service.js";
 import { LiveRelationshipService } from "../live/ops/relationship_service.js";
+import { LiveProgramService } from "../live/program/service.js";
 
 export type StartMode = "runtime" | "discord" | "live";
 
@@ -32,6 +33,7 @@ export class StelleApplication {
   private liveJournal?: LiveEventJournal;
   private liveHealth?: LiveHealthService;
   private liveRelationship?: LiveRelationshipService;
+  private liveProgram?: LiveProgramService;
 
   constructor(private readonly mode: StartMode) {
     const config = loadRuntimeConfig();
@@ -125,6 +127,7 @@ export class StelleApplication {
     await Promise.allSettled([
       ...this.cursors.map(c => c.stop?.()),
       this.liveHealth?.stop(),
+      this.liveProgram?.stop(),
       this.liveJournal?.stop(),
       this.livePlatforms?.stop(),
       this.discord.destroy(),
@@ -213,6 +216,12 @@ export class StelleApplication {
       platforms: this.livePlatforms,
     });
     this.liveHealth.start();
+    this.liveProgram = new LiveProgramService({
+      eventBus: this.eventBus,
+      live: this.services.live,
+      stageOutput: this.stageOutput,
+    });
+    this.liveProgram.start();
     const enabled = this.livePlatforms.status().filter(status => status.enabled).map(status => `${status.platform}:${status.connected ? "connected" : status.lastError ?? "idle"}`);
     if (enabled.length) {
       console.log(`[Stelle] Live platform bridges: ${enabled.join(", ")}`);

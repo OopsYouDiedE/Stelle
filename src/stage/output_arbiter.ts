@@ -315,5 +315,9 @@ export class StageOutputArbiter {
 
 function isAutoReplyIntent(intent: OutputIntent): boolean {
   if (intent.lane === "emergency" || intent.cursorId === "debug" || intent.cursorId === "system") return false;
-  return intent.cursorId === "live_danmaku" || intent.cursorId === "live_engagement" || intent.metadata?.source === "idle_task" || intent.metadata?.source === "schedule_task";
+  return intent.cursorId === "live_danmaku"
+    || intent.cursorId === "live_engagement"
+    || intent.cursorId === "live_program"
+    || intent.metadata?.source === "idle_task"
+    || intent.metadata?.source === "schedule_task";
 }
