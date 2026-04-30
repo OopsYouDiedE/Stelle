@@ -1,6 +1,7 @@
 import { moderateLiveEvent, normalizeLiveEvent, type NormalizedLiveEvent } from "../../utils/live_event.js";
 import { sanitizeExternalText, truncateText } from "../../utils/text.js";
 import type { PublicRoomMemory } from "./public_memory.js";
+import type { WorldCanonEntry } from "./world_canon.js";
 import type {
   ChatCluster,
   ChatClusterLabel,
@@ -117,7 +118,7 @@ export class TopicOrchestrator {
     };
   }
 
-  widgetState(publicMemories: PublicRoomMemory[] = []): ProgramWidgetState {
+  widgetState(publicMemories: PublicRoomMemory[] = [], worldCanon: WorldCanonEntry[] = []): ProgramWidgetState {
     const updatedAt = this.now();
     return {
       topic_compass: this.snapshot(),
@@ -126,6 +127,7 @@ export class TopicOrchestrator {
       question_queue: { pendingQuestions: [...this.pendingQuestions], updatedAt },
       stage_status: { ...this.stageStatus },
       public_memory_wall: { memories: publicMemories, updatedAt },
+      world_canon: { entries: worldCanon, updatedAt },
     };
   }
 

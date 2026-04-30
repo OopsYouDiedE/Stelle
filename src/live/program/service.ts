@@ -3,6 +3,7 @@ import type { LiveRuntime } from "../../utils/live.js";
 import type { StelleEventBus } from "../../utils/event_bus.js";
 import { TopicOrchestrator } from "./orchestrator.js";
 import { PublicRoomMemoryStore, type PublicRoomMemory } from "./public_memory.js";
+import { WorldCanonStore, type WorldCanonEntry } from "./world_canon.js";
 import type { ProgramWidgetState, TopicOrchestratorOptions, TopicState } from "./types.js";
 
 export interface LiveProgramServiceDeps {
@@ -10,6 +11,7 @@ export interface LiveProgramServiceDeps {
   live?: LiveRuntime;
   stageOutput?: StageOutputArbiter;
   publicMemory?: PublicRoomMemoryStore;
+  worldCanon?: WorldCanonStore;
   orchestrator?: TopicOrchestrator;
   options?: TopicOrchestratorOptions;
 }
@@ -27,6 +29,7 @@ export class LiveProgramService {
   private lastHostedPhase = "";
   private lastHostedConclusion = "";
   private publicMemories: PublicRoomMemory[] = [];
+  private worldCanonEntries: WorldCanonEntry[] = [];
 
   constructor(private readonly deps: LiveProgramServiceDeps) {
     this.orchestrator = deps.orchestrator ?? new TopicOrchestrator(deps.options);
@@ -34,6 +37,7 @@ export class LiveProgramService {
 
   start(): void {
     void this.refreshPublicMemories();
+    void this.refreshWorldCanon();
     this.unsubscribes.push(this.deps.eventBus.subscribe("live.event.received", (event) => {
       const result = this.orchestrator.ingestLivePayload(event.payload);
       if (result.updated) {
@@ -68,7 +72,7 @@ export class LiveProgramService {
   snapshot(): LiveProgramSnapshot {
     return {
       topic: this.orchestrator.snapshot(),
-      widgets: this.orchestrator.widgetState(this.publicMemories),
+      widgets: this.orchestrator.widgetState(this.publicMemories, this.worldCanonEntries),
     };
   }
 
@@ -77,6 +81,13 @@ export class LiveProgramService {
     await this.refreshPublicMemories();
     this.publishProgramUpdate("public_memory");
     return memory;
+  }
+
+  async proposeWorldCanon(input: { title: string; summary: string; conflictNote?: string }): Promise<WorldCanonEntry> {
+    const entry = await this.canonStore().propose({ ...input, source: "danmaku_proposal" });
+    await this.refreshWorldCanon();
+    this.publishProgramUpdate("world_canon");
+    return entry;
   }
 
   private publishProgramUpdate(reason: string): void {
@@ -103,6 +114,7 @@ export class LiveProgramService {
       this.deps.live?.updateWidget("question_queue", snapshot.widgets.question_queue),
       this.deps.live?.updateWidget("stage_status", snapshot.widgets.stage_status),
       this.deps.live?.updateWidget("public_memory_wall", snapshot.widgets.public_memory_wall),
+      this.deps.live?.updateWidget("world_canon", snapshot.widgets.world_canon),
     ]);
     await this.deps.live?.setSceneMode(snapshot.topic.scene);
   }
@@ -155,5 +167,14 @@ export class LiveProgramService {
 
   private async refreshPublicMemories(): Promise<void> {
     this.publicMemories = await this.memoryStore().list(8).catch(() => []);
+  }
+
+  private canonStore(): WorldCanonStore {
+    if (!this.deps.worldCanon) this.deps.worldCanon = new WorldCanonStore();
+    return this.deps.worldCanon;
+  }
+
+  private async refreshWorldCanon(): Promise<void> {
+    this.worldCanonEntries = await this.canonStore().list(8).catch(() => []);
   }
 }

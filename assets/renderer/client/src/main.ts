@@ -75,6 +75,7 @@ const programConclusions = document.querySelector<HTMLOListElement>("#program-co
 const programQuestions = document.querySelector<HTMLOListElement>("#program-questions");
 const programStageStatus = document.querySelector<HTMLDListElement>("#program-stage-status");
 const programPublicMemories = document.querySelector<HTMLOListElement>("#program-public-memories");
+const programWorldCanon = document.querySelector<HTMLOListElement>("#program-world-canon");
 const simulateForm = document.querySelector<HTMLFormElement>("#simulate-form");
 const simulateName = document.querySelector<HTMLInputElement>("#simulate-name");
 const simulateText = document.querySelector<HTMLInputElement>("#simulate-text");
@@ -230,6 +231,7 @@ function applyWidgetState(widget: ProgramWidgetName | undefined, state: unknown)
   if (widget === "question_queue") renderTextList(programQuestions, stringArray(raw.pendingQuestions), "暂无待回答问题");
   if (widget === "stage_status") renderStageStatus(raw);
   if (widget === "public_memory_wall") renderPublicMemories(raw);
+  if (widget === "world_canon") renderWorldCanon(raw);
 }
 
 function renderClusterList(clusters: Array<{ label?: string; count?: number; representative?: string }>): void {
@@ -290,6 +292,22 @@ function renderPublicMemories(raw: Record<string, unknown>): void {
     const title = String(record.title ?? "节目记忆");
     const summary = String(record.summary ?? "");
     appendListItem(programPublicMemories, summary ? `${title}：${summary}` : title);
+  }
+}
+
+function renderWorldCanon(raw: Record<string, unknown>): void {
+  if (!programWorldCanon) return;
+  programWorldCanon.innerHTML = "";
+  const entries = Array.isArray(raw.entries) ? raw.entries.slice(0, 6) : [];
+  if (!entries.length) {
+    appendListItem(programWorldCanon, "暂无世界观条目");
+    return;
+  }
+  for (const item of entries) {
+    const record = asRecord(item);
+    const status = String(record.status ?? "proposed");
+    const title = String(record.title ?? "设定");
+    appendListItem(programWorldCanon, `[${status}] ${title}`);
   }
 }
 

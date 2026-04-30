@@ -384,6 +384,14 @@ button {
   width: min(24rem, 100%);
 }
 
+.world-canon-widget {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: start;
+  justify-self: center;
+  width: min(24rem, 100%);
+}
+
 .program-label {
   margin: 0 0 0.45rem;
   color: var(--accent);
@@ -538,7 +546,8 @@ body[data-program-scene="archive"] .program-widget {
   .chat-cluster,
   .conclusion-board,
   .stage-status-widget,
-  .public-memory-wall {
+  .public-memory-wall,
+  .world-canon-widget {
     grid-column: 2;
   }
 }
@@ -576,7 +585,8 @@ body[data-program-scene="archive"] .program-widget {
   .conclusion-board,
   .question-queue,
   .stage-status-widget,
-  .public-memory-wall {
+  .public-memory-wall,
+  .world-canon-widget {
     grid-column: 1;
     grid-row: auto;
   }
