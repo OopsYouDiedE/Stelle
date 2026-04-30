@@ -74,7 +74,7 @@ core:
   reflectionAccumulationThreshold: 30
 
 debug:
-  enabled: false
+  enabled: true
   requireToken: true
   allowExternalWrite: false
 

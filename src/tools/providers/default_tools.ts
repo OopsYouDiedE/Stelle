@@ -5,7 +5,7 @@ import path from "node:path";
 import { safeErrorMessage } from "../../utils/json.js";
 import type { DiscordRuntime } from "../../utils/discord.js";
 import type { LiveRuntime } from "../../utils/live.js";
-import type { MemoryStore } from "../../utils/memory.js";
+import { MEMORY_LAYERS, type MemoryStore } from "../../utils/memory.js";
 import { getConfiguredTtsProviderName, type StreamingTtsProvider } from "../../utils/tts.js";
 import { sanitizeExternalText } from "../../utils/text.js";
 import type { SceneObserver } from "../../scene/observer.js";
@@ -285,6 +285,8 @@ export function createMemoryTools(deps: ToolRegistryDeps): ToolDefinition[] {
     return deps.memory;
   };
   const MemoryScopeSchema = z.object({ kind: z.enum(["discord_channel", "discord_global", "live", "long_term"]), channelId: z.string().optional(), guildId: z.string().nullable().optional() });
+  const MemoryLayerSchema = z.enum(MEMORY_LAYERS);
+  const MemoryProposalStatusSchema = z.enum(["pending", "approved", "rejected"]);
 
   return [
     {
@@ -305,11 +307,54 @@ export function createMemoryTools(deps: ToolRegistryDeps): ToolDefinition[] {
       title: "Propose Memory Write",
       description: "Suggest a fact to be remembered long-term.",
       authority: "readonly",
-      inputSchema: z.object({ content: z.string().min(1), reason: z.string(), layer: z.enum(["user_facts", "observations"]).optional().default("user_facts") }),
+      inputSchema: z.object({ content: z.string().min(1), reason: z.string(), layer: MemoryLayerSchema.optional().default("user_facts") }),
       sideEffects: sideEffects({ affectsUserState: true }),
       async execute(input, context) {
         const id = await memoryRequired().proposeMemory({ authorId: context.cursorId || "unknown", source: context.caller, content: input.content, reason: input.reason, layer: input.layer as any });
         return ok(`Memory proposal submitted: ${id}.`, { proposal_id: id });
+      },
+    },
+    {
+      name: "memory.list_proposals",
+      title: "List Memory Proposals",
+      description: "List pending, approved, or rejected memory proposals.",
+      authority: "readonly",
+      inputSchema: z.object({ limit: z.number().int().min(1).max(200).optional().default(50), status: MemoryProposalStatusSchema.optional().default("pending") }),
+      sideEffects: sideEffects(),
+      async execute(input) {
+        const proposals = await memoryRequired().listMemoryProposals(input.limit, input.status);
+        return ok(`Found ${proposals.length} ${input.status} memory proposal(s).`, { proposals });
+      },
+    },
+    {
+      name: "memory.approve_proposal",
+      title: "Approve Memory Proposal",
+      description: "Promote a memory proposal into long-term memory.",
+      authority: "safe_write",
+      inputSchema: z.object({ proposal_id: z.string().min(1), target_key: z.string().min(1).optional(), reason: z.string().optional() }),
+      sideEffects: sideEffects({ writesFileSystem: true, affectsUserState: true }),
+      async execute(input, context) {
+        const result = await memoryRequired().approveMemoryProposal(input.proposal_id, {
+          decidedBy: context.cursorId || context.caller,
+          reason: input.reason,
+          targetKey: input.target_key,
+        });
+        return ok(`Approved memory proposal ${input.proposal_id}.`, result);
+      },
+    },
+    {
+      name: "memory.reject_proposal",
+      title: "Reject Memory Proposal",
+      description: "Reject a pending memory proposal.",
+      authority: "safe_write",
+      inputSchema: z.object({ proposal_id: z.string().min(1), reason: z.string().optional() }),
+      sideEffects: sideEffects({ writesFileSystem: true, affectsUserState: true }),
+      async execute(input, context) {
+        const result = await memoryRequired().rejectMemoryProposal(input.proposal_id, {
+          decidedBy: context.cursorId || context.caller,
+          reason: input.reason,
+        });
+        return ok(`Rejected memory proposal ${input.proposal_id}.`, result);
       },
     },
     {
@@ -329,10 +374,10 @@ export function createMemoryTools(deps: ToolRegistryDeps): ToolDefinition[] {
       title: "Search Memory",
       description: "Search scoped memory.",
       authority: "readonly",
-      inputSchema: z.object({ scope: MemoryScopeSchema, text: z.string().optional(), keywords: z.array(z.string()).optional(), limit: z.number().int().optional().default(3) }),
+      inputSchema: z.object({ scope: MemoryScopeSchema, text: z.string().optional(), keywords: z.array(z.string()).optional(), limit: z.number().int().optional().default(3), layers: z.array(MemoryLayerSchema).optional() }),
       sideEffects: sideEffects(),
       async execute(input) {
-        const results = await memoryRequired().searchHistory(input.scope as any, { text: input.text, keywords: input.keywords, limit: input.limit });
+        const results = await memoryRequired().searchHistory(input.scope as any, { text: input.text, keywords: input.keywords, limit: input.limit, layers: input.layers as any });
         return ok(`Found ${results.length} result(s).`, { results });
       },
     },
@@ -341,7 +386,7 @@ export function createMemoryTools(deps: ToolRegistryDeps): ToolDefinition[] {
       title: "Read Long-Term Memory",
       description: "Read a long-term memory key.",
       authority: "readonly",
-      inputSchema: z.object({ key: z.string().min(1), layer: z.enum(["user_facts", "self_state", "core_identity"]).optional().default("self_state") }),
+      inputSchema: z.object({ key: z.string().min(1), layer: MemoryLayerSchema.optional().default("self_state") }),
       sideEffects: sideEffects(),
       async execute(input) {
         const value = await memoryRequired().readLongTerm(input.key, input.layer as any);
@@ -353,7 +398,7 @@ export function createMemoryTools(deps: ToolRegistryDeps): ToolDefinition[] {
       title: "Write Long-Term Memory",
       description: "Write a long-term memory key. System only.",
       authority: "safe_write",
-      inputSchema: z.object({ key: z.string().min(1), value: z.string().min(1), layer: z.enum(["user_facts", "self_state", "core_identity", "research_logs"]).optional().default("self_state") }),
+      inputSchema: z.object({ key: z.string().min(1), value: z.string().min(1), layer: MemoryLayerSchema.optional().default("self_state") }),
       sideEffects: sideEffects({ writesFileSystem: true }),
       async execute(input) {
         await memoryRequired().writeLongTerm(input.key, input.value, input.layer as any);
@@ -365,7 +410,7 @@ export function createMemoryTools(deps: ToolRegistryDeps): ToolDefinition[] {
       title: "Append Long-Term Memory",
       description: "Append to a long-term memory key without replacing existing content.",
       authority: "safe_write",
-      inputSchema: z.object({ key: z.string().min(1), value: z.string().min(1), layer: z.enum(["user_facts", "self_state", "core_identity", "research_logs", "observations"]).optional().default("observations") }),
+      inputSchema: z.object({ key: z.string().min(1), value: z.string().min(1), layer: MemoryLayerSchema.optional().default("observations") }),
       sideEffects: sideEffects({ writesFileSystem: true }),
       async execute(input) {
         await memoryRequired().appendLongTerm(input.key, input.value, input.layer as any);

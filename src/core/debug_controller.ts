@@ -65,6 +65,31 @@ export function setupRendererControllers(deps: RendererControllerDeps): void {
   };
 
   deps.renderer.setLiveController(liveController);
+  deps.renderer.setMemoryController({
+    snapshot: () => deps.memory.snapshot(),
+    readRecent: (scope, limit) => deps.memory.readRecent(scope, limit),
+    search: (scope, input) => deps.memory.searchHistory(scope, input),
+    readLongTerm: (key, layer) => deps.memory.readLongTerm(key, layer),
+    writeLongTerm: (key, value, layer) => deps.memory.writeLongTerm(key, value, layer),
+    appendLongTerm: (key, value, layer) => deps.memory.appendLongTerm(key, value, layer),
+    propose: (input) => deps.memory.proposeMemory({
+      authorId: input.authorId ?? "control",
+      source: input.source ?? "control",
+      content: input.content,
+      reason: input.reason,
+      layer: input.layer ?? "user_facts",
+    }),
+    listProposals: (input) => deps.memory.listMemoryProposals(input?.limit, input?.status),
+    approveProposal: (input) => deps.memory.approveMemoryProposal(input.proposalId, {
+      decidedBy: input.decidedBy ?? "control",
+      reason: input.reason,
+      targetKey: input.targetKey,
+    }),
+    rejectProposal: (input) => deps.memory.rejectMemoryProposal(input.proposalId, {
+      decidedBy: input.decidedBy ?? "control",
+      reason: input.reason,
+    }),
+  });
 
   if (!deps.config.debug.enabled) {
     deps.state.record("debug_disabled", "Debug controller is disabled by configuration.");

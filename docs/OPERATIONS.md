@@ -62,12 +62,16 @@ If control tokens are required, use a Bearer token or the local control page tok
 
 ## Debug
 
-Debug routes are only available when `STELLE_DEBUG_ENABLED=true`.
+Debug routes are only available when `debug.enabled=true` or `STELLE_DEBUG_ENABLED=true`. When token protection is enabled, set `STELLE_DEBUG_TOKEN` or `debug.token`.
 
 ```text
+http://127.0.0.1:8787/debug?token=YOUR_DEBUG_TOKEN
 /_debug
 /_debug/api/snapshot
 /_debug/api/tool/use
+/_debug/api/live/control
+/_debug/api/live/event
+/_debug/api/live/request
 ```
 
 Do not expose debug routes on a public interface.

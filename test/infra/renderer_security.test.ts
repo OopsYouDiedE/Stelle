@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { LiveRendererServer, type LiveRendererLiveController } from "../../src/utils/renderer.js";
+import { LiveRendererServer, type LiveRendererLiveController, type LiveRendererMemoryController } from "../../src/utils/renderer.js";
 import { HttpLiveRendererBridge } from "../../src/utils/live.js";
 
 describe("LiveRendererServer Security", () => {
@@ -174,6 +174,36 @@ describe("LiveRendererServer Security", () => {
     expect(response.status).toBe(403);
   });
 
+  it("protects memory API routes with the control token", async () => {
+    const mockController: LiveRendererMemoryController = {
+      readRecent: vi.fn().mockResolvedValue([]),
+    };
+    server = new LiveRendererServer({
+      port,
+      control: {
+        requireToken: true,
+        token: "memory-token",
+      },
+      memoryController: mockController,
+    });
+    const url = await server.start();
+
+    const rejected = await fetch(`${url}/api/memory/recent/read`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scope: { kind: "live" } }),
+    });
+    const accepted = await fetch(`${url}/api/memory/recent/read?token=memory-token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scope: { kind: "live" }, limit: 5 }),
+    });
+
+    expect(rejected.status).toBe(401);
+    expect(accepted.status).toBe(200);
+    expect(mockController.readRecent).toHaveBeenCalledWith({ kind: "live" }, 5);
+  });
+
   it("protects /control with the control token", async () => {
     server = new LiveRendererServer({
       port,
@@ -190,5 +220,62 @@ describe("LiveRendererServer Security", () => {
     expect(rejected.status).toBe(401);
     expect(accepted.status).toBe(200);
     expect(await accepted.text()).toContain("Stelle Live Control");
+  });
+
+  it("serves /debug as a debug-token protected alias for /_debug", async () => {
+    server = new LiveRendererServer({
+      port,
+      debug: {
+        enabled: true,
+        requireToken: true,
+        token: "debug-token",
+      },
+    });
+    const url = await server.start();
+
+    const rejected = await fetch(`${url}/debug`);
+    const accepted = await fetch(`${url}/debug?token=debug-token`);
+    const legacy = await fetch(`${url}/_debug?token=debug-token`);
+
+    expect(rejected.status).toBe(401);
+    expect(accepted.status).toBe(200);
+    expect(await accepted.text()).toContain("Stelle Debug Panel");
+    expect(legacy.status).toBe(200);
+  });
+
+  it("runs debug live control commands with the debug token, not the control token", async () => {
+    const mockController: LiveRendererLiveController = {
+      runControlCommand: vi.fn().mockResolvedValue({ command: "mute_tts", muted: true }),
+    };
+    server = new LiveRendererServer({
+      port,
+      debug: {
+        enabled: true,
+        requireToken: true,
+        token: "debug-token",
+      },
+      control: {
+        requireToken: true,
+        token: "control-token",
+      },
+      liveController: mockController,
+    });
+    const url = await server.start();
+
+    const rejected = await fetch(`${url}/_debug/api/live/control?token=control-token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ command: "mute_tts" }),
+    });
+    const accepted = await fetch(`${url}/_debug/api/live/control?token=debug-token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ command: "mute_tts" }),
+    });
+
+    expect(rejected.status).toBe(401);
+    expect(accepted.status).toBe(200);
+    expect(mockController.runControlCommand).toHaveBeenCalledTimes(1);
+    expect(mockController.runControlCommand).toHaveBeenCalledWith({ command: "mute_tts" });
   });
 });

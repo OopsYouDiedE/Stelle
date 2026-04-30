@@ -10,6 +10,7 @@ vi.mock("../../src/utils/renderer.js", () => ({
     publish = vi.fn();
     setLiveController = vi.fn();
     setDebugController = vi.fn();
+    setMemoryController = vi.fn();
     getStatus = vi.fn().mockReturnValue({ connected: true });
   },
 }));

@@ -43,6 +43,7 @@ export interface MemorySearchQuery {
   text?: string;
   keywords?: string[];
   limit?: number;
+  layers?: MemoryLayer[];
 }
 
 export interface ResearchLog {
@@ -61,7 +62,8 @@ export interface MemoryStoreOptions {
   llm?: import("./llm.js").LlmClient;
 }
 
-export type MemoryLayer = "observations" | "user_facts" | "self_state" | "core_identity" | "research_logs";
+export const MEMORY_LAYERS = ["observations", "user_facts", "self_state", "core_identity", "research_logs"] as const;
+export type MemoryLayer = (typeof MEMORY_LAYERS)[number];
 
 export interface MemoryProposal {
   id: string;
@@ -71,6 +73,24 @@ export interface MemoryProposal {
   content: string;
   reason: string;
   layer: MemoryLayer;
+}
+
+export type MemoryProposalStatus = "pending" | "approved" | "rejected";
+
+export interface MemoryProposalDecision {
+  id: string;
+  proposalId: string;
+  timestamp: number;
+  status: Exclude<MemoryProposalStatus, "pending">;
+  decidedBy: string;
+  reason?: string;
+  targetKey?: string;
+  layer?: MemoryLayer;
+}
+
+export interface MemoryProposalView extends MemoryProposal {
+  status: MemoryProposalStatus;
+  decision?: MemoryProposalDecision;
 }
 
 // Module: memory store public API.
@@ -101,7 +121,7 @@ export class MemoryStore {
       const dir = this.scopeDir(scope);
       await mkdir(dir, { recursive: true });
       await atomicAppend(this.recentPath(scope), `${JSON.stringify(entry)}\n`);
-      if (this.compactionEnabled && (await this.readRecent(scope, this.recentLimit + 1)).length >= this.recentLimit) {
+      if (this.compactionEnabled && (await this.countRecent(scope)) >= this.recentLimit) {
         await this.createCheckpoint(scope);
       }
     });
@@ -110,12 +130,7 @@ export class MemoryStore {
   async readRecent(scope: MemoryScope, limit = 20): Promise<MemoryEntry[]> {
     const file = this.recentPath(scope);
     const raw = await readFile(file, "utf8").catch(() => "");
-    return raw
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => JSON.parse(line) as MemoryEntry)
-      .slice(-limit);
+    return parseJsonl<MemoryEntry>(raw).slice(-limit);
   }
 
   /**
@@ -131,6 +146,57 @@ export class MemoryStore {
       await atomicAppend(path.join(dir, "log.jsonl"), `${JSON.stringify(fullProposal)}\n`);
     });
     return id;
+  }
+
+  async listMemoryProposals(limit = 50, status: MemoryProposalStatus = "pending"): Promise<MemoryProposalView[]> {
+    const proposals = await this.readProposalLog();
+    const decisions = await this.readProposalDecisions();
+    const decisionByProposal = new Map(decisions.map((decision) => [decision.proposalId, decision]));
+    return proposals
+      .map((proposal) => {
+        const decision = decisionByProposal.get(proposal.id);
+        return { ...proposal, status: decision?.status ?? "pending", decision } satisfies MemoryProposalView;
+      })
+      .filter((proposal) => status === "pending" ? proposal.status === "pending" : proposal.status === status)
+      .slice(-Math.max(1, Math.min(200, limit)));
+  }
+
+  async approveMemoryProposal(
+    proposalId: string,
+    input: { decidedBy?: string; reason?: string; targetKey?: string } = {},
+  ): Promise<{ proposalId: string; status: "approved"; key: string; layer: MemoryLayer }> {
+    const proposal = (await this.listMemoryProposals(200, "pending")).find((item) => item.id === proposalId);
+    if (!proposal) throw new Error(`Pending memory proposal not found: ${proposalId}`);
+    const targetKey = input.targetKey ?? defaultProposalTargetKey(proposal);
+    await this.appendLongTerm(targetKey, proposal.content, proposal.layer);
+    await this.recordProposalDecision({
+      id: `decision-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      proposalId,
+      timestamp: Date.now(),
+      status: "approved",
+      decidedBy: input.decidedBy ?? "control",
+      reason: input.reason,
+      targetKey,
+      layer: proposal.layer,
+    });
+    return { proposalId, status: "approved", key: targetKey, layer: proposal.layer };
+  }
+
+  async rejectMemoryProposal(
+    proposalId: string,
+    input: { decidedBy?: string; reason?: string } = {},
+  ): Promise<{ proposalId: string; status: "rejected" }> {
+    const proposal = (await this.listMemoryProposals(200, "pending")).find((item) => item.id === proposalId);
+    if (!proposal) throw new Error(`Pending memory proposal not found: ${proposalId}`);
+    await this.recordProposalDecision({
+      id: `decision-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      proposalId,
+      timestamp: Date.now(),
+      status: "rejected",
+      decidedBy: input.decidedBy ?? "control",
+      reason: input.reason,
+    });
+    return { proposalId, status: "rejected" };
   }
 
   /**
@@ -198,6 +264,10 @@ export class MemoryStore {
       .map((item) => item.trim().toLowerCase())
       .filter(Boolean);
 
+    if (scope.kind === "long_term") {
+      return this.searchLongTerm(needles, query);
+    }
+
     // 1. 搜索归档历史 (history.md)
     const historyPath = this.historyPath(scope);
     const historyRaw = await readFile(historyPath, "utf8").catch(() => "");
@@ -255,6 +325,56 @@ export class MemoryStore {
     return counts;
   }
 
+  private async countRecent(scope: MemoryScope): Promise<number> {
+    const raw = await readFile(this.recentPath(scope), "utf8").catch(() => "");
+    return raw.split(/\r?\n/).filter((line) => line.trim()).length;
+  }
+
+  private async searchLongTerm(needles: string[], query: MemorySearchQuery): Promise<HistorySummary[]> {
+    const layers = query.layers?.length ? query.layers : [...MEMORY_LAYERS];
+    const results: HistorySummary[] = [];
+    await Promise.all(layers.map(async (layer) => {
+      const dir = path.join(this.rootDir, "long_term", layer);
+      const files = await readdir(dir).catch(() => []);
+      await Promise.all(files.filter((file) => file.endsWith(".md")).map(async (file) => {
+        const fullPath = path.join(dir, file);
+        const raw = await readFile(fullPath, "utf8").catch(() => "");
+        if (!raw.trim()) return;
+        const haystack = raw.toLowerCase();
+        const score = needles.length ? needles.reduce((sum, needle) => sum + (haystack.includes(needle) ? 1 : 0), 0) : 1;
+        if (score <= 0) return;
+        const key = file.replace(/\.md$/i, "");
+        results.push({
+          scope: { kind: "long_term" },
+          path: fullPath,
+          excerpt: `[LongTerm:${layer}/${key}] ${truncateText(raw.replace(/\s+/g, " "), 900)}`,
+          score,
+        });
+      }));
+    }));
+    return results
+      .sort((a, b) => b.score - a.score)
+      .slice(0, Math.max(1, Math.min(20, query.limit ?? 3)));
+  }
+
+  private async readProposalLog(): Promise<MemoryProposal[]> {
+    const raw = await readFile(path.join(this.rootDir, "long_term", "proposals", "log.jsonl"), "utf8").catch(() => "");
+    return parseJsonl<MemoryProposal>(raw);
+  }
+
+  private async readProposalDecisions(): Promise<MemoryProposalDecision[]> {
+    const raw = await readFile(path.join(this.rootDir, "long_term", "proposals", "decisions.jsonl"), "utf8").catch(() => "");
+    return parseJsonl<MemoryProposalDecision>(raw);
+  }
+
+  private async recordProposalDecision(decision: MemoryProposalDecision): Promise<void> {
+    await this.inScopeQueue({ kind: "long_term" }, async () => {
+      const dir = path.join(this.rootDir, "long_term", "proposals");
+      await mkdir(dir, { recursive: true });
+      await atomicAppend(path.join(dir, "decisions.jsonl"), `${JSON.stringify(decision)}\n`);
+    });
+  }
+
   // Module: compaction and checkpoint recovery.
   private async ensureStructure(): Promise<void> {
     await Promise.all([
@@ -262,6 +382,8 @@ export class MemoryStore {
       mkdir(path.join(this.rootDir, "discord", "global"), { recursive: true }),
       mkdir(path.join(this.rootDir, "live"), { recursive: true }),
       mkdir(path.join(this.rootDir, "long_term", "research_logs"), { recursive: true }),
+      mkdir(path.join(this.rootDir, "long_term", "proposals"), { recursive: true }),
+      ...MEMORY_LAYERS.map((layer) => mkdir(path.join(this.rootDir, "long_term", layer), { recursive: true })),
     ]);
   }
 
@@ -277,11 +399,7 @@ export class MemoryStore {
 
   private async compactCheckpoint(scope: MemoryScope, checkpointPath: string): Promise<void> {
     const raw = await readFile(checkpointPath, "utf8").catch(() => "");
-    const entries = raw
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => JSON.parse(line) as MemoryEntry);
+    const entries = parseJsonl<MemoryEntry>(raw);
     if (!entries.length) {
       await rm(checkpointPath, { force: true });
       return;
@@ -424,6 +542,25 @@ export class MemoryStore {
 // Module: standalone helpers.
 function safeSegment(value: string): string {
   return value.trim().replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-").replace(/\s+/g, "-") || "untitled";
+}
+
+function parseJsonl<T>(raw: string): T[] {
+  const entries: T[] = [];
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      entries.push(JSON.parse(trimmed) as T);
+    } catch {
+      // Ignore one corrupt JSONL line so the rest of memory remains readable.
+    }
+  }
+  return entries;
+}
+
+function defaultProposalTargetKey(proposal: MemoryProposal): string {
+  if (proposal.layer === "user_facts") return `user_${safeSegment(proposal.authorId)}`;
+  return "approved_proposals";
 }
 
 function scopeLabel(scope: MemoryScope): string {
