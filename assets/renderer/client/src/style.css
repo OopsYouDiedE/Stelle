@@ -746,7 +746,9 @@ body[data-scene="standalone"] .stage-scene {
 }
 
 body[data-scene="standalone"] .stage-topbar {
-  display: none;
+  position: relative;
+  z-index: 4;
+  display: flex;
 }
 
 body[data-scene="standalone"] .stage-eyebrow {
@@ -773,7 +775,21 @@ body[data-scene="standalone"] .stage-center {
 }
 
 body[data-scene="standalone"] .program-layer {
+  display: block;
+  inset: auto clamp(0.8rem, 2vw, 2rem) clamp(7.2rem, 15vh, 10rem) auto;
+  width: min(18rem, calc(100vw - 1.6rem));
+  padding: 0;
+}
+
+body[data-scene="standalone"] .program-widget {
   display: none;
+}
+
+body[data-scene="standalone"] .stage-status-widget {
+  display: block;
+  width: 100%;
+  background: rgba(4, 9, 15, 0.46);
+  border-color: rgba(139, 224, 200, 0.16);
 }
 
 body[data-scene="standalone"] .halo {

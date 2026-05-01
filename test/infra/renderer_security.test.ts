@@ -40,6 +40,17 @@ describe("LiveRendererServer Security", () => {
     expect(data.state).toMatchObject(testState);
   });
 
+  it("rejects start with a helpful message when the renderer port is already in use", async () => {
+    server = new LiveRendererServer({ port });
+    const url = await server.start();
+    const occupiedPort = Number(new URL(url).port);
+    const duplicate = new LiveRendererServer({ port: occupiedPort });
+
+    await expect(duplicate.start()).rejects.toThrow(
+      `Live renderer cannot start because 127.0.0.1:${occupiedPort} is already in use.`,
+    );
+  });
+
   it("should reject unauthenticated POST /api/live/event when control token is required", async () => {
     const mockController: LiveRendererLiveController = {
       sendLiveEvent: vi.fn().mockResolvedValue({ accepted: true }),

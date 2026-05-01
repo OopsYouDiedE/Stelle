@@ -12,7 +12,10 @@ import { StelleApplication, type StartMode } from "./core/application.js";
 const mode = parseStartMode(process.argv[2] ?? process.env.STELLE_START_MODE);
 
 if (isDirectStart()) {
-  await start(mode);
+  await start(mode).catch((error) => {
+    console.error(`[Stelle] Failed to start: ${error instanceof Error ? error.message : String(error)}`);
+    process.exitCode = 1;
+  });
 }
 
 // 模块：对外启动入口。

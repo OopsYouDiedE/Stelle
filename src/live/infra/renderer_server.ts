@@ -113,8 +113,24 @@ export class LiveRendererServer {
 
   async start(): Promise<string> {
     if (this.server.listening) return this.url;
-    await new Promise<void>((resolve) => {
-      this.server.listen(this.options.port ?? 8787, this.options.host ?? "127.0.0.1", resolve);
+    const host = this.options.host ?? "127.0.0.1";
+    const port = this.options.port ?? 8787;
+    await new Promise<void>((resolve, reject) => {
+      const onError = (error: NodeJS.ErrnoException) => {
+        this.server.off("listening", onListening);
+        if (error.code === "EADDRINUSE") {
+          reject(new Error(`Live renderer cannot start because ${host}:${port} is already in use.`));
+          return;
+        }
+        reject(error);
+      };
+      const onListening = () => {
+        this.server.off("error", onError);
+        resolve();
+      };
+      this.server.once("error", onError);
+      this.server.once("listening", onListening);
+      this.server.listen(port, host);
     });
     return this.url;
   }
