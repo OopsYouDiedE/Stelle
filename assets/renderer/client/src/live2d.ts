@@ -12,6 +12,7 @@ type Live2DModelInstance = Awaited<ReturnType<Live2DModule["Live2DModel"]["from"
 interface AvatarOptions {
   canvas: HTMLCanvasElement;
   status?: HTMLElement | null;
+  lipSyncLevel?: HTMLElement | null;
   modelUrl?: string | null;
 }
 
@@ -73,7 +74,7 @@ export class Live2DAvatar {
         this.updateLipSync();
       });
       this.fitModel();
-      void this.triggerMotion("Idle", "idle");
+      void this.triggerMotion("Idle", "idle").catch(() => undefined);
       this.setStatus("Live2D ready");
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -118,7 +119,11 @@ export class Live2DAvatar {
         : priority === "idle"
           ? this.live2d.MotionPriority.IDLE
           : this.live2d.MotionPriority.NORMAL;
-    await this.model.motion(group, undefined, motionPriority);
+    try {
+      await this.model.motion(group, undefined, motionPriority);
+    } catch (error) {
+      console.warn(`Live2D motion failed: ${group}`, error);
+    }
   }
 
   async setExpression(expression: string): Promise<void> {
@@ -142,6 +147,7 @@ export class Live2DAvatar {
     }
 
     this.mouthOpen += (this.targetMouthOpen - this.mouthOpen) * (this.speaking ? 0.42 : 0.2);
+    this.updateLipSyncIndicator(this.mouthOpen);
   }
 
   private applyMouthParameter(value: number): void {
@@ -175,6 +181,12 @@ export class Live2DAvatar {
 
   private setStatus(text: string): void {
     if (this.options.status) this.options.status.textContent = text;
+  }
+
+  private updateLipSyncIndicator(value: number): void {
+    if (!this.options.lipSyncLevel) return;
+    this.options.lipSyncLevel.style.transform = `scaleX(${clamp(value, 0, 1)})`;
+    this.options.lipSyncLevel.style.opacity = String(0.28 + clamp(value, 0, 1) * 0.72);
   }
 
   private pulseVoiceStatus(value: number): void {

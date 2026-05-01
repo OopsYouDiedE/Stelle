@@ -1,6 +1,8 @@
+// === Imports ===
 import type { ToolRegistry } from "../tool.js";
 import type { StelleEventBus } from "../utils/event_bus.js";
 
+// === Intent & Salience ===
 export type OutputLane =
   | "emergency"
   | "direct_response"
@@ -43,6 +45,7 @@ export interface OutputIntent {
   metadata?: Record<string, unknown>;
 }
 
+// === State & Decision ===
 export interface StageOutputRecord {
   id: string;
   cursorId: string;
@@ -85,6 +88,7 @@ export interface StageOutputState {
   ttsMuted?: boolean;
 }
 
+// === Renderer & Arbiter Interfaces ===
 export interface StageOutputRendererDeps {
   tools: ToolRegistry;
   cwd: string;

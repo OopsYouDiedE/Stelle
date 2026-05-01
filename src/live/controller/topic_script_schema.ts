@@ -1,14 +1,24 @@
+// === Imports ===
 import { z } from "zod";
 import type { ProgramMode, TopicPhase } from "./types.js";
 
+// === Constants & Basic Types ===
 export const topicScriptApprovalStatusValues = ["draft", "reviewed", "approved", "archived"] as const;
-export type TopicScriptApprovalStatus = typeof topicScriptApprovalStatusValues[number];
+export type TopicScriptApprovalStatus = (typeof topicScriptApprovalStatusValues)[number];
 
 export const topicScriptLockLevelValues = ["locked", "soft", "system"] as const;
-export type TopicScriptLockLevel = typeof topicScriptLockLevelValues[number];
+export type TopicScriptLockLevel = (typeof topicScriptLockLevelValues)[number];
 
-export const topicScriptRuntimeDecisionValues = ["continue_section", "answer_question", "use_fallback", "request_patch", "human_review"] as const;
-export type TopicScriptRuntimeDecision = typeof topicScriptRuntimeDecisionValues[number];
+export const topicScriptRuntimeDecisionValues = [
+  "continue_section",
+  "answer_question",
+  "use_fallback",
+  "request_patch",
+  "human_review",
+] as const;
+export type TopicScriptRuntimeDecision = (typeof topicScriptRuntimeDecisionValues)[number];
+
+// === Zod Schemas ===
 
 export const TopicScriptCueSchema = z.object({
   type: z.enum(["sfx", "vfx", "camera", "emotion"]),
@@ -63,6 +73,8 @@ export const TopicScriptDraftSchema = z.object({
 
 export type TopicScriptDraft = z.infer<typeof TopicScriptDraftSchema>;
 
+// === Compiled Types ===
+
 export interface TopicScriptTrigger {
   text: string;
 }
@@ -104,6 +116,8 @@ export interface CompiledTopicScript {
   sections: CompiledTopicScriptSection[];
   metadata: Record<string, unknown>;
 }
+
+// === Runtime Decision ===
 
 export const TopicScriptRuntimeDecisionSchema = z.object({
   action: z.enum(topicScriptRuntimeDecisionValues),

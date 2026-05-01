@@ -14,16 +14,16 @@ For a practical code navigation map, read [`CODEBASE_GUIDE.md`](CODEBASE_GUIDE.m
 
 ## Ownership Boundaries
 
-| Layer | Owns | Must Not Own |
-| --- | --- | --- |
-| `src/core/` | Application lifecycle, shared service creation, module registration, scheduler, debug/control composition. | Domain policy decisions. |
-| `src/cursor/` | Per-domain perception, routing, LLM/tool planning, snapshots, reflections. | Direct renderer/device/platform side effects. |
-| `src/live/adapters/` | Platform connections and ingress normalization. | Stage policy, LLM decisions, topic orchestration. |
-| `src/live/controller/` | Live room business state: director, journal, health, relationships, Topic Script runtime. | Low-level renderer server details. |
-| `src/actuator/` | Intent arbitration and audit event publication. | Platform-specific driver code. |
-| `src/stage/` | Output policy, budget, queue, and final stage rendering. | Cursor decisions or platform ingress. |
-| `src/device/` | Device action policy, allowlist, renderer, drivers. | Cursor routing or live room logic. |
-| `src/tools/` | Tool schema, authority tier, registration, safe execution. | Feature-specific orchestration. |
+| Layer                  | Owns                                                                                                       | Must Not Own                                      |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| `src/core/`            | Application lifecycle, shared service creation, module registration, scheduler, debug/control composition. | Domain policy decisions.                          |
+| `src/cursor/`          | Per-domain perception, routing, LLM/tool planning, snapshots, reflections.                                 | Direct renderer/device/platform side effects.     |
+| `src/live/adapters/`   | Platform connections and ingress normalization.                                                            | Stage policy, LLM decisions, topic orchestration. |
+| `src/live/controller/` | Live room business state: director, journal, health, relationships, Topic Script runtime.                  | Low-level renderer server details.                |
+| `src/actuator/`        | Intent arbitration and audit event publication.                                                            | Platform-specific driver code.                    |
+| `src/stage/`           | Output policy, budget, queue, and final stage rendering.                                                   | Cursor decisions or platform ingress.             |
+| `src/device/`          | Device action policy, allowlist, renderer, drivers.                                                        | Cursor routing or live room logic.                |
+| `src/tools/`           | Tool schema, authority tier, registration, safe execution.                                                 | Feature-specific orchestration.                   |
 
 ## Runtime Lifecycle
 

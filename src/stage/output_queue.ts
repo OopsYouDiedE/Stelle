@@ -1,27 +1,33 @@
+// === Imports ===
 import type { OutputIntent } from "./output_types.js";
 import { compareIntentPriority } from "./output_policy.js";
 
+// === Types ===
 export interface DequeueReadyResult {
   intent?: OutputIntent;
   dropped: Array<{ intent: OutputIntent; reason: "expired" }>;
 }
 
+// === Main Class ===
 export class StageOutputQueue {
   private readonly items: Array<{ intent: OutputIntent; enqueuedAt: number }> = [];
 
-  constructor(private readonly maxLength: number, private readonly now: () => number) {}
+  constructor(
+    private readonly maxLength: number,
+    private readonly now: () => number,
+  ) {}
 
-  enqueue(intent: OutputIntent): { 
-    status: "accepted" | "merged" | "dropped"; 
+  enqueue(intent: OutputIntent): {
+    status: "accepted" | "merged" | "dropped";
     mergedIntent?: OutputIntent;
     droppedIntents: Array<{ intent: OutputIntent; reason: string }>;
   } {
     const droppedIntents: Array<{ intent: OutputIntent; reason: string }> = [];
     let mergedIntent: OutputIntent | undefined;
     let status: "accepted" | "merged" | "dropped" = "accepted";
-    
+
     if (intent.mergeKey) {
-      const existingIdx = this.items.findIndex(item => item.intent.mergeKey === intent.mergeKey);
+      const existingIdx = this.items.findIndex((item) => item.intent.mergeKey === intent.mergeKey);
       if (existingIdx >= 0) {
         mergedIntent = this.items.splice(existingIdx, 1)[0].intent;
         status = "merged";

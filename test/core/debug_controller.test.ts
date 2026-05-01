@@ -7,7 +7,7 @@ describe("renderer live event controller", () => {
     const eventBus = new StelleEventBus();
     let liveController: any;
     const renderer = {
-      setLiveController: vi.fn(controller => {
+      setLiveController: vi.fn((controller) => {
         liveController = controller;
       }),
       setMemoryController: vi.fn(),
@@ -40,10 +40,7 @@ describe("renderer live event controller", () => {
 
     const history = eventBus.getHistory();
     expect(result).toMatchObject({ accepted: true, eventId: "live-event-1234" });
-    expect(history.map(event => event.type)).toEqual([
-      "live.event.received",
-      "live.danmaku.received",
-    ]);
+    expect(history.map((event) => event.type)).toEqual(["live.event.received", "live.danmaku.received"]);
     expect(history[0]?.payload).toMatchObject({
       kind: "danmaku",
       text: "能看到我的弹幕吗？",

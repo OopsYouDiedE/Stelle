@@ -3,6 +3,8 @@ import type { DeviceActionDecision, DeviceActionIntent } from "../../device/acti
 import { truncateText } from "../../utils/text.js";
 import type { DeviceObservationRouteDecision } from "./device_observation_cursor.js";
 
+// === Types & Interfaces ===
+
 interface BaseDeviceObservation {
   resourceId: string;
   requestedAction?: Partial<DeviceActionIntent>;
@@ -15,16 +17,7 @@ interface DeviceIntentDefaults {
   defaultReason: string;
 }
 
-export class DeviceObservationExecutor {
-  constructor(protected readonly context: CursorContext) {}
-
-  async execute(intent: DeviceActionIntent): Promise<DeviceActionDecision> {
-    if (!this.context.deviceAction) {
-      return { status: "rejected", reason: "DeviceActionArbiter is not configured.", intent };
-    }
-    return this.context.deviceAction.propose(intent);
-  }
-}
+// === Gateway ===
 
 export class DeviceObservationGateway<Observation> {
   private latest?: Observation;
@@ -39,6 +32,21 @@ export class DeviceObservationGateway<Observation> {
   }
 }
 
+// === Executor ===
+
+export class DeviceObservationExecutor {
+  constructor(protected readonly context: CursorContext) {}
+
+  async execute(intent: DeviceActionIntent): Promise<DeviceActionDecision> {
+    if (!this.context.deviceAction) {
+      return { status: "rejected", reason: "DeviceActionArbiter is not configured.", intent };
+    }
+    return this.context.deviceAction.propose(intent);
+  }
+}
+
+// === Responder ===
+
 export class DeviceObservationResponder {
   constructor(private readonly actionLabel: string) {}
 
@@ -47,15 +55,20 @@ export class DeviceObservationResponder {
   }
 }
 
-export abstract class DeviceObservationRouter<Observation extends BaseDeviceObservation, Decision extends DeviceObservationRouteDecision> {
-  constructor(protected readonly context: CursorContext, protected readonly cursorId: string) {}
+// === Router ===
+
+export abstract class DeviceObservationRouter<
+  Observation extends BaseDeviceObservation,
+  Decision extends DeviceObservationRouteDecision,
+> {
+  constructor(
+    protected readonly context: CursorContext,
+    protected readonly cursorId: string,
+  ) {}
 
   abstract decide(observation: Observation): Decision;
 
-  protected buildIntent(
-    observation: Observation,
-    defaults: DeviceIntentDefaults,
-  ): DeviceActionIntent | undefined {
+  protected buildIntent(observation: Observation, defaults: DeviceIntentDefaults): DeviceActionIntent | undefined {
     const requested = observation.requestedAction;
     if (!requested?.actionKind) {
       return undefined;

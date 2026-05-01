@@ -25,16 +25,19 @@ describe("live platform normalization", () => {
   });
 
   it("normalizes YouTube super chat messages", () => {
-    const event = normalizeYoutubeMessage({
-      id: "yt-1",
-      snippet: {
-        type: "superChatEvent",
-        publishedAt: "2026-04-29T08:00:00Z",
-        displayMessage: "加油",
-        superChatDetails: { amountMicros: "5000000", currency: "JPY" },
+    const event = normalizeYoutubeMessage(
+      {
+        id: "yt-1",
+        snippet: {
+          type: "superChatEvent",
+          publishedAt: "2026-04-29T08:00:00Z",
+          displayMessage: "加油",
+          superChatDetails: { amountMicros: "5000000", currency: "JPY" },
+        },
+        authorDetails: { channelId: "chan-1", displayName: "Yuki" },
       },
-      authorDetails: { channelId: "chan-1", displayName: "Yuki" },
-    }, "chat-1");
+      "chat-1",
+    );
 
     expect(event).toMatchObject({
       id: "yt-1",
@@ -49,15 +52,18 @@ describe("live platform normalization", () => {
   });
 
   it("normalizes Bilibili gifts", () => {
-    const event = normalizeBilibiliCommand({
-      cmd: "SEND_GIFT",
-      data: {
-        uid: 42,
-        uname: "小星",
-        giftName: "辣条",
-        price: 1000,
+    const event = normalizeBilibiliCommand(
+      {
+        cmd: "SEND_GIFT",
+        data: {
+          uid: 42,
+          uname: "小星",
+          giftName: "辣条",
+          price: 1000,
+        },
       },
-    }, "1000");
+      "1000",
+    );
 
     expect(event).toMatchObject({
       source: "bilibili",
@@ -72,11 +78,13 @@ describe("live platform normalization", () => {
 
   it("normalizes TikTok websocket payload arrays", () => {
     const events = normalizeTikTokPayload({
-      messages: [{
-        type: "follow",
-        user: { userId: "u1", nickname: "Mina" },
-        timestamp: 1700000000000,
-      }],
+      messages: [
+        {
+          type: "follow",
+          user: { userId: "u1", nickname: "Mina" },
+          timestamp: 1700000000000,
+        },
+      ],
     });
 
     expect(events).toHaveLength(1);
@@ -94,11 +102,11 @@ describe("live platform normalization", () => {
     (manager as any).publish(event("gift-1", "gift"));
     (manager as any).publish(event("danmaku-1", "danmaku"));
 
-    const types = eventBus.getHistory().map(event => event.type);
+    const types = eventBus.getHistory().map((event) => event.type);
     expect(types).toContain("live.event.received");
     expect(types).toContain("live.event.gift");
     expect(types).toContain("live.event.danmaku");
-    expect(types.filter(type => type === "live.danmaku.received")).toHaveLength(1);
+    expect(types.filter((type) => type === "live.danmaku.received")).toHaveLength(1);
   });
 
   it("drops duplicate live events by fingerprint", () => {
@@ -109,8 +117,8 @@ describe("live platform normalization", () => {
     (manager as any).publish(duplicate);
     (manager as any).publish({ ...duplicate });
 
-    const types = eventBus.getHistory().map(event => event.type);
-    expect(types.filter(type => type === "live.event.danmaku")).toHaveLength(1);
+    const types = eventBus.getHistory().map((event) => event.type);
+    expect(types.filter((type) => type === "live.event.danmaku")).toHaveLength(1);
     expect(types).toContain("live.ingress.dropped");
   });
 });

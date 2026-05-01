@@ -87,44 +87,44 @@ docs/
 
 ### 4.1 Frontmatter 字段
 
-| 字段 | 必填 | 说明 |
-| --- | --- | --- |
-| `script_id` | 是 | 剧本唯一标识 |
-| `template_id` | 是 | 绑定 `PROGRAM_TEMPLATES` 中的模板 |
-| `title` | 是 | 节目标题 |
-| `summary` | 是 | 剧本摘要 |
-| `language` | 是 | 默认 `zh-CN` |
-| `scene` | 是 | 映射现有 program mode |
-| `phase_flow` | 是 | 映射 `TopicPhase[]` |
-| `current_question` | 是 | 当前主问题 |
-| `next_question` | 否 | 默认下一问 |
-| `target_duration_sec` | 是 | 目标时长 |
-| `safe_topic_kinds` | 是 | 允许话题类型 |
-| `excluded_topics` | 是 | 禁止话题 |
-| `memory_policy` | 是 | 继承模板记忆策略 |
-| `generated_by` | 否 | 生成器标识 |
-| `prompt_version` | 否 | prompt 版本 |
-| `revision` | 是 | 修订号 |
-| `approval_status` | 是 | `draft`、`reviewed`、`approved`、`archived` |
+| 字段                  | 必填 | 说明                                        |
+| --------------------- | ---- | ------------------------------------------- |
+| `script_id`           | 是   | 剧本唯一标识                                |
+| `template_id`         | 是   | 绑定 `PROGRAM_TEMPLATES` 中的模板           |
+| `title`               | 是   | 节目标题                                    |
+| `summary`             | 是   | 剧本摘要                                    |
+| `language`            | 是   | 默认 `zh-CN`                                |
+| `scene`               | 是   | 映射现有 program mode                       |
+| `phase_flow`          | 是   | 映射 `TopicPhase[]`                         |
+| `current_question`    | 是   | 当前主问题                                  |
+| `next_question`       | 否   | 默认下一问                                  |
+| `target_duration_sec` | 是   | 目标时长                                    |
+| `safe_topic_kinds`    | 是   | 允许话题类型                                |
+| `excluded_topics`     | 是   | 禁止话题                                    |
+| `memory_policy`       | 是   | 继承模板记忆策略                            |
+| `generated_by`        | 否   | 生成器标识                                  |
+| `prompt_version`      | 否   | prompt 版本                                 |
+| `revision`            | 是   | 修订号                                      |
+| `approval_status`     | 是   | `draft`、`reviewed`、`approved`、`archived` |
 
 ### 4.2 Section 字段
 
-| 字段 | 必填 | 说明 |
-| --- | --- | --- |
-| `section_id` | 是 | 段落唯一标识 |
-| `phase` | 是 | 所属节目阶段 |
-| `timestamp` | 是 | 预期开始时间 |
-| `duration_sec` | 是 | 预算时长 |
-| `goal` | 是 | 本段目标 |
-| `host_script` | 是 | 基础主持文案 |
-| `discussion_points` | 是 | 讨论点 |
-| `question_prompts` | 是 | 给观众的问题 |
-| `interaction_triggers` | 否 | 弹幕触发规则 |
-| `fact_guardrails` | 否 | 事实和安全边界 |
-| `fallback_lines` | 是 | 冷场、失败或高风险回退话术 |
-| `handoff_rule` | 是 | 进入下一段的条件 |
-| `operator_notes` | 否 | 人工备注 |
-| `lock_level` | 否 | `locked`、`soft`、`system` |
+| 字段                   | 必填 | 说明                       |
+| ---------------------- | ---- | -------------------------- |
+| `section_id`           | 是   | 段落唯一标识               |
+| `phase`                | 是   | 所属节目阶段               |
+| `timestamp`            | 是   | 预期开始时间               |
+| `duration_sec`         | 是   | 预算时长                   |
+| `goal`                 | 是   | 本段目标                   |
+| `host_script`          | 是   | 基础主持文案               |
+| `discussion_points`    | 是   | 讨论点                     |
+| `question_prompts`     | 是   | 给观众的问题               |
+| `interaction_triggers` | 否   | 弹幕触发规则               |
+| `fact_guardrails`      | 否   | 事实和安全边界             |
+| `fallback_lines`       | 是   | 冷场、失败或高风险回退话术 |
+| `handoff_rule`         | 是   | 进入下一段的条件           |
+| `operator_notes`       | 否   | 人工备注                   |
+| `lock_level`           | 否   | `locked`、`soft`、`system` |
 
 ### 4.3 编译产物
 
@@ -254,28 +254,28 @@ MVP 持久化：
 
 建议新增事件：
 
-| 事件 | 方向 | 用途 |
-| --- | --- | --- |
-| `topic_script.draft_requested` | 控制台到服务 | 请求生成草稿 |
-| `topic_script.generated` | 服务到系统 | 草稿已生成 |
-| `topic_script.compiled` | 服务到系统 | 编译成功 |
-| `topic_script.approved` | 审核到系统 | 剧本可用于运行时 |
-| `topic_script.section_started` | runtime 到系统 | 进入 section |
-| `topic_script.section_completed` | runtime 到系统 | section 结束 |
-| `topic_script.interrupted` | runtime 到系统 | 被观众问题或人工命令打断 |
-| `topic_script.patch_requested` | runtime 到生成器 | 请求局部重写 |
-| `topic_script.patch_applied` | 生成器到 runtime | 局部重写可用 |
-| `topic_script.fallback_used` | runtime 到系统 | 使用回退话术 |
+| 事件                             | 方向             | 用途                     |
+| -------------------------------- | ---------------- | ------------------------ |
+| `topic_script.draft_requested`   | 控制台到服务     | 请求生成草稿             |
+| `topic_script.generated`         | 服务到系统       | 草稿已生成               |
+| `topic_script.compiled`          | 服务到系统       | 编译成功                 |
+| `topic_script.approved`          | 审核到系统       | 剧本可用于运行时         |
+| `topic_script.section_started`   | runtime 到系统   | 进入 section             |
+| `topic_script.section_completed` | runtime 到系统   | section 结束             |
+| `topic_script.interrupted`       | runtime 到系统   | 被观众问题或人工命令打断 |
+| `topic_script.patch_requested`   | runtime 到生成器 | 请求局部重写             |
+| `topic_script.patch_applied`     | 生成器到 runtime | 局部重写可用             |
+| `topic_script.fallback_used`     | runtime 到系统   | 使用回退话术             |
 
 ## 7. 运行时优先级
 
-| 优先级 | 输入 | 行为 |
-| --- | --- | --- |
-| P0 | 安全风险、人工接管、平台风控 | 立即暂停或切换到人工输出 |
-| P1 | 观众明确问题、事实纠错 | 进入 `direct_response`，必要时 patch 当前 section |
-| P2 | 当前 section 主线句 | 进入 `topic_hosting` |
-| P3 | 追问、补充、转场 | 等待自然空窗插入 |
-| P4 | 冷场填充、彩蛋 | 只在低负载时使用 |
+| 优先级 | 输入                         | 行为                                              |
+| ------ | ---------------------------- | ------------------------------------------------- |
+| P0     | 安全风险、人工接管、平台风控 | 立即暂停或切换到人工输出                          |
+| P1     | 观众明确问题、事实纠错       | 进入 `direct_response`，必要时 patch 当前 section |
+| P2     | 当前 section 主线句          | 进入 `topic_hosting`                              |
+| P3     | 追问、补充、转场             | 等待自然空窗插入                                  |
+| P4     | 冷场填充、彩蛋               | 只在低负载时使用                                  |
 
 ## 8. 测试与评估
 
@@ -564,15 +564,15 @@ gh pr create --draft --title "Stage 6: Harden observability, runbook, and releas
 
 ## 11. 风险与缓解
 
-| 风险 | 缓解 |
-| --- | --- |
-| 剧本绕过舞台仲裁 | runtime 只发事件或 OutputIntent，不直接调 live tools |
-| 生成内容不稳定 | Structured schema、compiler 校验、人工审核 |
-| 观众问题被剧本淹没 | direct response 优先，问题队列统一管理 |
-| 高风险话题进入直播 | 继承 `excludedTopics`、moderation、preflight |
-| 直播中 provider 超时 | 离线生成优先，在线只做 patch，失败走 fallback |
-| 审核后内容被自动覆盖 | locked line 和 revision 保护 |
-| 复盘泄露隐私 | 只使用去标识化摘要和公共节目记忆 |
+| 风险                 | 缓解                                                 |
+| -------------------- | ---------------------------------------------------- |
+| 剧本绕过舞台仲裁     | runtime 只发事件或 OutputIntent，不直接调 live tools |
+| 生成内容不稳定       | Structured schema、compiler 校验、人工审核           |
+| 观众问题被剧本淹没   | direct response 优先，问题队列统一管理               |
+| 高风险话题进入直播   | 继承 `excludedTopics`、moderation、preflight         |
+| 直播中 provider 超时 | 离线生成优先，在线只做 patch，失败走 fallback        |
+| 审核后内容被自动覆盖 | locked line 和 revision 保护                         |
+| 复盘泄露隐私         | 只使用去标识化摘要和公共节目记忆                     |
 
 ## 12. 最小可行版本定义
 

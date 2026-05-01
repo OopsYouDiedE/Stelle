@@ -4,7 +4,7 @@ import path from "node:path";
 import { generateEpisodeSummary } from "../src/live/controller/episode_summary.js";
 
 const sessionsRoot = path.resolve("artifacts/live-sessions");
-const sessionId = process.argv.find(arg => arg.startsWith("--session="))?.split("=")[1] ?? await latestSessionId();
+const sessionId = process.argv.find((arg) => arg.startsWith("--session="))?.split("=")[1] ?? (await latestSessionId());
 const writePublicMemory = process.argv.includes("--write-public-memory");
 
 if (!sessionId) {
@@ -20,5 +20,9 @@ console.log(JSON.stringify({ outputPath, summary }, null, 2));
 
 async function latestSessionId(): Promise<string | undefined> {
   const entries = await readdir(sessionsRoot, { withFileTypes: true }).catch(() => []);
-  return entries.filter(entry => entry.isDirectory()).map(entry => entry.name).sort().at(-1);
+  return entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort()
+    .at(-1);
 }

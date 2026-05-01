@@ -14,11 +14,11 @@ describe.skipIf(!hasEvalLlmKeys())("Multi-Model Stress & Retry Eval", () => {
       const result = await llm.generateJson(
         'Return {"status":"OK"} exactly.',
         "llm_stress_ok",
-        raw => {
-          const value = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+        (raw) => {
+          const value = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
           return { status: String(value.status || "") };
         },
-        { role: "secondary", temperature: 0, maxOutputTokens: 256 }
+        { role: "secondary", temperature: 0, maxOutputTokens: 256 },
       );
       output = result.status;
     } catch (caught) {

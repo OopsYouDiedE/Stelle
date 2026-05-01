@@ -76,7 +76,7 @@ describe("DefaultSelfModel", () => {
     expect(snapshot.mood).toBe("calm");
     expect(snapshot.currentFocus).toBe("");
     expect(snapshot.activeConvictions).toHaveLength(2);
-    expect(snapshot.activeConvictions.every(c => c.confidence >= 0 && c.confidence <= 1)).toBe(true);
+    expect(snapshot.activeConvictions.every((c) => c.confidence >= 0 && c.confidence <= 1)).toBe(true);
     expect(snapshot.behavioralWarnings).toEqual(["ok"]);
   });
 });

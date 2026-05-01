@@ -1,8 +1,10 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+// === Imports ===
+import { mkdir, readFile, rm, writeFile, rename } from "node:fs/promises";
 import path from "node:path";
 import type { LiveEventSource, NormalizedLiveEvent } from "../../utils/live_event.js";
 import { sanitizeExternalText, truncateText } from "../../utils/text.js";
 
+// === Types & Interfaces ===
 export interface ViewerProfile {
   platform: LiveEventSource;
   viewerId: string;
@@ -37,11 +39,14 @@ export interface ViewerProfileSummary {
   relationshipHint: string;
 }
 
+// === Main Class: ViewerProfileStore ===
 export class ViewerProfileStore {
   constructor(
     private readonly rootDir = path.resolve("memory/live/viewers"),
     private readonly retentionMs = 180 * 24 * 3600 * 1000,
   ) {}
+
+  // === Public API ===
 
   async updateFromEvent(event: NormalizedLiveEvent): Promise<ViewerProfile | undefined> {
     const viewerId = stableViewerId(event);
@@ -70,7 +75,7 @@ export class ViewerProfileStore {
 
   async read(platform: LiveEventSource, viewerId: string): Promise<ViewerProfile | null> {
     const raw = await readFile(this.filePath(platform, viewerId), "utf8").catch(() => null);
-    return raw ? JSON.parse(raw) as ViewerProfile : null;
+    return raw ? (JSON.parse(raw) as ViewerProfile) : null;
   }
 
   async summarize(platform: LiveEventSource, viewerId: string): Promise<ViewerProfileSummary | null> {
@@ -80,26 +85,31 @@ export class ViewerProfileStore {
 
   async summariesForEvents(events: NormalizedLiveEvent[], limit = 5): Promise<ViewerProfileSummary[]> {
     const seen = new Set<string>();
-    const summaries: ViewerProfileSummary[] = [];
+    const uniqueKeys: Array<{ platform: LiveEventSource; viewerId: string }> = [];
+
     for (const event of events) {
       const viewerId = stableViewerId(event);
       if (!viewerId) continue;
       const key = `${event.source}:${viewerId}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      const summary = await this.summarize(event.source, viewerId);
-      if (summary) summaries.push(summary);
-      if (summaries.length >= limit) break;
+      uniqueKeys.push({ platform: event.source, viewerId });
+      if (uniqueKeys.length >= limit) break;
     }
-    return summaries;
+
+    const summaries = await Promise.all(uniqueKeys.map((k) => this.summarize(k.platform, k.viewerId)));
+
+    return summaries.filter((s): s is ViewerProfileSummary => s !== null);
   }
+
+  // === Persistence Logic ===
 
   async write(profile: ViewerProfile): Promise<void> {
     const file = this.filePath(profile.platform, profile.viewerId);
     await mkdir(path.dirname(file), { recursive: true });
     const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
     await writeFile(temp, `${JSON.stringify(profile, null, 2)}\n`, "utf8");
-    await import("node:fs/promises").then((fs) => fs.rename(temp, file));
+    await rename(temp, file);
   }
 
   async delete(platform: LiveEventSource, viewerId: string): Promise<boolean> {
@@ -114,11 +124,18 @@ export class ViewerProfileStore {
   }
 }
 
+// === Profile State Helpers ===
+
 export function stableViewerId(event: NormalizedLiveEvent): string | undefined {
   return event.user?.id || event.user?.name;
 }
 
-function emptyProfile(platform: LiveEventSource, viewerId: string, now: number, retentionExpiresAt: number): ViewerProfile {
+function emptyProfile(
+  platform: LiveEventSource,
+  viewerId: string,
+  now: number,
+  retentionExpiresAt: number,
+): ViewerProfile {
   return {
     platform,
     viewerId,
@@ -143,7 +160,7 @@ function updateRoles(profile: ViewerProfile, event: NormalizedLiveEvent): void {
   if (event.kind === "gift") roles.add("gifter");
   if (event.kind === "follow") roles.add("follower");
   if (profile.interactionCount >= 5) roles.add("regular");
-  profile.roles = [...roles].sort();
+  profile.roles = Array.from(roles).sort();
 }
 
 function updatePayments(profile: ViewerProfile, event: NormalizedLiveEvent): void {
@@ -158,13 +175,18 @@ function updatePayments(profile: ViewerProfile, event: NormalizedLiveEvent): voi
   profile.paymentStats.currencies[currency] = (profile.paymentStats.currencies[currency] ?? 0) + amount;
 }
 
+// === Profile Summary Logic ===
+
 function summarizeProfile(profile: ViewerProfile): ViewerProfileSummary {
-  const relationshipHint = [
-    profile.roles.includes("regular") ? "常客" : undefined,
-    profile.roles.includes("guard") ? "舰长/会员支持者" : undefined,
-    profile.roles.includes("supporter") ? "曾发付费留言" : undefined,
-    profile.interactionCount > 1 ? `互动 ${profile.interactionCount} 次` : undefined,
-  ].filter(Boolean).join("，") || "新观众";
+  const relationshipHint =
+    [
+      profile.roles.includes("regular") ? "常客" : undefined,
+      profile.roles.includes("guard") ? "舰长/会员支持者" : undefined,
+      profile.roles.includes("supporter") ? "曾发付费留言" : undefined,
+      profile.interactionCount > 1 ? `互动 ${profile.interactionCount} 次` : undefined,
+    ]
+      .filter(Boolean)
+      .join("，") || "新观众";
   return {
     platform: profile.platform,
     viewerId: profile.viewerId,
@@ -177,6 +199,8 @@ function summarizeProfile(profile: ViewerProfile): ViewerProfileSummary {
   };
 }
 
+// === Pathing & Safety Utils ===
+
 function safeSegment(value: string): string {
-  return value.trim().replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-").replace(/\s+/g, "-") || "unknown";
+  return value.trim().replace(/[<>:"/\\|?*\u0000-\u001f\s]+/g, "-") || "unknown";
 }

@@ -10,6 +10,15 @@
  * - `enumValue()` / `clamp()`：LLM JSON normalize 常用防线。
  * - `parseJsonObject()`：从 LLM 文本里提取第一个 JSON object。
  */
+
+// === Imports ===
+// No external imports needed for this utility.
+
+// === Types & Interfaces ===
+// Shared types for JSON utilities.
+
+// === Core Logic ===
+
 export function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
@@ -30,12 +39,18 @@ export function asStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.map((item) => String(item)).filter(Boolean) : [];
 }
 
+/**
+ * 限制数值范围
+ */
 export function clamp(value: unknown, min: number, max: number, fallback: number): number {
   const parsed = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(min, Math.min(max, parsed));
 }
 
+/**
+ * 枚举校验
+ */
 export function enumValue<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
   return typeof value === "string" && allowed.includes(value as T) ? (value as T) : fallback;
 }
@@ -44,21 +59,43 @@ export function safeErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/**
+ * 从 LLM 输出中鲁棒地解析 JSON 对象
+ */
 export function parseJsonObject(text: string): Record<string, unknown> | null {
-  const normalized = text
+  if (!text) return null;
+
+  // 1. 尝试直接解析
+  try {
+    const direct = JSON.parse(text);
+    if (typeof direct === "object" && direct !== null) return asRecord(direct);
+  } catch {
+    // Continue
+  }
+
+  // 2. 处理 Markdown 代码块
+  let normalized = text
     .trim()
     .replace(/^```(?:json)?/i, "")
     .replace(/```$/i, "")
     .trim();
+
   try {
     return asRecord(JSON.parse(normalized));
   } catch {
-    const match = normalized.match(/\{[\s\S]*\}/);
-    if (!match) return null;
+    // 3. 寻找第一个 { 和最后一个 }
+    const start = normalized.indexOf("{");
+    const end = normalized.lastIndexOf("}");
+    if (start === -1 || end === -1 || end < start) return null;
+
+    const candidate = normalized.slice(start, end + 1);
     try {
-      return asRecord(JSON.parse(match[0]));
+      return asRecord(JSON.parse(candidate));
     } catch {
       return null;
     }
   }
 }
+
+// === Helpers ===
+// No additional helpers needed.

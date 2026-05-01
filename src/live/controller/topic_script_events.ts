@@ -8,4 +8,4 @@ export const TOPIC_SCRIPT_EVENT_TYPES = [
   "topic_script.fallback_used",
 ] as const;
 
-export type TopicScriptEventType = typeof TOPIC_SCRIPT_EVENT_TYPES[number];
+export type TopicScriptEventType = (typeof TOPIC_SCRIPT_EVENT_TYPES)[number];

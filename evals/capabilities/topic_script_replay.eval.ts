@@ -38,10 +38,14 @@ describe("Topic Script Replay Eval", () => {
     await runtime.forceFallback("replay_forced");
 
     const score = summarizeChecks([
-      { ok: intents.some(intent => intent.lane === "topic_hosting"), name: "topic_hosting_started" },
-      { ok: intents.some(intent => intent.lane === "direct_response"), name: "direct_response_interruption" },
-      { ok: runtime.snapshot().fallbackCount === 1, name: "fallback_count", note: `fallback=${runtime.snapshot().fallbackCount}` },
-      { ok: intents.every(intent => intent.cursorId === "topic_script_runtime"), name: "stage_output_only" },
+      { ok: intents.some((intent) => intent.lane === "topic_hosting"), name: "topic_hosting_started" },
+      { ok: intents.some((intent) => intent.lane === "direct_response"), name: "direct_response_interruption" },
+      {
+        ok: runtime.snapshot().fallbackCount === 1,
+        name: "fallback_count",
+        note: `fallback=${runtime.snapshot().fallbackCount}`,
+      },
+      { ok: intents.every((intent) => intent.cursorId === "topic_script_runtime"), name: "stage_output_only" },
     ]);
 
     await recordEvalCase({
@@ -51,7 +55,10 @@ describe("Topic Script Replay Eval", () => {
       model: "deterministic",
       latencyMs: Date.now() - start,
       input: { events: ["question", "forced_fallback"] },
-      output: { runtime: runtime.snapshot(), intents: intents.map(intent => ({ lane: intent.lane, text: intent.text, metadata: intent.metadata })) },
+      output: {
+        runtime: runtime.snapshot(),
+        intents: intents.map((intent) => ({ lane: intent.lane, text: intent.text, metadata: intent.metadata })),
+      },
       score,
     });
     expect(score.passed).toBe(true);

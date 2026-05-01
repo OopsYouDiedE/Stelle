@@ -82,23 +82,26 @@ export function setupRendererControllers(deps: RendererControllerDeps): void {
     readLongTerm: (key, layer) => deps.memory.readLongTerm(key, layer),
     writeLongTerm: (key, value, layer) => deps.memory.writeLongTerm(key, value, layer),
     appendLongTerm: (key, value, layer) => deps.memory.appendLongTerm(key, value, layer),
-    propose: (input) => deps.memory.proposeMemory({
-      authorId: input.authorId ?? "control",
-      source: input.source ?? "control",
-      content: input.content,
-      reason: input.reason,
-      layer: input.layer ?? "user_facts",
-    }),
+    propose: (input) =>
+      deps.memory.proposeMemory({
+        authorId: input.authorId ?? "control",
+        source: input.source ?? "control",
+        content: input.content,
+        reason: input.reason,
+        layer: input.layer ?? "user_facts",
+      }),
     listProposals: (input) => deps.memory.listMemoryProposals(input?.limit, input?.status),
-    approveProposal: (input) => deps.memory.approveMemoryProposal(input.proposalId, {
-      decidedBy: input.decidedBy ?? "control",
-      reason: input.reason,
-      targetKey: input.targetKey,
-    }),
-    rejectProposal: (input) => deps.memory.rejectMemoryProposal(input.proposalId, {
-      decidedBy: input.decidedBy ?? "control",
-      reason: input.reason,
-    }),
+    approveProposal: (input) =>
+      deps.memory.approveMemoryProposal(input.proposalId, {
+        decidedBy: input.decidedBy ?? "control",
+        reason: input.reason,
+        targetKey: input.targetKey,
+      }),
+    rejectProposal: (input) =>
+      deps.memory.rejectMemoryProposal(input.proposalId, {
+        decidedBy: input.decidedBy ?? "control",
+        reason: input.reason,
+      }),
   });
 
   if (!deps.config.debug.enabled) {
@@ -109,8 +112,8 @@ export function setupRendererControllers(deps: RendererControllerDeps): void {
   deps.renderer.setDebugController({
     getSnapshot: async () => {
       const cursors = deps.cursors();
-      deps.state.updateCursors(cursors.map(c => c.snapshot()));
-      const innerCursor = cursors.find(c => c.id === "inner");
+      deps.state.updateCursors(cursors.map((c) => c.snapshot()));
+      const innerCursor = cursors.find((c) => c.id === "inner");
       if (innerCursor) {
         const snapshot = innerCursor.snapshot();
         deps.state.updateStelleCore({
@@ -137,7 +140,7 @@ export function setupRendererControllers(deps: RendererControllerDeps): void {
         renderer: deps.renderer.getStatus(),
         stageOutput: deps.stageOutput.snapshot(),
         deviceAction: deps.deviceAction.snapshot(),
-        tools: deps.tools.list().map(t => ({ name: t.name, authority: t.authority, title: t.title })),
+        tools: deps.tools.list().map((t) => ({ name: t.name, authority: t.authority, title: t.title })),
         audit: deps.tools.audit.slice(-50),
         memory: memorySnapshot,
       };

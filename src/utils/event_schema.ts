@@ -1,4 +1,17 @@
+// === Imports ===
 import { z } from "zod";
+import { DeviceActionIntentSchema } from "../device/action_types.js";
+
+// === Types & Interfaces ===
+export interface BehaviorPolicy {
+  replyBias?: "aggressive" | "normal" | "selective" | "silent";
+  vibeIntensity?: number;
+  focusTopic?: string;
+  forbiddenTopics?: string[];
+  instruction?: string;
+}
+
+// === Core Logic ===
 
 /**
  * 核心元数据 Schema
@@ -7,7 +20,7 @@ export const EventMetadataSchema = z.object({
   id: z.string().describe("唯一事件 ID"),
   timestamp: z.number().describe("时间戳"),
   source: z.string().describe("生产者"),
-  reason: z.string().nullish().describe("原因上下文"), // 使用 nullish 增强兼容性
+  reason: z.string().nullish().describe("原因上下文"),
 });
 
 /**
@@ -25,7 +38,16 @@ export const TickEventSchema = z.union([
  */
 export const ReflectionEventSchema = EventMetadataSchema.extend({
   type: z.literal("cursor.reflection"),
-  source: z.enum(["discord", "discord_text_channel", "live", "live_danmaku", "browser", "desktop_input", "android_device", "system"]),
+  source: z.enum([
+    "discord",
+    "discord_text_channel",
+    "live",
+    "live_danmaku",
+    "browser",
+    "desktop_input",
+    "android_device",
+    "system",
+  ]),
   payload: z.object({
     intent: z.string(),
     summary: z.string(),
@@ -186,7 +208,15 @@ export const LiveRequestEventSchema = EventMetadataSchema.extend({
   }),
 });
 
-const OutputLaneSchema = z.enum(["emergency", "direct_response", "topic_hosting", "live_chat", "ambient", "inner_reaction", "debug"]);
+const OutputLaneSchema = z.enum([
+  "emergency",
+  "direct_response",
+  "topic_hosting",
+  "live_chat",
+  "ambient",
+  "inner_reaction",
+  "debug",
+]);
 const OutputIntentSchema = z.object({
   id: z.string(),
   cursorId: z.string(),
@@ -208,10 +238,12 @@ const OutputIntentSchema = z.object({
     tts: z.boolean().optional(),
     motion: z.string().optional(),
     expression: z.string().optional(),
-    discordReply: z.object({
-      channelId: z.string(),
-      messageId: z.string().optional(),
-    }).optional(),
+    discordReply: z
+      .object({
+        channelId: z.string(),
+        messageId: z.string().optional(),
+      })
+      .optional(),
   }),
   metadata: z.record(z.any()).optional(),
 });
@@ -254,8 +286,6 @@ export const TopicScriptEventSchema = EventMetadataSchema.extend({
   payload: z.record(z.any()),
 });
 
-import { DeviceActionIntentSchema } from "../device/action_types.js";
-
 const DeviceActionEventBaseSchema = EventMetadataSchema.extend({
   source: z.string(),
   payload: z.object({
@@ -283,16 +313,25 @@ export const BehaviorPolicySchema = z.object({
   vibeIntensity: z.number().min(1).max(5).optional(),
   focusTopic: z.string().optional(),
   forbiddenTopics: z.array(z.string()).optional(),
-  instruction: z.string().optional(), // 保留自然语言作为补充
+  instruction: z.string().optional(),
 });
 
 export const DirectiveEventSchema = EventMetadataSchema.extend({
   type: z.literal("cursor.directive"),
   source: z.enum(["inner", "system"]),
   payload: z.object({
-    target: z.enum(["discord", "discord_text_channel", "live", "live_danmaku", "browser", "desktop_input", "android_device", "global"]),
+    target: z.enum([
+      "discord",
+      "discord_text_channel",
+      "live",
+      "live_danmaku",
+      "browser",
+      "desktop_input",
+      "android_device",
+      "global",
+    ]),
     action: z.string(),
-    policy: BehaviorPolicySchema.optional(), // 结构化策略
+    policy: BehaviorPolicySchema.optional(),
     parameters: z.record(z.any()).optional(),
     priority: z.number().default(1),
     expiresAt: z.number().optional(),
@@ -319,7 +358,7 @@ export const StelleEventSchema = z.union([
   TickEventSchema,
   ReflectionEventSchema,
   DiscordMessageEventSchema,
-  LiveEventReceivedSchema, // 新增
+  LiveEventReceivedSchema,
   BrowserObservationReceivedSchema,
   DesktopInputObservationReceivedSchema,
   LiveTopicRequestEventSchema,
@@ -333,5 +372,8 @@ export const StelleEventSchema = z.union([
   SystemEventSchema,
 ]);
 
+// === Types & Interfaces ===
 export type StelleEvent = z.infer<typeof StelleEventSchema>;
 export type StelleEventType = StelleEvent["type"];
+
+// === Helpers ===

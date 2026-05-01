@@ -9,7 +9,7 @@ export class LiveModule implements ModuleRegistrar {
 
   constructor(
     private readonly mode: string,
-    private readonly renderer?: LiveRendererServer
+    private readonly renderer?: LiveRendererServer,
   ) {}
 
   register(services: RuntimeServices): void {
@@ -25,10 +25,16 @@ export class LiveModule implements ModuleRegistrar {
     await this.liveRuntimeServices?.stop();
   }
 
-  get health() { return this.liveRuntimeServices?.health; }
-  get journal() { return this.liveRuntimeServices?.journal; }
-  get topicScripts() { return this.liveRuntimeServices?.topicScripts; }
-  
+  get health() {
+    return this.liveRuntimeServices?.health;
+  }
+  get journal() {
+    return this.liveRuntimeServices?.journal;
+  }
+  get topicScripts() {
+    return this.liveRuntimeServices?.topicScripts;
+  }
+
   runTopicScriptCommand(input: Record<string, unknown>) {
     return this.liveRuntimeServices?.runTopicScriptCommand(input);
   }

@@ -41,7 +41,8 @@ export class LiveControlService {
     const eventId = `${source}-live-${this.deps.now()}`;
     const forceTopic = Boolean(input.forceTopic);
     const directSay = Boolean(input.directSay);
-    const lane = source === "debug" ? "debug" : directSay ? "direct_response" : forceTopic ? "topic_hosting" : "live_chat";
+    const lane =
+      source === "debug" ? "debug" : directSay ? "direct_response" : forceTopic ? "topic_hosting" : "live_chat";
     const decision = await this.deps.stageOutput.propose({
       id: eventId,
       cursorId: source,

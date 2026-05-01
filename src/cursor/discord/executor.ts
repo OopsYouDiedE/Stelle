@@ -1,3 +1,4 @@
+// === Imports ===
 import { CURSOR_CAPABILITIES } from "../capabilities.js";
 import type { ToolAuthority } from "../../tool.js";
 import type { CursorContext } from "../types.js";
@@ -8,8 +9,12 @@ import type { DiscordReplyPolicy, DiscordToolResultView } from "./types.js";
  * 模块：DiscordToolExecutor (执行层)
  * 职责：权限映射、工具链并发执行、参数自动补全(Scope Injection)。
  */
+// === Tool Executor ===
 export class DiscordToolExecutor {
-  constructor(private readonly context: CursorContext, private readonly cursorId: string) {}
+  constructor(
+    private readonly context: CursorContext,
+    private readonly cursorId: string,
+  ) {}
 
   public async execute(
     policy: DiscordReplyPolicy,
@@ -19,7 +24,7 @@ export class DiscordToolExecutor {
     if (!policy.toolPlan || !policy.toolPlan.calls.length) return [];
 
     const allowedAuthority = this.getTrustAuthority(trustLevel);
-    const refinedCalls: CursorToolCall[] = policy.toolPlan.calls.map(call => ({
+    const refinedCalls: CursorToolCall[] = policy.toolPlan.calls.map((call) => ({
       ...call,
       parameters: this.refineParameters(call.tool, call.parameters, discordCtx),
     }));
@@ -38,6 +43,7 @@ export class DiscordToolExecutor {
     }) as Promise<DiscordToolResultView[]>;
   }
 
+  // === Internal Logic ===
   private refineParameters(
     name: string,
     params: Record<string, unknown>,
@@ -62,9 +68,12 @@ export class DiscordToolExecutor {
 
   private getTrustAuthority(trustLevel: string): ToolAuthority[] {
     switch (trustLevel) {
-      case "owner": return ["readonly", "safe_write", "network_read", "external_write"];
-      case "bot": return ["readonly", "network_read"];
-      default: return ["readonly", "network_read"];
+      case "owner":
+        return ["readonly", "safe_write", "network_read", "external_write"];
+      case "bot":
+        return ["readonly", "network_read"];
+      default:
+        return ["readonly", "network_read"];
     }
   }
 }

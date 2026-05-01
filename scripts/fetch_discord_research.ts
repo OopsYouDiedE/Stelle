@@ -1,4 +1,3 @@
-
 import "dotenv/config";
 import { DiscordRuntime } from "../src/utils/discord.js";
 import fs from "node:fs/promises";
@@ -13,7 +12,9 @@ async function run() {
   const startDate = new Date("2026-04-15T00:00:00Z").getTime();
   const endDate = new Date("2026-04-28T23:59:59Z").getTime();
 
-  console.log(`Starting research fetch for channel ${channelId} from ${new Date(startDate).toISOString()} to ${new Date(endDate).toISOString()}`);
+  console.log(
+    `Starting research fetch for channel ${channelId} from ${new Date(startDate).toISOString()} to ${new Date(endDate).toISOString()}`,
+  );
 
   const runtime = new DiscordRuntime();
   await runtime.login(token);
@@ -32,7 +33,7 @@ async function run() {
         before: beforeId ? undefined : undefined, // We need to use the raw client for better pagination if getChannelHistory doesn't expose beforeId
       });
 
-      // Since the existing tool doesn't expose 'before' in its input but the class supports it, 
+      // Since the existing tool doesn't expose 'before' in its input but the class supports it,
       // I'll directly use the client for pagination.
       const discordClient = (runtime as any).client;
       const channel = await discordClient.channels.fetch(channelId);
@@ -56,7 +57,7 @@ async function run() {
             authorName: msg.author.username,
             content: msg.content,
             timestamp: ts,
-            timeStr: new Date(ts).toISOString()
+            timeStr: new Date(ts).toISOString(),
           });
         }
         beforeId = msg.id;
@@ -67,7 +68,7 @@ async function run() {
 
       if (batchCount % 500 === 0) {
         console.log("Cooldown: Waiting 1 second...");
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await new Promise((resolve) => setTimeout(resolve, 1000));
       }
 
       if (fetched.size < 100) {

@@ -10,7 +10,9 @@ describe("WorldCanonStore", () => {
     const store = new WorldCanonStore(file);
 
     const proposal = await store.propose({ title: "档案馆", summary: "观众提出档案馆有管理员" });
-    await expect(store.add({ title: "违规确认", summary: "弹幕直接确认", source: "danmaku_proposal", status: "confirmed" })).rejects.toThrow();
+    await expect(
+      store.add({ title: "违规确认", summary: "弹幕直接确认", source: "danmaku_proposal", status: "confirmed" }),
+    ).rejects.toThrow();
     const confirmed = await store.updateStatus(proposal.id, "confirmed");
 
     expect(proposal.status).toBe("proposed");

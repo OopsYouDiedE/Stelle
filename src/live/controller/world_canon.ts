@@ -20,11 +20,22 @@ export interface WorldCanonEntry {
 export class WorldCanonStore {
   constructor(private readonly filePath = path.resolve("memory/live/world_canon.json")) {}
 
-  async propose(input: { title: string; summary: string; source?: WorldCanonSource; conflictNote?: string }): Promise<WorldCanonEntry> {
+  async propose(input: {
+    title: string;
+    summary: string;
+    source?: WorldCanonSource;
+    conflictNote?: string;
+  }): Promise<WorldCanonEntry> {
     return this.add({ ...input, status: "proposed", source: input.source ?? "danmaku_proposal" });
   }
 
-  async add(input: { title: string; summary: string; status: WorldCanonStatus; source: WorldCanonSource; conflictNote?: string }): Promise<WorldCanonEntry> {
+  async add(input: {
+    title: string;
+    summary: string;
+    status: WorldCanonStatus;
+    source: WorldCanonSource;
+    conflictNote?: string;
+  }): Promise<WorldCanonEntry> {
     if (input.source === "danmaku_proposal" && input.status === "confirmed") {
       throw new Error("Danmaku proposals cannot directly create confirmed canon.");
     }
@@ -47,7 +58,7 @@ export class WorldCanonStore {
 
   async updateStatus(id: string, status: WorldCanonStatus, conflictNote?: string): Promise<WorldCanonEntry | null> {
     const entries = await this.list(1000);
-    const index = entries.findIndex(entry => entry.id === id);
+    const index = entries.findIndex((entry) => entry.id === id);
     if (index < 0) return null;
     const current = entries[index]!;
     const updated: WorldCanonEntry = {
@@ -76,5 +87,5 @@ export class WorldCanonStore {
 }
 
 function nextVersion(entries: WorldCanonEntry[]): number {
-  return Math.max(0, ...entries.map(entry => entry.version)) + 1;
+  return Math.max(0, ...entries.map((entry) => entry.version)) + 1;
 }

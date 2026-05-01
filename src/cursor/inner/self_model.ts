@@ -1,5 +1,14 @@
 import type { SelfModelSnapshot, SelfModelUpdateInput, SelfModelUpdate, ResearchTopic } from "./types.js";
 
+// === Region: Constants ===
+
+const DEFAULT_MAX_CONVICTIONS = 20;
+const MAX_WARNINGS = 10;
+const ALERT_IMPACT_THRESHOLD = 7;
+const WARNING_IMPACT_THRESHOLD = 8;
+
+// === Region: Interfaces ===
+
 export interface SelfModel {
   load(): Promise<SelfModelSnapshot>;
   update(input: SelfModelUpdateInput): Promise<SelfModelUpdate>;
@@ -7,11 +16,13 @@ export interface SelfModel {
   hydrate(snapshot: Partial<SelfModelSnapshot>): void;
 }
 
+// === Region: Default Implementation ===
+
 export class DefaultSelfModel implements SelfModel {
   private state: SelfModelSnapshot;
   private readonly maxConvictions: number;
 
-  constructor(initial?: Partial<SelfModelSnapshot>, maxConvictions = 20) {
+  constructor(initial?: Partial<SelfModelSnapshot>, maxConvictions = DEFAULT_MAX_CONVICTIONS) {
     this.maxConvictions = maxConvictions;
     this.state = {
       mood: "calm",
@@ -21,9 +32,9 @@ export class DefaultSelfModel implements SelfModel {
       styleBias: {
         replyBias: "normal",
         vibeIntensity: 3,
-        preferredTempo: "normal"
+        preferredTempo: "normal",
       },
-      ...initial
+      ...initial,
     };
     this.validateAndDegrade();
   }
@@ -39,10 +50,12 @@ export class DefaultSelfModel implements SelfModel {
   hydrate(snapshot: Partial<SelfModelSnapshot>): void {
     this.state = {
       ...this.state,
-      ...snapshot
+      ...snapshot,
     };
     this.validateAndDegrade();
   }
+
+  // === Region: State Management ===
 
   async update(input: SelfModelUpdateInput): Promise<SelfModelUpdate> {
     const changes: string[] = [];
@@ -55,13 +68,16 @@ export class DefaultSelfModel implements SelfModel {
         if (signal.salience === "high" && this.state.mood !== "alert") {
           this.state.mood = "alert";
           changes.push(`Mood raised to alert due to high salience signal: ${signal.summary}`);
-        } else if (signal.impactScore > 7 && this.state.mood === "calm") {
+        } else if (signal.impactScore > ALERT_IMPACT_THRESHOLD && this.state.mood === "calm") {
           this.state.mood = "tense";
           changes.push(`Mood shifted to tense due to high impact signal: ${signal.summary}`);
         }
 
         // Add warning for sensitive/high impact signals
-        if (signal.impactScore > 8 || (signal.summary && signal.summary.toLowerCase().includes("sensitive"))) {
+        if (
+          signal.impactScore > WARNING_IMPACT_THRESHOLD ||
+          (signal.summary && signal.summary.toLowerCase().includes("sensitive"))
+        ) {
           const warning = `Behavioral caution: ${signal.summary}`;
           if (!this.state.behavioralWarnings.includes(warning)) {
             this.state.behavioralWarnings.push(warning);
@@ -92,82 +108,81 @@ export class DefaultSelfModel implements SelfModel {
     // Cap and Clamp
     this.validateAndDegrade();
 
-    if (this.state.mood !== prevMood && !changes.some(c => c.includes("Mood"))) {
+    if (this.state.mood !== prevMood && !changes.some((c) => c.includes("Mood"))) {
       changes.push(`Mood changed from ${prevMood} to ${this.state.mood}`);
     }
 
     return {
       snapshot: { ...this.state },
-      changes
+      changes,
     };
   }
 
   private applyTopicToConviction(topic: ResearchTopic, changes: string[]): void {
-    const existingIndex = this.state.activeConvictions.findIndex(c => c.topic === topic.title);
-    
-    if (existingIndex >= 0) {
-      const conviction = this.state.activeConvictions[existingIndex];
-      const oldConfidence = conviction.confidence;
-      conviction.confidence = Math.min(1, conviction.confidence + 0.1);
-      if (conviction.confidence !== oldConfidence) {
-        changes.push(`Increased conviction confidence for "${topic.title}" to ${conviction.confidence.toFixed(2)}`);
+    const existingConviction = this.state.activeConvictions.find((c) => c.topic === topic.title);
+
+    if (existingConviction) {
+      const oldConfidence = existingConviction.confidence;
+      existingConviction.confidence = Math.min(1, existingConviction.confidence + 0.1);
+      if (existingConviction.confidence !== oldConfidence) {
+        changes.push(
+          `Increased conviction confidence for "${topic.title}" to ${existingConviction.confidence.toFixed(2)}`,
+        );
       }
     } else {
       this.state.activeConvictions.push({
         topic: topic.title,
         stance: topic.provisionalFindings?.[0] || "Exploring this theme.",
-        confidence: Math.max(0, Math.min(1, topic.confidence || 0.1))
+        confidence: Math.max(0, Math.min(1, topic.confidence || 0.1)),
       });
       changes.push(`Formed new conviction: ${topic.title}`);
     }
   }
 
+  // === Region: Validation & Maintenance ===
+
   private validateAndDegrade(): void {
     if (typeof this.state.mood !== "string" || !this.state.mood.trim()) {
       this.state.mood = "calm";
     }
-    if (typeof this.state.currentFocus !== "string") {
-      this.state.currentFocus = "";
-    }
+    this.state.currentFocus = typeof this.state.currentFocus === "string" ? this.state.currentFocus : "";
+
     if (!Array.isArray(this.state.activeConvictions)) {
       this.state.activeConvictions = [];
     }
     if (!Array.isArray(this.state.behavioralWarnings)) {
       this.state.behavioralWarnings = [];
     }
+
+    // 1. Clean and Clamp Convictions
     this.state.activeConvictions = this.state.activeConvictions
-      .filter(c => c && typeof c.topic === "string" && typeof c.stance === "string")
-      .map(c => ({
+      .filter((c) => c && typeof c.topic === "string" && typeof c.stance === "string")
+      .map((c) => ({
         topic: c.topic,
         stance: c.stance,
-        confidence: typeof c.confidence === "number" ? c.confidence : 0.1
+        confidence: Math.max(0, Math.min(1, typeof c.confidence === "number" ? c.confidence : 0.1)),
       }));
-    this.state.behavioralWarnings = this.state.behavioralWarnings
-      .filter(w => typeof w === "string" && w.trim().length > 0);
 
-    // Clamp confidence
-    for (const c of this.state.activeConvictions) {
-      c.confidence = Math.max(0, Math.min(1, c.confidence));
-    }
-
-    // Cap convictions
     if (this.state.activeConvictions.length > this.maxConvictions) {
-      // Sort by confidence and keep top ones
       this.state.activeConvictions.sort((a, b) => b.confidence - a.confidence);
       this.state.activeConvictions = this.state.activeConvictions.slice(0, this.maxConvictions);
     }
 
-    // Limit warnings
-    if (this.state.behavioralWarnings.length > 10) {
-      this.state.behavioralWarnings = this.state.behavioralWarnings.slice(-10);
+    // 2. Clean and Limit Warnings
+    this.state.behavioralWarnings = this.state.behavioralWarnings.filter(
+      (w) => typeof w === "string" && w.trim().length > 0,
+    );
+
+    if (this.state.behavioralWarnings.length > MAX_WARNINGS) {
+      this.state.behavioralWarnings = this.state.behavioralWarnings.slice(-MAX_WARNINGS);
     }
 
-    // Ensure styleBias defaults
+    // 3. Ensure styleBias defaults
     if (!this.state.styleBias) {
       this.state.styleBias = {
         replyBias: "normal",
         vibeIntensity: 3,
-        preferredTempo: "normal"
+        preferredTempo: "normal",
       };
     }
   }

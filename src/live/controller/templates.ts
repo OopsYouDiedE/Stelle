@@ -95,9 +95,9 @@ export const PROGRAM_TEMPLATES: ProgramTemplate[] = [
 ];
 
 export function getProgramTemplate(id: string | undefined): ProgramTemplate {
-  return PROGRAM_TEMPLATES.find(template => template.id === id) ?? PROGRAM_TEMPLATES[0]!;
+  return PROGRAM_TEMPLATES.find((template) => template.id === id) ?? PROGRAM_TEMPLATES[0]!;
 }
 
 export function isTemplateTopicAllowed(template: ProgramTemplate, text: string): boolean {
-  return !template.excludedTopics.some(topic => text.includes(topic));
+  return !template.excludedTopics.some((topic) => text.includes(topic));
 }

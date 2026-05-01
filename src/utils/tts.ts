@@ -11,9 +11,13 @@
  * - `DashScopeTtsProvider`：阿里云百炼 Qwen-TTS 实现。
  * - `synthesizeToFiles()`：文本到音频 artifact 的主入口。
  */
+
+// === Imports ===
 import fs from "node:fs/promises";
 import path from "node:path";
 import mime from "mime";
+
+// === Types & Interfaces ===
 
 export type TtsProviderName = "kokoro" | "dashscope";
 
@@ -48,6 +52,11 @@ export interface StreamingTtsProvider {
   synthesizeTextStream(chunks: AsyncIterable<string>, options?: TtsSynthesisOptions): Promise<TtsStreamArtifact[]>;
 }
 
+// === Core Logic ===
+
+/**
+ * Kokoro TTS 服务提供商
+ */
 export class KokoroTtsProvider implements StreamingTtsProvider {
   private readonly baseUrl: string;
   private readonly endpointPath: string;
@@ -57,7 +66,17 @@ export class KokoroTtsProvider implements StreamingTtsProvider {
   private readonly responseFormat: string;
   private readonly outputDir: string;
 
-  constructor(options: { baseUrl?: string; endpointPath?: string; apiKey?: string; model?: string; voiceName?: string; responseFormat?: string; outputDir?: string } = {}) {
+  constructor(
+    options: {
+      baseUrl?: string;
+      endpointPath?: string;
+      apiKey?: string;
+      model?: string;
+      voiceName?: string;
+      responseFormat?: string;
+      outputDir?: string;
+    } = {},
+  ) {
     this.baseUrl = (options.baseUrl ?? process.env.KOKORO_TTS_BASE_URL ?? "http://127.0.0.1:8880").replace(/\/+$/, "");
     this.endpointPath = options.endpointPath ?? process.env.KOKORO_TTS_ENDPOINT_PATH ?? "/v1/audio/speech";
     this.apiKey = options.apiKey ?? process.env.KOKORO_TTS_API_KEY;
@@ -71,18 +90,25 @@ export class KokoroTtsProvider implements StreamingTtsProvider {
     return this.synthesizeTextStream(single(text), options);
   }
 
-  async synthesizeTextStream(chunks: AsyncIterable<string>, options?: TtsSynthesisOptions): Promise<TtsStreamArtifact[]> {
+  async synthesizeTextStream(
+    chunks: AsyncIterable<string>,
+    options?: TtsSynthesisOptions,
+  ): Promise<TtsStreamArtifact[]> {
     const artifacts: TtsStreamArtifact[] = [];
     let index = 0;
     for await (const chunk of chunks) {
       const text = chunk.trim();
       if (!text) continue;
-      artifacts.push(await this.writeAudio(await this.requestSpeech(text, options), text, index++, options));
+      const speech = await this.requestSpeech(text, options);
+      artifacts.push(await this.writeAudio(speech, text, index++, options));
     }
     return artifacts;
   }
 
-  private async requestSpeech(text: string, options?: TtsSynthesisOptions): Promise<{ buffer: Buffer; mimeType: string }> {
+  private async requestSpeech(
+    text: string,
+    options?: TtsSynthesisOptions,
+  ): Promise<{ buffer: Buffer; mimeType: string }> {
     const responseFormat = this.responseFormat;
     const response = await fetch(`${this.baseUrl}${withLeadingSlash(this.endpointPath)}`, {
       method: "POST",
@@ -91,13 +117,15 @@ export class KokoroTtsProvider implements StreamingTtsProvider {
         accept: responseFormat === "mp3" ? "audio/mpeg" : `audio/${responseFormat}`,
         ...(this.apiKey ? { authorization: `Bearer ${this.apiKey}` } : {}),
       },
-      body: JSON.stringify(buildKokoroSpeechRequest(text, {
-        model: options?.model ?? this.model,
-        voiceName: options?.voiceName ?? this.voiceName,
-        responseFormat,
-        speed: options?.speed,
-        language: options?.language,
-      })),
+      body: JSON.stringify(
+        buildKokoroSpeechRequest(text, {
+          model: options?.model ?? this.model,
+          voiceName: options?.voiceName ?? this.voiceName,
+          responseFormat,
+          speed: options?.speed,
+          language: options?.language,
+        }),
+      ),
     });
     if (!response.ok) {
       const detail = await response.text().catch(() => "");
@@ -107,7 +135,12 @@ export class KokoroTtsProvider implements StreamingTtsProvider {
     return { buffer: Buffer.from(await response.arrayBuffer()), mimeType };
   }
 
-  private async writeAudio(audio: { buffer: Buffer; mimeType: string }, text: string, index: number, options?: TtsSynthesisOptions): Promise<TtsStreamArtifact> {
+  private async writeAudio(
+    audio: { buffer: Buffer; mimeType: string },
+    text: string,
+    index: number,
+    options?: TtsSynthesisOptions,
+  ): Promise<TtsStreamArtifact> {
     const outputDir = path.resolve(options?.outputDir ?? this.outputDir);
     await fs.mkdir(outputDir, { recursive: true });
     const extension = mime.getExtension(audio.mimeType) ?? this.responseFormat;
@@ -118,6 +151,9 @@ export class KokoroTtsProvider implements StreamingTtsProvider {
   }
 }
 
+/**
+ * 阿里云 DashScope (Qwen-TTS) 服务提供商
+ */
 export class DashScopeTtsProvider implements StreamingTtsProvider {
   private readonly baseUrl: string;
   private readonly endpointPath: string;
@@ -129,19 +165,29 @@ export class DashScopeTtsProvider implements StreamingTtsProvider {
   private readonly optimizeInstructions: boolean;
   private readonly outputDir: string;
 
-  constructor(options: {
-    baseUrl?: string;
-    endpointPath?: string;
-    apiKey?: string;
-    model?: string;
-    voiceName?: string;
-    languageType?: string;
-    instructions?: string;
-    optimizeInstructions?: boolean;
-    outputDir?: string;
-  } = {}) {
-    this.baseUrl = (options.baseUrl ?? process.env.DASHSCOPE_BASE_HTTP_API_URL ?? process.env.DASHSCOPE_BASE_URL ?? "https://dashscope.aliyuncs.com/api/v1").replace(/\/+$/, "");
-    this.endpointPath = options.endpointPath ?? process.env.DASHSCOPE_TTS_ENDPOINT_PATH ?? "/services/aigc/multimodal-generation/generation";
+  constructor(
+    options: {
+      baseUrl?: string;
+      endpointPath?: string;
+      apiKey?: string;
+      model?: string;
+      voiceName?: string;
+      languageType?: string;
+      instructions?: string;
+      optimizeInstructions?: boolean;
+      outputDir?: string;
+    } = {},
+  ) {
+    this.baseUrl = (
+      options.baseUrl ??
+      process.env.DASHSCOPE_BASE_HTTP_API_URL ??
+      process.env.DASHSCOPE_BASE_URL ??
+      "https://dashscope.aliyuncs.com/api/v1"
+    ).replace(/\/+$/, "");
+    this.endpointPath =
+      options.endpointPath ??
+      process.env.DASHSCOPE_TTS_ENDPOINT_PATH ??
+      "/services/aigc/multimodal-generation/generation";
     this.apiKey = options.apiKey ?? process.env.DASHSCOPE_API_KEY;
     this.model = options.model ?? process.env.QWEN_TTS_MODEL ?? "qwen3-tts-instruct-flash";
     this.voiceName = options.voiceName ?? process.env.QWEN_TTS_VOICE ?? "Cherry";
@@ -155,18 +201,23 @@ export class DashScopeTtsProvider implements StreamingTtsProvider {
     return this.synthesizeTextStream(single(text), options);
   }
 
-  async synthesizeTextStream(chunks: AsyncIterable<string>, options?: TtsSynthesisOptions): Promise<TtsStreamArtifact[]> {
+  async synthesizeTextStream(
+    chunks: AsyncIterable<string>,
+    options?: TtsSynthesisOptions,
+  ): Promise<TtsStreamArtifact[]> {
     const artifacts: TtsStreamArtifact[] = [];
     let index = 0;
     for await (const chunk of chunks) {
       const text = chunk.trim();
       if (!text) continue;
       const audio = await this.requestSpeech(text, options);
-      artifacts.push(await writeAudioArtifact(audio, text, index++, {
-        outputDir: options?.outputDir ?? this.outputDir,
-        filePrefix: options?.filePrefix ?? "qwen-tts",
-        fallbackExtension: "wav",
-      }));
+      artifacts.push(
+        await writeAudioArtifact(audio, text, index++, {
+          outputDir: options?.outputDir ?? this.outputDir,
+          filePrefix: options?.filePrefix ?? "qwen-tts",
+          fallbackExtension: "wav",
+        }),
+      );
     }
     return artifacts;
   }
@@ -193,6 +244,9 @@ export class DashScopeTtsProvider implements StreamingTtsProvider {
   }
 }
 
+/**
+ * 工厂方法：根据配置创建提供商
+ */
 export function createConfiguredTtsProvider(): StreamingTtsProvider {
   return getConfiguredTtsProviderName() === "dashscope" ? new DashScopeTtsProvider() : new KokoroTtsProvider();
 }
@@ -203,17 +257,22 @@ export function getConfiguredTtsProviderName(): TtsProviderName {
 
 export function normalizeTtsProvider(value: string): TtsProviderName {
   const normalized = value.trim().toLowerCase();
-  if (normalized === "dashscope" || normalized === "qwen" || normalized === "qwen-tts" || normalized === "aliyun") return "dashscope";
+  if (normalized === "dashscope" || normalized === "qwen" || normalized === "qwen-tts" || normalized === "aliyun")
+    return "dashscope";
   return "kokoro";
 }
 
+/**
+ * 为直播 Renderer 构建代理请求
+ */
 export function buildLiveTtsRequest(text: string, options: TtsSynthesisOptions = {}): LiveTtsRequest {
   const provider = getConfiguredTtsProviderName();
   if (provider === "dashscope") {
     return {
       provider,
       request: buildDashScopeSpeechRequest(text, {
-        model: options.model ?? process.env.QWEN_TTS_LIVE_MODEL ?? process.env.QWEN_TTS_MODEL ?? "qwen3-tts-instruct-flash",
+        model:
+          options.model ?? process.env.QWEN_TTS_LIVE_MODEL ?? process.env.QWEN_TTS_MODEL ?? "qwen3-tts-instruct-flash",
         voiceName: options.voiceName ?? process.env.QWEN_TTS_VOICE ?? "Cherry",
         language: options.language ?? process.env.QWEN_TTS_LANGUAGE_TYPE ?? "Chinese",
         instructions: options.instructions ?? process.env.QWEN_TTS_INSTRUCTIONS ?? defaultLiveTtsInstructions(),
@@ -235,13 +294,18 @@ export function buildLiveTtsRequest(text: string, options: TtsSynthesisOptions =
   };
 }
 
+/**
+ * 拉取直播 TTS 音频
+ */
 export async function fetchLiveTtsAudio(provider: string, request: Record<string, unknown>): Promise<Response> {
   const normalized = normalizeTtsProvider(provider);
   const cacheKey = `${normalized}:${JSON.stringify(request)}`;
   const cached = liveTtsCache.get(cacheKey);
+
   if (cached && Date.now() - cached.createdAt < liveTtsCacheTtlMs()) {
     return new Response(toExactArrayBuffer(cached.bytes), { headers: { "content-type": cached.mimeType } });
   }
+
   if (normalized === "dashscope") {
     const apiKey = process.env.DASHSCOPE_API_KEY;
     if (!apiKey) throw new Error("Missing DASHSCOPE_API_KEY for DashScope Qwen-TTS.");
@@ -250,13 +314,20 @@ export async function fetchLiveTtsAudio(provider: string, request: Record<string
   return cacheResponse(cacheKey, await fetchKokoroAudio(request));
 }
 
-export function buildKokoroSpeechRequest(text: string, options: {
-  model: string;
-  voiceName: string;
-  responseFormat: string;
-  speed?: number;
-  language?: string;
-}): Record<string, unknown> {
+// === Helpers ===
+
+const liveTtsCache = new Map<string, { bytes: Uint8Array; mimeType: string; createdAt: number }>();
+
+export function buildKokoroSpeechRequest(
+  text: string,
+  options: {
+    model: string;
+    voiceName: string;
+    responseFormat: string;
+    speed?: number;
+    language?: string;
+  },
+): Record<string, unknown> {
   return {
     model: options.model,
     input: text,
@@ -267,14 +338,17 @@ export function buildKokoroSpeechRequest(text: string, options: {
   };
 }
 
-export function buildDashScopeSpeechRequest(text: string, options: {
-  model: string;
-  voiceName: string;
-  language: string;
-  instructions?: string;
-  optimizeInstructions?: boolean;
-  stream?: boolean;
-}): Record<string, unknown> {
+export function buildDashScopeSpeechRequest(
+  text: string,
+  options: {
+    model: string;
+    voiceName: string;
+    language: string;
+    instructions?: string;
+    optimizeInstructions?: boolean;
+    stream?: boolean;
+  },
+): Record<string, unknown> {
   const instructModel = options.model.includes("instruct");
   return {
     model: options.model,
@@ -283,7 +357,9 @@ export function buildDashScopeSpeechRequest(text: string, options: {
       voice: options.voiceName,
       language_type: options.language,
       ...(instructModel && options.instructions ? { instructions: options.instructions } : {}),
-      ...(instructModel && typeof options.optimizeInstructions === "boolean" ? { optimize_instructions: options.optimizeInstructions } : {}),
+      ...(instructModel && typeof options.optimizeInstructions === "boolean"
+        ? { optimize_instructions: options.optimizeInstructions }
+        : {}),
     },
     ...(options.stream ? { parameters: { stream: true } } : {}),
   };
@@ -294,20 +370,34 @@ async function fetchKokoroAudio(request: Record<string, unknown>): Promise<Respo
   const endpointPath = process.env.KOKORO_TTS_ENDPOINT_PATH ?? "/v1/audio/speech";
   const headers: Record<string, string> = { "content-type": "application/json" };
   if (process.env.KOKORO_TTS_API_KEY) headers.authorization = `Bearer ${process.env.KOKORO_TTS_API_KEY}`;
+
   const response = await fetch(`${baseUrl}${withLeadingSlash(endpointPath)}`, {
     method: "POST",
     headers,
     body: JSON.stringify(request),
     signal: AbortSignal.timeout(liveTtsTimeoutMs()),
   });
+
   if (!response.ok) throw new Error(`Kokoro TTS failed: ${response.status} ${response.statusText}`);
   return response;
 }
 
-async function fetchDashScopeAudio(request: Record<string, unknown>, options: { baseUrl?: string; endpointPath?: string; apiKey: string }): Promise<Response> {
-  const baseUrl = (options.baseUrl ?? process.env.DASHSCOPE_BASE_HTTP_API_URL ?? process.env.DASHSCOPE_BASE_URL ?? "https://dashscope.aliyuncs.com/api/v1").replace(/\/+$/, "");
-  const endpointPath = options.endpointPath ?? process.env.DASHSCOPE_TTS_ENDPOINT_PATH ?? "/services/aigc/multimodal-generation/generation";
+async function fetchDashScopeAudio(
+  request: Record<string, unknown>,
+  options: { baseUrl?: string; endpointPath?: string; apiKey: string },
+): Promise<Response> {
+  const baseUrl = (
+    options.baseUrl ??
+    process.env.DASHSCOPE_BASE_HTTP_API_URL ??
+    process.env.DASHSCOPE_BASE_URL ??
+    "https://dashscope.aliyuncs.com/api/v1"
+  ).replace(/\/+$/, "");
+  const endpointPath =
+    options.endpointPath ??
+    process.env.DASHSCOPE_TTS_ENDPOINT_PATH ??
+    "/services/aigc/multimodal-generation/generation";
   const stream = Boolean((request.parameters as Record<string, unknown> | undefined)?.stream);
+
   const response = await fetch(`${baseUrl}${withLeadingSlash(endpointPath)}`, {
     method: "POST",
     headers: {
@@ -318,6 +408,7 @@ async function fetchDashScopeAudio(request: Record<string, unknown>, options: { 
     body: JSON.stringify(request),
     signal: AbortSignal.timeout(liveTtsTimeoutMs()),
   });
+
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
     throw new Error(`DashScope Qwen-TTS failed with ${response.status}: ${detail || response.statusText}`);
@@ -333,34 +424,38 @@ async function fetchDashScopeAudio(request: Record<string, unknown>, options: { 
     });
   }
 
-  const payload = await response.json() as Record<string, any>;
+  const payload = (await response.json()) as Record<string, any>;
   const audio = payload?.output?.audio;
   const audioUrl = typeof audio?.url === "string" ? audio.url : undefined;
+
   if (audioUrl) {
     const audioResponse = await fetch(audioUrl, { signal: AbortSignal.timeout(liveTtsTimeoutMs()) });
-    if (!audioResponse.ok) throw new Error(`DashScope audio download failed: ${audioResponse.status} ${audioResponse.statusText}`);
+    if (!audioResponse.ok)
+      throw new Error(`DashScope audio download failed: ${audioResponse.status} ${audioResponse.statusText}`);
     return audioResponse;
   }
+
   if (typeof audio?.data === "string") {
     const data = Buffer.from(audio.data, "base64");
     return new Response(toExactArrayBuffer(data), {
       headers: { "content-type": "audio/wav" },
     });
   }
+
   throw new Error("DashScope Qwen-TTS response did not include output.audio.url or output.audio.data.");
 }
-
-const liveTtsCache = new Map<string, { bytes: Uint8Array; mimeType: string; createdAt: number }>();
 
 async function cacheResponse(cacheKey: string, response: Response): Promise<Response> {
   const bytes = new Uint8Array(await response.arrayBuffer());
   const mimeType = response.headers.get("content-type")?.split(";")[0]?.trim() || "audio/wav";
+
   liveTtsCache.set(cacheKey, { bytes, mimeType, createdAt: Date.now() });
   while (liveTtsCache.size > liveTtsCacheMaxEntries()) {
     const oldest = liveTtsCache.keys().next().value;
     if (!oldest) break;
     liveTtsCache.delete(oldest);
   }
+
   return new Response(toExactArrayBuffer(bytes), { status: response.status, headers: { "content-type": mimeType } });
 }
 
@@ -391,7 +486,7 @@ function parseDashScopeSsePcm(text: string): Buffer {
       const audioData = payload?.output?.audio?.data;
       if (typeof audioData === "string" && audioData) chunks.push(Buffer.from(audioData, "base64"));
     } catch {
-      // Ignore keepalive or malformed SSE lines from intermediary proxies.
+      // Ignore keepalive or malformed SSE lines
     }
   }
   return Buffer.concat(chunks);
@@ -419,11 +514,16 @@ function toExactArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 }
 
-async function writeAudioArtifact(audio: { buffer: Buffer; mimeType: string }, text: string, index: number, options: {
-  outputDir: string;
-  filePrefix: string;
-  fallbackExtension: string;
-}): Promise<TtsStreamArtifact> {
+async function writeAudioArtifact(
+  audio: { buffer: Buffer; mimeType: string },
+  text: string,
+  index: number,
+  options: {
+    outputDir: string;
+    filePrefix: string;
+    fallbackExtension: string;
+  },
+): Promise<TtsStreamArtifact> {
   const outputDir = path.resolve(options.outputDir);
   await fs.mkdir(outputDir, { recursive: true });
   const extension = mime.getExtension(audio.mimeType) ?? options.fallbackExtension;

@@ -42,7 +42,9 @@ export class DesktopInputDriver implements DeviceActionDriver {
           desktopPrelude(),
           point ? `[NativeInput]::SetCursorPos(${point.x}, ${point.y}) | Out-Null` : "",
           mouseCommand(intent.actionKind),
-        ].filter(Boolean).join("\n");
+        ]
+          .filter(Boolean)
+          .join("\n");
         await this.runPowerShell(script);
         return { resourceKind: this.resourceKind, actionKind: intent.actionKind, ...point };
       }
@@ -51,16 +53,19 @@ export class DesktopInputDriver implements DeviceActionDriver {
         const startY = asNumber(payload.startY);
         const endX = asNumber(payload.endX);
         const endY = asNumber(payload.endY);
-        if ([startX, startY, endX, endY].some(v => v === undefined)) throw new Error("drag requires startX/startY/endX/endY.");
-        await this.runPowerShell([
-          desktopPrelude(),
-          `[NativeInput]::SetCursorPos(${startX}, ${startY}) | Out-Null`,
-          "[NativeInput]::MouseEvent(0x0002)",
-          "Start-Sleep -Milliseconds 80",
-          `[NativeInput]::SetCursorPos(${endX}, ${endY}) | Out-Null`,
-          "Start-Sleep -Milliseconds 80",
-          "[NativeInput]::MouseEvent(0x0004)",
-        ].join("\n"));
+        if ([startX, startY, endX, endY].some((v) => v === undefined))
+          throw new Error("drag requires startX/startY/endX/endY.");
+        await this.runPowerShell(
+          [
+            desktopPrelude(),
+            `[NativeInput]::SetCursorPos(${startX}, ${startY}) | Out-Null`,
+            "[NativeInput]::MouseEvent(0x0002)",
+            "Start-Sleep -Milliseconds 80",
+            `[NativeInput]::SetCursorPos(${endX}, ${endY}) | Out-Null`,
+            "Start-Sleep -Milliseconds 80",
+            "[NativeInput]::MouseEvent(0x0004)",
+          ].join("\n"),
+        );
         return { resourceKind: this.resourceKind, actionKind: intent.actionKind, startX, startY, endX, endY };
       }
       case "type": {
@@ -78,7 +83,9 @@ export class DesktopInputDriver implements DeviceActionDriver {
       case "key_up": {
         const key = asString(payload.key);
         if (!key) throw new Error(`${intent.actionKind} requires payload.key.`);
-        await this.runPowerShell(`${desktopPrelude()}\nSend-Key ${psString(key)} ${intent.actionKind === "key_down" ? "$true" : "$false"}`);
+        await this.runPowerShell(
+          `${desktopPrelude()}\nSend-Key ${psString(key)} ${intent.actionKind === "key_down" ? "$true" : "$false"}`,
+        );
         return { resourceKind: this.resourceKind, actionKind: intent.actionKind, key };
       }
       case "scroll": {
@@ -115,7 +122,7 @@ function execPowerShell(script: string, timeoutMs: number): Promise<string> {
           return;
         }
         resolve(stdout);
-      }
+      },
     );
   });
 }

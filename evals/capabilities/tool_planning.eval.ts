@@ -2,7 +2,13 @@ import { describe, expect, it } from "vitest";
 import { hasEvalLlmKeys, evalModelLabel, makeEvalLlm } from "../utils/env.js";
 import { loadEvalCases } from "../utils/dataset.js";
 import { recordEvalCase } from "../utils/report.js";
-import { forbiddenTools, maybeAssertScore, requiredFields, STAGE_OWNED_LIVE_TOOLS, summarizeChecks } from "../utils/scoring.js";
+import {
+  forbiddenTools,
+  maybeAssertScore,
+  requiredFields,
+  STAGE_OWNED_LIVE_TOOLS,
+  summarizeChecks,
+} from "../utils/scoring.js";
 
 describe.skipIf(!hasEvalLlmKeys())("Tool Planning Capability Eval", () => {
   it("scores safe tool selection from curated cases", async () => {
@@ -23,23 +29,27 @@ describe.skipIf(!hasEvalLlmKeys())("Tool Planning Capability Eval", () => {
           `Case input:\n${JSON.stringify(evalCase.input, null, 2)}`,
         ].join("\n\n"),
         "tool_planning_eval",
-        raw => {
+        (raw) => {
           const value = asRecord(raw);
           return {
             shouldUseTools: Boolean(value.shouldUseTools ?? value.should_use_tools),
             calls: Array.isArray(value.calls)
-              ? value.calls.map(call => ({ tool: String(asRecord(call).tool || ""), parameters: asRecord(asRecord(call).parameters) }))
+              ? value.calls.map((call) => ({
+                  tool: String(asRecord(call).tool || ""),
+                  parameters: asRecord(asRecord(call).parameters),
+                }))
               : [],
             reason: String(value.reason || ""),
           };
         },
-        { role: "primary", temperature: 0.1, maxOutputTokens: 4096 }
+        { role: "primary", temperature: 0.1, maxOutputTokens: 4096 },
       );
 
       const expectedForbidden = Array.isArray(evalCase.expected.forbiddenTools)
         ? evalCase.expected.forbiddenTools.map(String)
         : [];
-      const requiredTool = typeof evalCase.expected.requiredTool === "string" ? evalCase.expected.requiredTool : undefined;
+      const requiredTool =
+        typeof evalCase.expected.requiredTool === "string" ? evalCase.expected.requiredTool : undefined;
       const requiredAnyTool = Array.isArray(evalCase.expected.requiredAnyTool)
         ? evalCase.expected.requiredAnyTool.map(String)
         : [];
@@ -47,17 +57,23 @@ describe.skipIf(!hasEvalLlmKeys())("Tool Planning Capability Eval", () => {
         ...requiredFields(result, ["shouldUseTools", "calls", "reason"]),
         forbiddenTools(result.calls, [...STAGE_OWNED_LIVE_TOOLS, ...expectedForbidden]),
         {
-          ok: !requiredTool || result.calls.some(call => call.tool === requiredTool),
+          ok: !requiredTool || result.calls.some((call) => call.tool === requiredTool),
           name: "required_tool",
-          note: requiredTool ? `required=${requiredTool}; actual=${result.calls.map(c => c.tool).join(",")}` : undefined,
+          note: requiredTool
+            ? `required=${requiredTool}; actual=${result.calls.map((c) => c.tool).join(",")}`
+            : undefined,
         },
         {
-          ok: requiredAnyTool.length === 0 || result.calls.some(call => requiredAnyTool.includes(call.tool)),
+          ok: requiredAnyTool.length === 0 || result.calls.some((call) => requiredAnyTool.includes(call.tool)),
           name: "required_any_tool",
-          note: requiredAnyTool.length ? `requiredAny=${requiredAnyTool.join(",")}; actual=${result.calls.map(c => c.tool).join(",")}` : undefined,
+          note: requiredAnyTool.length
+            ? `requiredAny=${requiredAnyTool.join(",")}; actual=${result.calls.map((c) => c.tool).join(",")}`
+            : undefined,
         },
         {
-          ok: evalCase.expected.shouldUseTools === undefined || result.shouldUseTools === evalCase.expected.shouldUseTools,
+          ok:
+            evalCase.expected.shouldUseTools === undefined ||
+            result.shouldUseTools === evalCase.expected.shouldUseTools,
           name: "expected_should_use_tools",
           note: `shouldUseTools=${result.shouldUseTools}`,
         },
@@ -80,5 +96,5 @@ describe.skipIf(!hasEvalLlmKeys())("Tool Planning Capability Eval", () => {
 });
 
 function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" ? value as Record<string, unknown> : {};
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 }

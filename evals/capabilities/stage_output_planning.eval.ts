@@ -2,9 +2,22 @@ import { describe, expect, it } from "vitest";
 import { hasEvalLlmKeys, evalModelLabel, makeEvalLlm } from "../utils/env.js";
 import { loadEvalCases } from "../utils/dataset.js";
 import { recordEvalCase } from "../utils/report.js";
-import { forbiddenStrings, maybeAssertScore, requiredFields, summarizeChecks, type CheckResult } from "../utils/scoring.js";
+import {
+  forbiddenStrings,
+  maybeAssertScore,
+  requiredFields,
+  summarizeChecks,
+  type CheckResult,
+} from "../utils/scoring.js";
 
-type StageLane = "emergency" | "direct_response" | "topic_hosting" | "live_chat" | "ambient" | "inner_reaction" | "debug";
+type StageLane =
+  | "emergency"
+  | "direct_response"
+  | "topic_hosting"
+  | "live_chat"
+  | "ambient"
+  | "inner_reaction"
+  | "debug";
 type StageSalience = "low" | "medium" | "high" | "critical";
 type StageInterrupt = "none" | "soft" | "hard";
 
@@ -58,11 +71,19 @@ describe.skipIf(!hasEvalLlmKeys())("Stage Output Planning LLM Eval", () => {
         ].join("\n\n"),
         "stage_output_planning_eval",
         normalizeStageOutputPlan,
-        { role: "primary", temperature: 0.1, maxOutputTokens: 4096 }
+        { role: "primary", temperature: 0.1, maxOutputTokens: 4096 },
       );
 
       const score = summarizeChecks([
-        ...requiredFields(result as unknown as Record<string, unknown>, ["lane", "priority", "salience", "interrupt", "text", "reason", "output"]),
+        ...requiredFields(result as unknown as Record<string, unknown>, [
+          "lane",
+          "priority",
+          "salience",
+          "interrupt",
+          "text",
+          "reason",
+          "output",
+        ]),
         ...expectedStageChecks(result, evalCase.expected),
         forbiddenStrings(JSON.stringify(result), evalCase.expected.forbiddenStrings, "stage_output_plan"),
       ]);
@@ -87,7 +108,11 @@ function normalizeStageOutputPlan(raw: unknown): StageOutputPlan {
   const value = asRecord(raw);
   const output = asRecord(value.output);
   return {
-    lane: enumString(value.lane, ["emergency", "direct_response", "topic_hosting", "live_chat", "ambient", "inner_reaction", "debug"], "ambient"),
+    lane: enumString(
+      value.lane,
+      ["emergency", "direct_response", "topic_hosting", "live_chat", "ambient", "inner_reaction", "debug"],
+      "ambient",
+    ),
     priority: Number(value.priority || 0),
     salience: enumString(value.salience, ["low", "medium", "high", "critical"], "low"),
     interrupt: enumString(value.interrupt, ["none", "soft", "hard"], "none"),
@@ -154,7 +179,7 @@ function match(name: string, actual: unknown, expected: unknown): CheckResult {
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
 function stringOrUndefined(value: unknown): string | undefined {
@@ -166,5 +191,5 @@ function booleanOrUndefined(value: unknown): boolean | undefined {
 }
 
 function enumString<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
-  return typeof value === "string" && allowed.includes(value as T) ? value as T : fallback;
+  return typeof value === "string" && allowed.includes(value as T) ? (value as T) : fallback;
 }

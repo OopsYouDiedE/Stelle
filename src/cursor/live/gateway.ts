@@ -1,7 +1,15 @@
+// === Imports ===
 import { moderateLiveEvent, normalizeLiveEvent, type NormalizedLiveEvent } from "../../utils/live_event.js";
-import { LiveBatchAggregator, type DropReason, type FlushReason, type LiveBatchAggregatorPolicy } from "../../live/adapters/live_batch_aggregator.js";
+import {
+  LiveBatchAggregator,
+  type DropReason,
+  type FlushReason,
+  type LiveBatchAggregatorPolicy,
+} from "../../live/adapters/live_batch_aggregator.js";
 import type { CursorContext } from "../types.js";
+import type { LiveEventMetadata } from "../../utils/intent_schema.js";
 
+// === Constants & Types ===
 const DEFAULT_BATCH_POLICY: LiveBatchAggregatorPolicy = {
   flushIntervalMs: 500,
   maxWaitMs: 2_000,
@@ -13,6 +21,7 @@ const DEFAULT_BATCH_POLICY: LiveBatchAggregatorPolicy = {
 /**
  * 模块：Live Gateway (感知与缓冲)
  */
+// === Class Definition ===
 export class LiveGateway {
   private aggregator?: LiveBatchAggregator;
   private onFlush?: (batch: NormalizedLiveEvent[]) => void;
@@ -22,10 +31,14 @@ export class LiveGateway {
     private readonly policy: LiveBatchAggregatorPolicy = DEFAULT_BATCH_POLICY,
   ) {}
 
+  // === Event Receiving & Moderation ===
   /**
    * 接收原始直播事件并进行初步过滤
    */
-  public async receive(payload: Record<string, unknown>, onFlush: (batch: NormalizedLiveEvent[]) => void): Promise<{ accepted: boolean; reason: string }> {
+  public async receive(
+    payload: Record<string, unknown>,
+    onFlush: (batch: NormalizedLiveEvent[]) => void,
+  ): Promise<{ accepted: boolean; reason: string }> {
     this.onFlush = onFlush;
     const aggregator = this.ensureAggregator();
     const event = normalizeLiveEvent(payload);
@@ -52,14 +65,22 @@ export class LiveGateway {
       return { accepted: true, reason: moderation.reason };
     }
 
-    // 基础过滤：噪音识别
-    if (/^[0-9+]+$|^扣|^签到/u.test(event.text.trim()) && event.priority !== "high") {
+    // 基础过滤：噪音识别 (初步尝试启发式识别意图)
+    event.metadata = this.detectIntentHeuristically(event);
+
+    if (event.metadata.intent === "unknown" && event.priority !== "high") {
       this.publishDropped(event, "noise_filtered", "noise_filtered");
       return { accepted: true, reason: "noise_filtered" };
     }
 
     // 礼物、入场、关注等运营型事件由 LiveEngagementService 处理，避免 Cursor 再生成一轮重复台词。
-    if (event.kind === "gift" || event.kind === "guard" || event.kind === "entrance" || event.kind === "follow" || event.kind === "like") {
+    if (
+      event.kind === "gift" ||
+      event.kind === "guard" ||
+      event.kind === "entrance" ||
+      event.kind === "follow" ||
+      event.kind === "like"
+    ) {
       return { accepted: true, reason: "engagement_event" };
     }
 
@@ -67,6 +88,7 @@ export class LiveGateway {
     return { accepted: true, reason: "buffered" };
   }
 
+  // === Aggregation & Flushing ===
   private ensureAggregator(): LiveBatchAggregator {
     if (!this.aggregator) {
       this.aggregator = new LiveBatchAggregator(
@@ -88,8 +110,8 @@ export class LiveGateway {
       payload: {
         reason,
         size: batch.length,
-        oldestEventAgeMs: batch.length ? this.context.now() - Math.min(...batch.map(event => event.receivedAt)) : 0,
-        eventIds: batch.map(event => event.id),
+        oldestEventAgeMs: batch.length ? this.context.now() - Math.min(...batch.map((event) => event.receivedAt)) : 0,
+        eventIds: batch.map((event) => event.id),
       },
     });
     this.onFlush?.(batch);
@@ -112,11 +134,22 @@ export class LiveGateway {
     });
   }
 
+  public clear(): void {
+    this.aggregator?.clear();
+  }
+
   public getBufferSize(): number {
     return this.aggregator?.getBufferSize() ?? 0;
   }
 
-  public clear(): void {
-    this.aggregator?.clear();
+  // === Heuristics & Utilities ===
+  private detectIntentHeuristically(event: NormalizedLiveEvent): LiveEventMetadata {
+    const text = event.text.trim();
+    if (!text) return { intent: "unknown" };
+    if (/^[0-9+]+$|^扣|^签到/u.test(text)) return { intent: "unknown" };
+    if (/测试|能看到|在吗/i.test(text)) return { intent: "test_connection" };
+    if (/你好|hello|hi|早|午|晚|来了/i.test(text)) return { intent: "greeting" };
+    if (/[?？吗呢呀]/.test(text)) return { intent: "question" };
+    return { intent: "feedback" }; // Default for other danmaku
   }
 }

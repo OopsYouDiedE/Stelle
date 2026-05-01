@@ -19,12 +19,17 @@ export type EvalCase = z.infer<typeof EvalCaseSchema>;
 export async function loadEvalCases(fileName: string): Promise<EvalCase[]> {
   const filePath = path.resolve("evals", "materials", "curated", fileName);
   const raw = await fs.readFile(filePath, "utf8");
-  const lines = raw.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  const lines = raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
   return lines.map((line, index) => {
     try {
       return EvalCaseSchema.parse(JSON.parse(line));
     } catch (error) {
-      throw new Error(`Invalid eval case in ${fileName}:${index + 1}: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Invalid eval case in ${fileName}:${index + 1}: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   });
 }

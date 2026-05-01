@@ -1,3 +1,4 @@
+// === Imports ===
 import { moderateLiveEvent, normalizeLiveEvent, type NormalizedLiveEvent } from "../../utils/live_event.js";
 import { sanitizeExternalText, truncateText } from "../../utils/text.js";
 import type { PublicRoomMemory } from "./public_memory.js";
@@ -18,10 +19,12 @@ import type {
   TopicState,
 } from "./types.js";
 
+// === Constants ===
 const DEFAULT_TOPIC = "AI 主播应不应该记住观众？";
 const DEFAULT_QUESTION = "如果可以一键让 Stelle 忘记你，你会更愿意互动吗？";
 const CLUSTER_ORDER: ChatClusterLabel[] = ["question", "opinion", "joke", "setting_suggestion", "challenge", "other"];
 
+// === Main Class ===
 export class TopicOrchestrator {
   private readonly now: () => number;
   private readonly maxSamples: number;
@@ -56,12 +59,19 @@ export class TopicOrchestrator {
     this.stageStatus = { updatedAt: this.now() };
   }
 
-  ingestLivePayload(payload: Record<string, unknown>): { updated: boolean; state: TopicState; reason: string } {
+  // === Event Ingestion ===
+
+  ingestLivePayload(payload: Record<string, unknown>): ReturnType<TopicOrchestrator["ingestEvent"]> {
     const event = normalizeLiveEvent(payload);
     return this.ingestEvent(event);
   }
 
-  ingestEvent(event: NormalizedLiveEvent): { updated: boolean; state: TopicState; reason: string } {
+  ingestEvent(event: NormalizedLiveEvent): {
+    updated: boolean;
+    state: TopicState;
+    reason: string;
+    transition?: { phaseChanged: boolean; from?: TopicPhase; to?: TopicPhase };
+  } {
     if (event.kind !== "danmaku" && event.kind !== "super_chat") {
       return { updated: false, state: this.snapshot(), reason: "non_discussion_event" };
     }
@@ -84,17 +94,21 @@ export class TopicOrchestrator {
     if (this.samples.length > this.maxSamples) this.samples.shift();
 
     this.clusterCounts.set(label, (this.clusterCounts.get(label) ?? 0) + 1);
-    if (!this.clusterRepresentatives.has(label) || shouldReplaceRepresentative(text, this.clusterRepresentatives.get(label))) {
+    if (
+      !this.clusterRepresentatives.has(label) ||
+      shouldReplaceRepresentative(text, this.clusterRepresentatives.get(label))
+    ) {
       this.clusterRepresentatives.set(label, text);
     }
     if (label === "question") this.pushQuestion(text);
+
     const transition = this.refreshState();
-    return { 
-      updated: true, 
-      state: this.snapshot(), 
+    return {
+      updated: true,
+      state: this.snapshot(),
       reason: label,
-      ...(transition.phaseChanged ? { transition } : {})
-    } as any;
+      ...(transition.phaseChanged ? { transition } : {}),
+    };
   }
 
   recordBatchFlush(payload: Record<string, unknown>): void {
@@ -103,6 +117,8 @@ export class TopicOrchestrator {
       this.setPhase("clustering");
     }
   }
+
+  // === State Updates ===
 
   updateStageStatus(input: { stage?: Record<string, unknown>; health?: Record<string, unknown> }): void {
     this.stageStatus = { ...input, updatedAt: this.now() };
@@ -124,6 +140,30 @@ export class TopicOrchestrator {
     return { updated: true, from, to: phase };
   }
 
+  refreshState(): { phaseChanged: boolean; from?: TopicPhase; to?: TopicPhase } {
+    const oldPhase = this.state.phase;
+    const currentClusters = this.clusters();
+    const phase = phaseForSampleCount(this.samples.length, this.conclusions.length);
+
+    this.conclusions = buildConclusions(currentClusters, this.pendingQuestions);
+    this.state = {
+      ...this.state,
+      phase,
+      clusters: currentClusters,
+      conclusions: [...this.conclusions],
+      pendingQuestions: [...this.pendingQuestions],
+      lastUpdatedAt: this.now(),
+    };
+
+    return {
+      phaseChanged: oldPhase !== phase,
+      from: oldPhase,
+      to: phase,
+    };
+  }
+
+  // === Query & Snapshot ===
+
   snapshot(): TopicState {
     return {
       ...this.state,
@@ -133,10 +173,16 @@ export class TopicOrchestrator {
     };
   }
 
-  widgetState(publicMemories: PublicRoomMemory[] = [], worldCanon: WorldCanonEntry[] = [], promptLab: PromptLabExperiment[] = []): ProgramWidgetState {
+  widgetState(
+    publicMemories: PublicRoomMemory[] = [],
+    worldCanon: WorldCanonEntry[] = [],
+    promptLab: PromptLabExperiment[] = [],
+  ): ProgramWidgetState {
     const updatedAt = this.now();
+    const currentSnapshot = this.snapshot();
+
     return {
-      topic_compass: this.snapshot(),
+      topic_compass: currentSnapshot,
       chat_cluster: this.chatClusterState(),
       conclusion_board: { conclusions: [...this.conclusions], updatedAt },
       question_queue: { pendingQuestions: [...this.pendingQuestions], updatedAt },
@@ -144,7 +190,11 @@ export class TopicOrchestrator {
       public_memory_wall: { memories: publicMemories, updatedAt },
       world_canon: { entries: worldCanon, updatedAt },
       prompt_lab: { experiments: promptLab, updatedAt },
-      anonymous_community_map: buildAnonymousCommunityMap({ clusters: this.clusters(), samples: this.samples.slice(-40), now: this.now }),
+      anonymous_community_map: buildAnonymousCommunityMap({
+        clusters: currentSnapshot.clusters,
+        samples: this.samples.slice(-40),
+        now: this.now,
+      }),
     };
   }
 
@@ -156,41 +206,26 @@ export class TopicOrchestrator {
     };
   }
 
-  refreshState(): { phaseChanged: boolean; from?: TopicPhase; to?: TopicPhase } {
-    const oldPhase = this.state.phase;
-    const phase = phaseForSampleCount(this.samples.length, this.conclusions.length);
-    this.conclusions = buildConclusions(this.clusters(), this.pendingQuestions);
-    this.state = {
-      ...this.state,
-      phase,
-      clusters: this.clusters(),
-      conclusions: [...this.conclusions],
-      pendingQuestions: [...this.pendingQuestions],
-      lastUpdatedAt: this.now(),
-    };
-    return { 
-      phaseChanged: oldPhase !== phase,
-      from: oldPhase,
-      to: phase 
-    };
-  }
+  // === Private Methods ===
 
   private clusters(): ChatCluster[] {
-    return CLUSTER_ORDER
-      .map((label) => ({
-        label,
-        count: this.clusterCounts.get(label) ?? 0,
-        representative: this.clusterRepresentatives.get(label),
-      }))
-      .filter((cluster) => cluster.count > 0);
+    return CLUSTER_ORDER.map((label) => ({
+      label,
+      count: this.clusterCounts.get(label) ?? 0,
+      representative: this.clusterRepresentatives.get(label),
+    })).filter((cluster) => cluster.count > 0);
   }
 
   private pushQuestion(text: string): void {
     if (this.pendingQuestions.some((item) => similarQuestion(item, text))) return;
     this.pendingQuestions.push(text);
-    this.pendingQuestions = this.pendingQuestions.slice(-this.maxPendingQuestions);
+    if (this.pendingQuestions.length > this.maxPendingQuestions) {
+      this.pendingQuestions.shift();
+    }
   }
 }
+
+// === Global Helpers ===
 
 export function classifyText(text: string): ChatClusterLabel {
   const clean = text.trim();
@@ -223,10 +258,17 @@ function phaseForSampleCount(count: number, conclusionCount: number): TopicPhase
 function buildConclusions(clusters: ChatCluster[], questions: string[]): string[] {
   const conclusions: string[] = [];
   const top = [...clusters].sort((a, b) => b.count - a.count)[0];
-  if (top) conclusions.push(`弹幕目前最集中在“${clusterTitle(top.label)}”，已有 ${top.count} 条相关输入。`);
-  const opinions = clusters.find((cluster) => cluster.label === "opinion");
-  if (opinions) conclusions.push("观众正在给出偏好和边界，适合继续追问可接受的记忆范围。");
-  if (questions.length > 0) conclusions.push(`待回答问题里最新的一条是：${questions.at(-1)}`);
+  if (top) {
+    conclusions.push(`弹幕目前最集中在“${clusterTitle(top.label)}”，已有 ${top.count} 条相关输入。`);
+  }
+
+  if (clusters.some((c) => c.label === "opinion")) {
+    conclusions.push("观众正在给出偏好和边界，适合继续追问可接受的记忆范围。");
+  }
+
+  if (questions.length > 0) {
+    conclusions.push(`待回答问题里最新的一条是：${questions.at(-1)}`);
+  }
   return conclusions.slice(0, 3);
 }
 
@@ -243,5 +285,7 @@ function clusterTitle(label: ChatClusterLabel): string {
 }
 
 function similarQuestion(a: string, b: string): boolean {
-  return a === b || a.includes(b.slice(0, 12)) || b.includes(a.slice(0, 12));
+  if (a === b) return true;
+  const minLen = Math.min(a.length, b.length, 12);
+  return a.startsWith(b.slice(0, minLen)) || b.startsWith(a.slice(0, minLen));
 }

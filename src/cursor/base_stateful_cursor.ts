@@ -3,11 +3,12 @@ import { PolicyOverlayStore } from "./policy_overlay_store.js";
 
 /**
  * BaseStatefulCursor
- * 
+ *
  * Provides a common foundation for cursors that use the Gateway-Router-Executor-Responder pattern.
  * Manages lifecycle, policy store subscriptions, and reflection reporting.
  */
 export abstract class BaseStatefulCursor implements StelleCursor {
+  // === Properties ===
   abstract readonly id: string;
   abstract readonly kind: string;
   abstract readonly displayName: string;
@@ -22,19 +23,17 @@ export abstract class BaseStatefulCursor implements StelleCursor {
     this.policyStore = new PolicyOverlayStore(context);
   }
 
+  // === Lifecycle ===
   async initialize(): Promise<void> {
     // Shared: Subscribe to runtime policy directives from InnerMind
-    this.unsubscribes.push(this.policyStore.subscribe((summary) => { 
-      this.summary = summary; 
-    }));
+    this.unsubscribes.push(
+      this.policyStore.subscribe((summary) => {
+        this.summary = summary;
+      }),
+    );
 
     await this.onInitialize();
   }
-
-  /**
-   * Hook for platform-specific initialization.
-   */
-  protected abstract onInitialize(): Promise<void>;
 
   async stop(): Promise<void> {
     for (const unsub of this.unsubscribes) unsub();
@@ -43,25 +42,37 @@ export abstract class BaseStatefulCursor implements StelleCursor {
   }
 
   /**
-   * Hook for platform-specific cleanup.
-   */
-  protected abstract onStop(): Promise<void>;
-
-  /**
    * Returns a standard snapshot of the cursor state.
    */
   abstract snapshot(): CursorSnapshot;
 
+  // === Protected Hooks ===
+  /**
+   * Hook for platform-specific initialization.
+   */
+  protected abstract onInitialize(): Promise<void>;
+
+  /**
+   * Hook for platform-specific cleanup.
+   */
+  protected abstract onStop(): Promise<void>;
+
+  // === Reporting & Utilities ===
   /**
    * Centralized reflection reporting.
    */
-  protected reportReflection(intent: string, summary: string, impactScore: number, salience: "low" | "medium" | "high" = "medium") {
+  protected reportReflection(
+    intent: string,
+    summary: string,
+    impactScore: number,
+    salience: "low" | "medium" | "high" = "medium",
+  ) {
     this.context.eventBus.publish({
       type: "cursor.reflection",
       source: this.id as any,
       id: `refl-${this.context.now()}`,
       timestamp: this.context.now(),
-      payload: { intent, summary, impactScore, salience }
+      payload: { intent, summary, impactScore, salience },
     });
   }
 
@@ -69,13 +80,18 @@ export abstract class BaseStatefulCursor implements StelleCursor {
    * Utility to check if all decisions were dropped (common in both cursors).
    */
   protected allDropped(decisions: any[]): boolean {
-    return decisions.length > 0 && decisions.every(d => d.status === "dropped");
+    return decisions.length > 0 && decisions.every((d) => d.status === "dropped");
   }
 
   /**
    * Utility to collect drop reasons.
    */
   protected getDropReasons(decisions: any[]): string {
-    return decisions.map(d => d.reason).filter(Boolean).join(", ") || "dropped";
+    return (
+      decisions
+        .map((d) => d.reason)
+        .filter(Boolean)
+        .join(", ") || "dropped"
+    );
   }
 }

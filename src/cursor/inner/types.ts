@@ -1,7 +1,17 @@
 import type { BehaviorPolicy } from "../types.js";
 
+// === Region: Envelopes & Signals ===
+
 export interface CursorDirectiveEnvelope {
-  target: "discord" | "discord_text_channel" | "live" | "live_danmaku" | "browser" | "desktop_input" | "android_device" | "global";
+  target:
+    | "discord"
+    | "discord_text_channel"
+    | "live"
+    | "live_danmaku"
+    | "browser"
+    | "desktop_input"
+    | "android_device"
+    | "global";
   action: string;
   policy?: BehaviorPolicy;
   priority: number;
@@ -19,6 +29,8 @@ export interface CognitiveSignal {
   evidence?: Array<{ source: string; excerpt: string; timestamp?: number }>;
   metadata?: Record<string, unknown>;
 }
+
+// === Region: Research & Field Notes ===
 
 export interface ResearchEvidence {
   source: string;
@@ -46,6 +58,7 @@ export interface ResearchTopic {
   openQuestions: string[];
   provisionalFindings: string[];
   nextActions: ResearchAction[];
+  metadata?: Record<string, unknown>;
 }
 
 export interface FieldNote {
@@ -58,6 +71,8 @@ export interface FieldNote {
   safety: "safe" | "sensitive" | "avoid";
   createdAt: number;
 }
+
+// === Region: Self Model & Reflection ===
 
 export interface SelfModelSnapshot {
   mood: string;
@@ -77,6 +92,15 @@ export interface ReflectionDecision {
 }
 
 export type ReflectionMode = ReflectionDecision["mode"];
+
+export interface IdentityProposal {
+  id: string;
+  change: string;
+  rationale: string;
+  confidence: number;
+}
+
+// === Region: Input/Output Interfaces ===
 
 export interface ResearchAgendaUpdate {
   addedTopics: ResearchTopic[];
@@ -110,11 +134,4 @@ export interface DirectivePlanningInput {
   activeTopics: ResearchTopic[];
   fieldNotes: FieldNote[];
   now?: number;
-}
-
-export interface IdentityProposal {
-  id: string;
-  change: string;
-  rationale: string;
-  confidence: number;
 }

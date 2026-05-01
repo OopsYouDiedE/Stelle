@@ -2,7 +2,7 @@ import type { RuntimeServices } from "./container.js";
 
 /**
  * Interface for modular component registration and lifecycle management.
- * 
+ *
  * ModuleRegistrars allow decoupling the main StelleApplication from domain-specific
  * initialization, event subscriptions, and service wiring.
  */

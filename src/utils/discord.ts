@@ -1,17 +1,8 @@
 /**
- * 模块：Discord runtime wrapper
- *
- * 运行逻辑：
- * - 负责 discord.js Client 生命周期：login、destroy、presence、messageCreate 监听。
- * - 把 Discord 原始对象转换为轻量 summary，交给 DiscordCursor 做人格判断。
- * - 只提供平台能力，不做“是否该回复”的语义判断。
- *
- * 主要方法：
- * - `login()` / `destroy()`：连接和关闭 Discord。
- * - `onMessage()`：注册消息回调。
- * - `sendMessage()` / `replyMessage()`：受工具层调用的发送能力。
- * - `formatDiscordMessage()`：把 discord.js Message 标准化。
+ * Module: Discord runtime wrapper
  */
+
+// === Imports ===
 import {
   ActivityType,
   ChannelType,
@@ -23,6 +14,7 @@ import {
   type TextBasedChannel,
 } from "discord.js";
 
+// === Types & Interfaces ===
 const threadTypes = new Set([ChannelType.PublicThread, ChannelType.PrivateThread, ChannelType.AnnouncementThread]);
 
 export interface DiscordUserSummary {
@@ -43,8 +35,8 @@ export interface DiscordMessageSummary {
   content: string;
   cleanContent?: string;
   createdTimestamp: number;
-  isMentioned?: boolean; // 新增：是否提到 Bot
-  isDirectMessage?: boolean; // 新增：是否私聊
+  isMentioned?: boolean;
+  isDirectMessage?: boolean;
   trustedInput?: boolean;
   mentionedUserIds?: string[];
   reference?: {
@@ -92,6 +84,8 @@ export interface SendDiscordMessageInput {
 }
 
 export type DiscordMessageHandler = (message: DiscordMessageSummary) => void | Promise<void>;
+
+// === Core Logic ===
 
 export class DiscordRuntime {
   private client: Client | null;
@@ -162,10 +156,10 @@ export class DiscordRuntime {
 
   async listChannels(options: { guildId?: string; includeThreads?: boolean } = {}): Promise<DiscordChannelSummary[]> {
     const client = this.requireClient();
-    const guild =
-      (options.guildId ? await client.guilds.fetch(options.guildId).catch(() => null) : null) ??
-      client.guilds.cache.first() ??
-      null;
+    const guild = options.guildId
+      ? await client.guilds.fetch(options.guildId).catch(() => null)
+      : (client.guilds.cache.first() ?? null);
+
     if (!guild) throw new Error("No accessible Discord guild is available.");
 
     await guild.channels.fetch();
@@ -180,8 +174,8 @@ export class DiscordRuntime {
         guildId: guild.id,
         name: "name" in channel ? channel.name : null,
         type: ChannelType[channel.type] ?? String(channel.type),
-        parentId: "parentId" in channel ? channel.parentId ?? null : null,
-        topic: "topic" in channel ? channel.topic ?? null : null,
+        parentId: "parentId" in channel ? (channel.parentId ?? null) : null,
+        topic: "topic" in channel ? (channel.topic ?? null) : null,
         isTextBased: channel.isTextBased(),
         isSendable: channel.isTextBased() && channel.isSendable(),
       }))
@@ -213,14 +207,19 @@ export class DiscordRuntime {
     return formatDiscordMessage(await this.fetchMessage(channelId, messageId));
   }
 
-  async getMessageReference(channelId: string, messageId: string): Promise<{
+  async getMessageReference(
+    channelId: string,
+    messageId: string,
+  ): Promise<{
     sourceMessage: DiscordMessageSummary;
     referencedMessage: DiscordMessageSummary | null;
   }> {
     const source = await this.fetchMessage(channelId, messageId);
     let referencedMessage: DiscordMessageSummary | null = null;
     if (source.reference?.channelId && source.reference.messageId) {
-      referencedMessage = formatDiscordMessage(await this.fetchMessage(source.reference.channelId, source.reference.messageId));
+      referencedMessage = formatDiscordMessage(
+        await this.fetchMessage(source.reference.channelId, source.reference.messageId),
+      );
     }
     return { sourceMessage: formatDiscordMessage(source), referencedMessage };
   }
@@ -274,6 +273,8 @@ export class DiscordRuntime {
     return this.client;
   }
 }
+
+// === Helpers ===
 
 export function formatDiscordMessage(message: Message): DiscordMessageSummary {
   const ownerUserId = process.env.DISCORD_OWNER_USER_ID ?? null;

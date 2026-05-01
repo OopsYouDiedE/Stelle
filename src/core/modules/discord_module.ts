@@ -7,7 +7,7 @@ export class DiscordModule implements ModuleRegistrar {
   private cursor?: StelleCursor;
 
   constructor(private readonly cursors: StelleCursor[]) {
-    this.cursor = cursors.find(c => c.id === "discord_text_channel" || c.id === "discord");
+    this.cursor = cursors.find((c) => c.id === "discord_text_channel" || c.id === "discord");
   }
 
   register(services: RuntimeServices): void {
@@ -15,13 +15,13 @@ export class DiscordModule implements ModuleRegistrar {
       services.eventBus.publish({
         type: "discord.text.message.received",
         source: "discord",
-        payload: { message }
+        payload: { message },
       });
     });
   }
 
   async start(): Promise<void> {
-    // Discord login is currently handled in application.ts, 
+    // Discord login is currently handled in application.ts,
     // but could be moved here if we pass the token.
   }
 

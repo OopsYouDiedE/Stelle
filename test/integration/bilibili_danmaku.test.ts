@@ -26,7 +26,9 @@ describe("Bilibili danmaku protocol helpers", () => {
   });
 
   it("selects a secure websocket host from getDanmuInfo host_list", () => {
-    expect(selectBilibiliWsUrl([{ host: "example.chat.bilibili.com", wss_port: 443 }])).toBe("wss://example.chat.bilibili.com:443/sub");
+    expect(selectBilibiliWsUrl([{ host: "example.chat.bilibili.com", wss_port: 443 }])).toBe(
+      "wss://example.chat.bilibili.com:443/sub",
+    );
   });
 
   it("normalizes super chat text from Bilibili data payloads", () => {

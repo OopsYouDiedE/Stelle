@@ -17,8 +17,8 @@ describe("DeviceActionArbiter", () => {
         cursors: ["c1", "c2", "browser", "desktop_input", "inner"],
         resources: ["r1", "tab1", "default"],
         resourceKinds: ["browser", "desktop_input"],
-        risks: ["readonly", "safe_interaction", "text_input", "external_commit", "system"]
-      }
+        risks: ["readonly", "safe_interaction", "text_input", "external_commit", "system"],
+      },
     });
   });
 
@@ -30,10 +30,17 @@ describe("DeviceActionArbiter", () => {
 
   it("should reject expired intent", async () => {
     const intent: DeviceActionIntent = {
-      id: "1", cursorId: "c1", resourceId: "r1", resourceKind: "browser",
-      actionKind: "observe", risk: "readonly", priority: 1,
-      createdAt: now - 5000, ttlMs: 4000, // Expired 1s ago
-      reason: "test", payload: {}
+      id: "1",
+      cursorId: "c1",
+      resourceId: "r1",
+      resourceKind: "browser",
+      actionKind: "observe",
+      risk: "readonly",
+      priority: 1,
+      createdAt: now - 5000,
+      ttlMs: 4000, // Expired 1s ago
+      reason: "test",
+      payload: {},
     };
     const result = await arbiter.propose(intent);
     expect(result.status).toBe("rejected");
@@ -42,10 +49,17 @@ describe("DeviceActionArbiter", () => {
 
   it("should reject risk mismatch (too low)", async () => {
     const intent: DeviceActionIntent = {
-      id: "1", cursorId: "c1", resourceId: "r1", resourceKind: "browser",
-      actionKind: "type", risk: "readonly", priority: 1, // 'type' requires 'text_input'
-      createdAt: now, ttlMs: 5000,
-      reason: "test", payload: {}
+      id: "1",
+      cursorId: "c1",
+      resourceId: "r1",
+      resourceKind: "browser",
+      actionKind: "type",
+      risk: "readonly",
+      priority: 1, // 'type' requires 'text_input'
+      createdAt: now,
+      ttlMs: 5000,
+      reason: "test",
+      payload: {},
     };
     const result = await arbiter.propose(intent);
     expect(result.status).toBe("rejected");
@@ -54,10 +68,17 @@ describe("DeviceActionArbiter", () => {
 
   it("should accept minimum required risk", async () => {
     const intent: DeviceActionIntent = {
-      id: "1", cursorId: "c1", resourceId: "r1", resourceKind: "browser",
-      actionKind: "observe", risk: "readonly", priority: 1,
-      createdAt: now, ttlMs: 5000,
-      reason: "test", payload: {}
+      id: "1",
+      cursorId: "c1",
+      resourceId: "r1",
+      resourceKind: "browser",
+      actionKind: "observe",
+      risk: "readonly",
+      priority: 1,
+      createdAt: now,
+      ttlMs: 5000,
+      reason: "test",
+      payload: {},
     };
     const result = await arbiter.propose(intent);
     expect(result.status).toBe("completed");
@@ -67,14 +88,21 @@ describe("DeviceActionArbiter", () => {
     arbiter = new DeviceActionArbiter({
       drivers: [new MockDeviceActionDriver("browser")],
       now: () => now,
-      allowlist: { cursors: ["inner"] }
+      allowlist: { cursors: ["inner"] },
     });
 
     const intent: DeviceActionIntent = {
-      id: "1", cursorId: "browser", resourceId: "r1", resourceKind: "browser",
-      actionKind: "observe", risk: "readonly", priority: 1,
-      createdAt: now, ttlMs: 5000,
-      reason: "test", payload: {}
+      id: "1",
+      cursorId: "browser",
+      resourceId: "r1",
+      resourceKind: "browser",
+      actionKind: "observe",
+      risk: "readonly",
+      priority: 1,
+      createdAt: now,
+      ttlMs: 5000,
+      reason: "test",
+      payload: {},
     };
     const result = await arbiter.propose(intent);
     expect(result.status).toBe("rejected");
@@ -85,14 +113,21 @@ describe("DeviceActionArbiter", () => {
     arbiter = new DeviceActionArbiter({
       drivers: [new MockDeviceActionDriver("browser")],
       now: () => now,
-      allowlist: { risks: ["readonly"] }
+      allowlist: { risks: ["readonly"] },
     });
 
     const intent: DeviceActionIntent = {
-      id: "1", cursorId: "c1", resourceId: "r1", resourceKind: "browser",
-      actionKind: "navigate", risk: "safe_interaction", priority: 1,
-      createdAt: now, ttlMs: 5000,
-      reason: "test", payload: {}
+      id: "1",
+      cursorId: "c1",
+      resourceId: "r1",
+      resourceKind: "browser",
+      actionKind: "navigate",
+      risk: "safe_interaction",
+      priority: 1,
+      createdAt: now,
+      ttlMs: 5000,
+      reason: "test",
+      payload: {},
     };
     const result = await arbiter.propose(intent);
     expect(result.status).toBe("rejected");
@@ -101,64 +136,108 @@ describe("DeviceActionArbiter", () => {
 
   it("should enforce resource lease (focus lock)", async () => {
     const intent1: DeviceActionIntent = {
-      id: "1", cursorId: "c1", resourceId: "r1", resourceKind: "browser",
-      actionKind: "observe", risk: "readonly", priority: 1,
-      createdAt: now, ttlMs: 5000,
-      reason: "test", payload: {}
+      id: "1",
+      cursorId: "c1",
+      resourceId: "r1",
+      resourceKind: "browser",
+      actionKind: "observe",
+      risk: "readonly",
+      priority: 1,
+      createdAt: now,
+      ttlMs: 5000,
+      reason: "test",
+      payload: {},
     };
     const intent2: DeviceActionIntent = {
-      id: "2", cursorId: "c2", resourceId: "r1", resourceKind: "browser",
-      actionKind: "observe", risk: "readonly", priority: 1,
-      createdAt: now, ttlMs: 5000,
-      reason: "test", payload: {}
+      id: "2",
+      cursorId: "c2",
+      resourceId: "r1",
+      resourceKind: "browser",
+      actionKind: "observe",
+      risk: "readonly",
+      priority: 1,
+      createdAt: now,
+      ttlMs: 5000,
+      reason: "test",
+      payload: {},
     };
 
     await arbiter.propose(intent1);
     const result = await arbiter.propose(intent2);
-    
+
     expect(result.status).toBe("rejected");
     expect(result.reason).toContain("locked by c1");
   });
 
   it("should allow new cursor after lease expires", async () => {
     const intent1: DeviceActionIntent = {
-      id: "1", cursorId: "c1", resourceId: "r1", resourceKind: "browser",
-      actionKind: "observe", risk: "readonly", priority: 1,
-      createdAt: now, ttlMs: 1000,
-      reason: "test", payload: {}
+      id: "1",
+      cursorId: "c1",
+      resourceId: "r1",
+      resourceKind: "browser",
+      actionKind: "observe",
+      risk: "readonly",
+      priority: 1,
+      createdAt: now,
+      ttlMs: 1000,
+      reason: "test",
+      payload: {},
     };
     const intent2: DeviceActionIntent = {
-      id: "2", cursorId: "c2", resourceId: "r1", resourceKind: "browser",
-      actionKind: "observe", risk: "readonly", priority: 1,
-      createdAt: now + 2000, ttlMs: 5000,
-      reason: "test", payload: {}
+      id: "2",
+      cursorId: "c2",
+      resourceId: "r1",
+      resourceKind: "browser",
+      actionKind: "observe",
+      risk: "readonly",
+      priority: 1,
+      createdAt: now + 2000,
+      ttlMs: 5000,
+      reason: "test",
+      payload: {},
     };
 
     await arbiter.propose(intent1);
-    
+
     now += 2000; // Move time forward
-    
+
     const result = await arbiter.propose(intent2);
     expect(result.status).toBe("completed");
   });
 
   it("should reject high-risk actions without approval", async () => {
     const intent: DeviceActionIntent = {
-      id: "1", cursorId: "c1", resourceId: "r1", resourceKind: "browser",
-      actionKind: "hotkey", risk: "system", priority: 1,
-      createdAt: now, ttlMs: 5000,
-      reason: "test", payload: {}
+      id: "1",
+      cursorId: "c1",
+      resourceId: "r1",
+      resourceKind: "browser",
+      actionKind: "hotkey",
+      risk: "system",
+      priority: 1,
+      createdAt: now,
+      ttlMs: 5000,
+      reason: "test",
+      payload: {},
     };
     const result = await arbiter.propose(intent);
-    expect(decision_reason_contains(result, "High-risk") || decision_reason_contains(result, "requires explicit approval")).toBe(true);
+    expect(
+      decision_reason_contains(result, "High-risk") || decision_reason_contains(result, "requires explicit approval"),
+    ).toBe(true);
   });
 
   it("should reject malformed action payloads", async () => {
     const intent: DeviceActionIntent = {
-      id: "1", cursorId: "browser", resourceId: "default", resourceKind: "browser",
-      actionKind: "navigate", risk: "safe_interaction", priority: 1,
-      createdAt: now, ttlMs: 5000,
-      reason: "test", payload: {}
+      id: "1",
+      cursorId: "browser",
+      resourceId: "default",
+      resourceKind: "browser",
+      actionKind: "navigate",
+      risk: "safe_interaction",
+      priority: 1,
+      createdAt: now,
+      ttlMs: 5000,
+      reason: "test",
+      payload: {},
     };
     const result = await arbiter.propose(intent);
     expect(result.status).toBe("rejected");
@@ -173,15 +252,22 @@ describe("DeviceActionArbiter", () => {
         cursors: ["desktop_input"],
         resources: ["desktop"],
         resourceKinds: ["desktop_input"],
-        risks: ["readonly", "safe_interaction", "text_input"]
-      }
+        risks: ["readonly", "safe_interaction", "text_input"],
+      },
     });
 
     const intent: DeviceActionIntent = {
-      id: "1", cursorId: "desktop_input", resourceId: "desktop", resourceKind: "desktop_input",
-      actionKind: "hotkey", risk: "safe_interaction", priority: 1,
-      createdAt: now, ttlMs: 5000,
-      reason: "test", payload: { keys: ["Control", "L"] }
+      id: "1",
+      cursorId: "desktop_input",
+      resourceId: "desktop",
+      resourceKind: "desktop_input",
+      actionKind: "hotkey",
+      risk: "safe_interaction",
+      priority: 1,
+      createdAt: now,
+      ttlMs: 5000,
+      reason: "test",
+      payload: { keys: ["Control", "L"] },
     };
     const result = await arbiter.propose(intent);
     expect(result.status).toBe("completed");
@@ -192,14 +278,21 @@ describe("DeviceActionArbiter", () => {
     arbiter = new DeviceActionArbiter({
       drivers: [new MockDeviceActionDriver("browser")],
       now: () => now,
-      allowlist: undefined
+      allowlist: undefined,
     });
 
     const intent: DeviceActionIntent = {
-      id: "1", cursorId: "c1", resourceId: "r1", resourceKind: "browser",
-      actionKind: "observe", risk: "readonly", priority: 1,
-      createdAt: now, ttlMs: 5000,
-      reason: "test", payload: {}
+      id: "1",
+      cursorId: "c1",
+      resourceId: "r1",
+      resourceKind: "browser",
+      actionKind: "observe",
+      risk: "readonly",
+      priority: 1,
+      createdAt: now,
+      ttlMs: 5000,
+      reason: "test",
+      payload: {},
     };
     const result = await arbiter.propose(intent);
     expect(result.status).toBe("rejected");

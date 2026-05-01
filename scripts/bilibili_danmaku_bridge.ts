@@ -27,7 +27,7 @@ client.on("popularity", (value) => {
 });
 
 client.on("command", (command: BilibiliCommand) => {
-  void forwardCommand(command).catch(error => {
+  void forwardCommand(command).catch((error) => {
     console.error(`[bilibili] forward failed: ${error instanceof Error ? error.message : String(error)}`);
   });
 });
@@ -57,7 +57,7 @@ async function startClientWithRetry(): Promise<void> {
       const message = error instanceof Error ? error.message : String(error);
       console.warn(`[bilibili] initial connection failed #${attempt}: ${message}`);
       if (attempt >= 10) throw error;
-      await new Promise(resolve => setTimeout(resolve, Math.min(30_000, attempt * 2_000)));
+      await new Promise((resolve) => setTimeout(resolve, Math.min(30_000, attempt * 2_000)));
     }
   }
 }
@@ -97,11 +97,13 @@ async function forwardCommand(command: BilibiliCommand): Promise<void> {
 }
 
 function shouldForward(cmd: string): boolean {
-  return cmd === "DANMU_MSG" ||
+  return (
+    cmd === "DANMU_MSG" ||
     cmd === "SUPER_CHAT_MESSAGE" ||
     cmd === "SEND_GIFT" ||
     cmd === "GUARD_BUY" ||
-    cmd === "INTERACT_WORD";
+    cmd === "INTERACT_WORD"
+  );
 }
 
 function priorityForCommand(cmd: string): "low" | "medium" | "high" {
@@ -118,7 +120,7 @@ function summarizeCommand(command: BilibiliCommand): string {
     const user = Array.isArray(info[2]) ? String(info[2][1] ?? "") : "";
     return [user, text].filter(Boolean).join(": ");
   }
-  const data = raw.data && typeof raw.data === "object" ? raw.data as Record<string, unknown> : {};
+  const data = raw.data && typeof raw.data === "object" ? (raw.data as Record<string, unknown>) : {};
   return String(data.message ?? data.uname ?? data.giftName ?? data.gift_name ?? "");
 }
 
@@ -129,5 +131,5 @@ function shutdown(): void {
 }
 
 function firstNumericArg(): string | undefined {
-  return process.argv.slice(2).find(arg => /^\d+$/.test(arg));
+  return process.argv.slice(2).find((arg) => /^\d+$/.test(arg));
 }

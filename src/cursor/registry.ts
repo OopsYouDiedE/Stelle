@@ -7,6 +7,7 @@ import type { StartMode } from "../core/application.js";
 import type { RuntimeConfig } from "../config/index.js";
 import type { CursorModuleDefinition } from "./manifest.js";
 
+// === Registry ===
 export const cursorModules: CursorModuleDefinition[] = [
   innerCursorModule,
   discordTextChannelCursorModule,
@@ -19,21 +20,26 @@ export function isCursorEnabledByConfig(moduleId: string, rawConfig: Record<stri
   const cursors = rawConfig.cursors;
   if (!cursors || typeof cursors !== "object") return true;
   const entries = cursorConfigEntries(moduleId, cursors as Record<string, unknown>);
-  const explicit = [...entries].reverse().find(entry => Object.prototype.hasOwnProperty.call(entry, "enabled"));
+  const explicit = [...entries].reverse().find((entry) => Object.prototype.hasOwnProperty.call(entry, "enabled"));
   return explicit ? explicit.enabled !== false : true;
 }
 
+// === Selection Logic ===
 export interface CursorModuleSelection {
   mode: StartMode;
   config: RuntimeConfig;
   liveAvailable?: boolean;
 }
 
-export function selectCursorModules({ mode, config, liveAvailable = true }: CursorModuleSelection): CursorModuleDefinition[] {
+export function selectCursorModules({
+  mode,
+  config,
+  liveAvailable = true,
+}: CursorModuleSelection): CursorModuleDefinition[] {
   return cursorModules
-    .filter(module => module.enabledInModes.includes(mode))
-    .filter(module => isCursorModuleEnabled(module.id, config))
-    .filter(module => hasRequiredRuntime(module, config, liveAvailable));
+    .filter((module) => module.enabledInModes.includes(mode))
+    .filter((module) => isCursorModuleEnabled(module.id, config))
+    .filter((module) => hasRequiredRuntime(module, config, liveAvailable));
 }
 
 function isCursorModuleEnabled(moduleId: string, config: RuntimeConfig): boolean {
@@ -46,7 +52,7 @@ function isCursorModuleEnabled(moduleId: string, config: RuntimeConfig): boolean
 
 function hasRequiredRuntime(module: CursorModuleDefinition, config: RuntimeConfig, liveAvailable: boolean): boolean {
   if (!module.requires) return true;
-  return module.requires.every(req => {
+  return module.requires.every((req) => {
     if (req === "discord") return Boolean(config.discord.token);
     if (req === "live") return liveAvailable;
     if (req === "browser") return config.browser.enabled;
@@ -55,6 +61,7 @@ function hasRequiredRuntime(module: CursorModuleDefinition, config: RuntimeConfi
   });
 }
 
+// === Internal Helpers ===
 function cursorConfigEntries(moduleId: string, cursors: Record<string, unknown>): Record<string, unknown>[] {
   const aliases: Record<string, string[]> = {
     discord_text_channel: ["discord"],
@@ -62,6 +69,6 @@ function cursorConfigEntries(moduleId: string, cursors: Record<string, unknown>)
     desktop_input: ["desktopInput"],
   };
   return [...(aliases[moduleId] ?? []), moduleId]
-    .map(key => cursors[key])
+    .map((key) => cursors[key])
     .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object");
 }

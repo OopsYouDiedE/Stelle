@@ -58,6 +58,18 @@
               <div class="live2d-wrap">
                 <canvas id="live2d-canvas" aria-label="Live2D canvas"></canvas>
               </div>
+              <div class="voice-indicator" aria-label="Audio and lip sync indicator">
+                <div id="audio-meter" class="audio-meter" aria-hidden="true">
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                </div>
+                <div class="lip-meter" aria-hidden="true">
+                  <span id="lip-sync-level"></span>
+                </div>
+              </div>
               <div class="program-layer" aria-label="Live program widgets">
                 <section class="program-widget topic-compass">
                   <p class="program-label">今日议题</p>

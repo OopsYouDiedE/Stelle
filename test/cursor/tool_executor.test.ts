@@ -46,7 +46,9 @@ describe("CursorToolExecutor", () => {
       allowedAuthority: ["network_read"],
       allowedTools: ["search.web_search"],
     });
-    const result = await executor.executePlan([{ tool: "search.web_read", parameters: { url: "https://example.com" } }]);
+    const result = await executor.executePlan([
+      { tool: "search.web_read", parameters: { url: "https://example.com" } },
+    ]);
 
     expect(result[0].ok).toBe(false);
     expect(result[0].error?.code).toBe("tool_not_whitelisted");
@@ -79,11 +81,10 @@ describe("CursorToolExecutor", () => {
       allowedAuthority: ["network_read"],
       allowedTools: ["search.web_search", "search.web_read"],
     });
-    const result = await executor.executePlan(
-      [{ tool: "search.web_search", parameters: { query: "stelle" } }],
-      { cascadeSearchRead: true },
-    );
+    const result = await executor.executePlan([{ tool: "search.web_search", parameters: { query: "stelle" } }], {
+      cascadeSearchRead: true,
+    });
 
-    expect(result.map(item => item.name)).toEqual(["search.web_search", "search.web_read"]);
+    expect(result.map((item) => item.name)).toEqual(["search.web_search", "search.web_read"]);
   });
 });

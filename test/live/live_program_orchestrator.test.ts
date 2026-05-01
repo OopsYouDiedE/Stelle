@@ -11,7 +11,9 @@ describe("TopicOrchestrator", () => {
 
     const state = orchestrator.snapshot();
 
-    expect(state.clusters.map(cluster => cluster.label)).toEqual(expect.arrayContaining(["opinion", "question", "setting_suggestion"]));
+    expect(state.clusters.map((cluster) => cluster.label)).toEqual(
+      expect.arrayContaining(["opinion", "question", "setting_suggestion"]),
+    );
     expect(state.pendingQuestions).toContain("能不能一键忘记我？");
     expect(JSON.stringify(state)).not.toContain("viewer-1");
   });

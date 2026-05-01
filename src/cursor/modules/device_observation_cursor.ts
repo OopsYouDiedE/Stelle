@@ -2,15 +2,14 @@ import type { DeviceActionDecision, DeviceActionIntent } from "../../device/acti
 import type { StelleEventType } from "../../utils/event_schema.js";
 import type { CursorContext, CursorSnapshot, StelleCursor, StelleEvent } from "../types.js";
 
+// === Types & Interfaces ===
+
 export interface DeviceObservationRouteDecision {
   intent?: DeviceActionIntent;
   reason: string;
 }
 
-export interface DeviceObservationCursorOptions<
-  Observation,
-  Decision extends DeviceObservationRouteDecision,
-> {
+export interface DeviceObservationCursorOptions<Observation, Decision extends DeviceObservationRouteDecision> {
   id: string;
   kind: string;
   displayName: string;
@@ -37,6 +36,8 @@ export interface DeviceObservationCursorOptions<
 
 type ObservationEvent = StelleEvent & { payload: Record<string, unknown> };
 
+// === Cursor Implementation ===
+
 export class DeviceObservationCursor<
   Observation,
   Decision extends DeviceObservationRouteDecision,
@@ -60,10 +61,13 @@ export class DeviceObservationCursor<
   }
 
   async initialize(): Promise<void> {
-    this.unsubscribes.push(this.context.eventBus.subscribe(this.options.eventType, (event) => {
-      void this.receiveObservation((event as ObservationEvent).payload)
-        .catch(e => console.error(`${this.options.logPrefix} Observation failed:`, e));
-    }));
+    this.unsubscribes.push(
+      this.context.eventBus.subscribe(this.options.eventType, (event) => {
+        void this.receiveObservation((event as ObservationEvent).payload).catch((e) =>
+          console.error(`${this.options.logPrefix} Observation failed:`, e),
+        );
+      }),
+    );
   }
 
   async stop(): Promise<void> {

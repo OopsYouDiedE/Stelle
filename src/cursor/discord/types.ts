@@ -1,8 +1,16 @@
+// === Imports ===
 import type { DiscordMessageSummary } from "../../utils/discord.js";
 import type { BehaviorPolicy } from "../types.js";
 
+// === Basic Types ===
 export type RouterMode = "reply" | "silent" | "wait_intent" | "deactivate";
-export type DiscordIntent = "local_chat" | "live_request" | "memory_query" | "memory_write" | "factual_query" | "system_status";
+export type DiscordIntent =
+  | "local_chat"
+  | "live_request"
+  | "memory_query"
+  | "memory_write"
+  | "factual_query"
+  | "system_status";
 
 export interface DiscordToolCall {
   tool: string;
@@ -14,6 +22,15 @@ export interface DiscordToolPlan {
   parallel: boolean;
 }
 
+export interface DiscordToolResultView {
+  name: string;
+  ok: boolean;
+  summary: string;
+  data?: Record<string, unknown>;
+  error?: { code: string; message: string; retryable: boolean };
+}
+
+// === Policy Types ===
 export interface DiscordReplyPolicy {
   mode: RouterMode;
   intent: DiscordIntent;
@@ -26,14 +43,7 @@ export interface DiscordReplyPolicy {
   behaviorOverride?: BehaviorPolicy; // 结构化指令覆盖
 }
 
-export interface DiscordToolResultView {
-  name: string;
-  ok: boolean;
-  summary: string;
-  data?: Record<string, unknown>;
-  error?: { code: string; message: string; retryable: boolean };
-}
-
+// === Session Types ===
 export interface DiscordChannelSession {
   channelId: string;
   guildId?: string | null;

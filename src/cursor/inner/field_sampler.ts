@@ -1,8 +1,12 @@
 import type { FieldSamplingInput, FieldSamplingResult, FieldNote } from "./types.js";
 
+// === Region: Interfaces ===
+
 export interface FieldSampler {
   sample(input: FieldSamplingInput): Promise<FieldSamplingResult>;
 }
+
+// === Region: Default Implementation ===
 
 export class DefaultFieldSampler implements FieldSampler {
   private readonly maxNotes: number;
@@ -22,8 +26,9 @@ export class DefaultFieldSampler implements FieldSampler {
     for (const topic of activeTopics) {
       if (notes.length >= this.maxNotes) break;
 
-      const isSensitive = topic.priority > 4 || topic.title.toLowerCase().includes("sensitive") || topic.title.toLowerCase().includes("private");
-      
+      const titleLower = topic.title.toLowerCase();
+      const isSensitive = topic.priority > 4 || titleLower.includes("sensitive") || titleLower.includes("private");
+
       notes.push({
         id: `note-topic-${topic.id}-${now}`,
         topicId: topic.id,
@@ -41,16 +46,20 @@ export class DefaultFieldSampler implements FieldSampler {
       if (notes.length >= this.maxNotes) break;
 
       const summary = typeof signal.summary === "string" ? signal.summary : "";
-      const source = signal.source === "live_danmaku" ? "live" : (signal.source === "discord_text_channel" ? "discord" : "system");
+      const source =
+        signal.source === "live_danmaku" ? "live" : signal.source === "discord_text_channel" ? "discord" : "system";
       const isHighImpact = signal.impactScore > 5 || signal.salience === "high";
       const normalizedSummary = summary.toLowerCase();
-      const isSensitive = normalizedSummary.includes("bad") || normalizedSummary.includes("toxic") || normalizedSummary.includes("sensitive");
+      const isSensitive =
+        normalizedSummary.includes("bad") ||
+        normalizedSummary.includes("toxic") ||
+        normalizedSummary.includes("sensitive");
 
       notes.push({
         id: `note-signal-${signal.id}-${now}`,
         source,
         excerpt: summary,
-        streamUse: isSensitive ? "avoid" : (isHighImpact ? "callback" : "question"),
+        streamUse: isSensitive ? "avoid" : isHighImpact ? "callback" : "question",
         vibe: isHighImpact ? "emotional" : "curious",
         safety: isSensitive ? "avoid" : "safe",
         createdAt: now,
@@ -59,13 +68,15 @@ export class DefaultFieldSampler implements FieldSampler {
 
     // 3. Recommended Focus logic (deterministic)
     let recommendedFocus: string | undefined;
-    const safeBridgeNotes = notes.filter(n => n.safety === "safe" && n.streamUse === "bridge_topic");
-    const safeCallbackNotes = notes.filter(n => n.safety === "safe" && n.streamUse === "callback");
+    const safeCallbackNote = notes.find((n) => n.safety === "safe" && n.streamUse === "callback");
 
-    if (safeCallbackNotes.length > 0) {
-      recommendedFocus = `Callback: ${safeCallbackNotes[0].excerpt}`;
-    } else if (safeBridgeNotes.length > 0) {
-      recommendedFocus = `Explore Topic: ${safeBridgeNotes[0].excerpt}`;
+    if (safeCallbackNote) {
+      recommendedFocus = `Callback: ${safeCallbackNote.excerpt}`;
+    } else {
+      const safeBridgeNote = notes.find((n) => n.safety === "safe" && n.streamUse === "bridge_topic");
+      if (safeBridgeNote) {
+        recommendedFocus = `Explore Topic: ${safeBridgeNote.excerpt}`;
+      }
     }
 
     return {

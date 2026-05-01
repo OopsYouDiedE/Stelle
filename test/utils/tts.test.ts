@@ -89,12 +89,18 @@ describe("DashScope Qwen-TTS", () => {
     process.env.QWEN_TTS_SAMPLE_RATE = "24000";
     const first = Buffer.from([1, 0, 2, 0]).toString("base64");
     const second = Buffer.from([3, 0, 4, 0]).toString("base64");
-    globalThis.fetch = vi.fn(async () => new Response([
-      `data: ${JSON.stringify({ output: { audio: { data: first } } })}`,
-      `data: ${JSON.stringify({ output: { audio: { data: second } } })}`,
-      "data: [DONE]",
-      "",
-    ].join("\n"), { headers: { "content-type": "text/event-stream" } })) as any;
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(
+          [
+            `data: ${JSON.stringify({ output: { audio: { data: first } } })}`,
+            `data: ${JSON.stringify({ output: { audio: { data: second } } })}`,
+            "data: [DONE]",
+            "",
+          ].join("\n"),
+          { headers: { "content-type": "text/event-stream" } },
+        ),
+    ) as any;
 
     const response = await fetchLiveTtsAudio("dashscope", {
       model: "qwen3-tts-instruct-flash-realtime",

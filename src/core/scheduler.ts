@@ -17,7 +17,7 @@ interface ScheduledTask {
 
 /**
  * 模块：Stelle 任务调度器
- * 
+ *
  * 核心改进：
  * 1. 防重复启动：维护状态锁，避免多次 setInterval 堆积。
  * 2. 任务注册制：为后续扩展更多的周期性任务 (e.g., presence, memory_cleanup) 预留接口。
@@ -48,7 +48,7 @@ export class StelleScheduler {
     if (this.options.innerEnabled !== false) {
       this.register("inner_tick", "inner.tick", innerMs);
     }
-    
+
     // 预留 Core Tick 路径
     this.register("core_tick", "core.tick", 300_000); // 默认 5 分钟
   }

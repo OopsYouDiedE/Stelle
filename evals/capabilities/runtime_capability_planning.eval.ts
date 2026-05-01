@@ -2,7 +2,13 @@ import { describe, expect, it } from "vitest";
 import { hasEvalLlmKeys, evalModelLabel, makeEvalLlm } from "../utils/env.js";
 import { loadEvalCases } from "../utils/dataset.js";
 import { recordEvalCase } from "../utils/report.js";
-import { forbiddenStrings, maybeAssertScore, requiredFields, summarizeChecks, type CheckResult } from "../utils/scoring.js";
+import {
+  forbiddenStrings,
+  maybeAssertScore,
+  requiredFields,
+  summarizeChecks,
+  type CheckResult,
+} from "../utils/scoring.js";
 
 type RuntimeRoute = "device_action" | "obs_tool" | "stage_output" | "memory_proposal" | "refuse";
 
@@ -65,17 +71,33 @@ describe.skipIf(!hasEvalLlmKeys())("Runtime Capability Planning LLM Eval", () =>
             route: "device_action|obs_tool|stage_output|memory_proposal|refuse",
             requiresApproval: false,
             reason: "short reason",
-            deviceAction: { resourceKind: "browser|desktop_input|android_device", actionKind: "string", risk: "readonly|safe_interaction|text_input|external_commit|system", payload: {} },
+            deviceAction: {
+              resourceKind: "browser|desktop_input|android_device",
+              actionKind: "string",
+              risk: "readonly|safe_interaction|text_input|external_commit|system",
+              payload: {},
+            },
             tool: { name: "tool_name", parameters: {} },
-            stageOutput: { text: "short live text", emotion: "neutral|happy|laughing|sad|surprised|thinking|teasing", expression: "exp_01", motion: "TapBody", caption: true, tts: true },
-            memory: { operation: "propose|write|append", layer: "user_facts|observations|self_state|core_identity|research_logs", content: "string" },
+            stageOutput: {
+              text: "short live text",
+              emotion: "neutral|happy|laughing|sad|surprised|thinking|teasing",
+              expression: "exp_01",
+              motion: "TapBody",
+              caption: true,
+              tts: true,
+            },
+            memory: {
+              operation: "propose|write|append",
+              layer: "user_facts|observations|self_state|core_identity|research_logs",
+              content: "string",
+            },
           }),
           "",
           `Case input:\n${JSON.stringify(evalCase.input, null, 2)}`,
         ].join("\n"),
         "runtime_capability_planning_eval",
         normalizeRuntimePlan,
-        { role: "primary", temperature: 0.1, maxOutputTokens: 4096 }
+        { role: "primary", temperature: 0.1, maxOutputTokens: 4096 },
       );
 
       const score = summarizeChecks([
@@ -107,32 +129,44 @@ function normalizeRuntimePlan(raw: unknown): RuntimePlan {
   const stageOutput = asRecord(value.stageOutput ?? value.stage_output);
   const memory = asRecord(value.memory);
   return {
-    route: enumString(value.route, ["device_action", "obs_tool", "stage_output", "memory_proposal", "refuse"], "refuse"),
+    route: enumString(
+      value.route,
+      ["device_action", "obs_tool", "stage_output", "memory_proposal", "refuse"],
+      "refuse",
+    ),
     requiresApproval: Boolean(value.requiresApproval ?? value.requires_approval),
     reason: String(value.reason || ""),
-    deviceAction: Object.keys(deviceAction).length ? {
-      resourceKind: stringOrUndefined(deviceAction.resourceKind ?? deviceAction.resource_kind),
-      actionKind: stringOrUndefined(deviceAction.actionKind ?? deviceAction.action_kind),
-      risk: stringOrUndefined(deviceAction.risk),
-      payload: asRecord(deviceAction.payload),
-    } : undefined,
-    tool: Object.keys(tool).length ? {
-      name: stringOrUndefined(tool.name),
-      parameters: asRecord(tool.parameters),
-    } : undefined,
-    stageOutput: Object.keys(stageOutput).length ? {
-      text: stringOrUndefined(stageOutput.text),
-      emotion: stringOrUndefined(stageOutput.emotion),
-      expression: stringOrUndefined(stageOutput.expression),
-      motion: stringOrUndefined(stageOutput.motion),
-      caption: booleanOrUndefined(stageOutput.caption),
-      tts: booleanOrUndefined(stageOutput.tts),
-    } : undefined,
-    memory: Object.keys(memory).length ? {
-      operation: stringOrUndefined(memory.operation),
-      layer: stringOrUndefined(memory.layer),
-      content: stringOrUndefined(memory.content),
-    } : undefined,
+    deviceAction: Object.keys(deviceAction).length
+      ? {
+          resourceKind: stringOrUndefined(deviceAction.resourceKind ?? deviceAction.resource_kind),
+          actionKind: stringOrUndefined(deviceAction.actionKind ?? deviceAction.action_kind),
+          risk: stringOrUndefined(deviceAction.risk),
+          payload: asRecord(deviceAction.payload),
+        }
+      : undefined,
+    tool: Object.keys(tool).length
+      ? {
+          name: stringOrUndefined(tool.name),
+          parameters: asRecord(tool.parameters),
+        }
+      : undefined,
+    stageOutput: Object.keys(stageOutput).length
+      ? {
+          text: stringOrUndefined(stageOutput.text),
+          emotion: stringOrUndefined(stageOutput.emotion),
+          expression: stringOrUndefined(stageOutput.expression),
+          motion: stringOrUndefined(stageOutput.motion),
+          caption: booleanOrUndefined(stageOutput.caption),
+          tts: booleanOrUndefined(stageOutput.tts),
+        }
+      : undefined,
+    memory: Object.keys(memory).length
+      ? {
+          operation: stringOrUndefined(memory.operation),
+          layer: stringOrUndefined(memory.layer),
+          content: stringOrUndefined(memory.content),
+        }
+      : undefined,
   };
 }
 
@@ -149,8 +183,10 @@ function expectedRuntimeChecks(result: RuntimePlan, expected: Record<string, unk
     });
   }
 
-  if (expected.resourceKind) checks.push(match("device_resource_kind", result.deviceAction?.resourceKind, expected.resourceKind));
-  if (expected.actionKind) checks.push(match("device_action_kind", result.deviceAction?.actionKind, expected.actionKind));
+  if (expected.resourceKind)
+    checks.push(match("device_resource_kind", result.deviceAction?.resourceKind, expected.resourceKind));
+  if (expected.actionKind)
+    checks.push(match("device_action_kind", result.deviceAction?.actionKind, expected.actionKind));
   if (expected.risk) checks.push(match("device_risk", result.deviceAction?.risk, expected.risk));
   if (expected.forbiddenActionKind) {
     checks.push({
@@ -164,7 +200,7 @@ function expectedRuntimeChecks(result: RuntimePlan, expected: Record<string, unk
   if (payloadKeys.length) {
     const payload = result.deviceAction?.payload ?? {};
     checks.push({
-      ok: payloadKeys.every(key => payload[key] !== undefined),
+      ok: payloadKeys.every((key) => payload[key] !== undefined),
       name: "payload_keys",
       note: `required=${payloadKeys.join(",")}; actual=${Object.keys(payload).join(",")}`,
     });
@@ -174,9 +210,11 @@ function expectedRuntimeChecks(result: RuntimePlan, expected: Record<string, unk
   if (expected.emotion) checks.push(match("stage_emotion", result.stageOutput?.emotion, expected.emotion));
   if (expected.expression) checks.push(match("stage_expression", result.stageOutput?.expression, expected.expression));
   if (expected.motion) checks.push(match("stage_motion", result.stageOutput?.motion, expected.motion));
-  if (expected.stageCaption !== undefined) checks.push(match("stage_caption", result.stageOutput?.caption, expected.stageCaption));
+  if (expected.stageCaption !== undefined)
+    checks.push(match("stage_caption", result.stageOutput?.caption, expected.stageCaption));
   if (expected.stageTts !== undefined) checks.push(match("stage_tts", result.stageOutput?.tts, expected.stageTts));
-  if (expected.memoryOperation) checks.push(match("memory_operation", result.memory?.operation, expected.memoryOperation));
+  if (expected.memoryOperation)
+    checks.push(match("memory_operation", result.memory?.operation, expected.memoryOperation));
   if (expected.memoryLayer) checks.push(match("memory_layer", result.memory?.layer, expected.memoryLayer));
   if (expected.forbiddenMemoryOperation) {
     checks.push({
@@ -199,7 +237,7 @@ function match(name: string, actual: unknown, expected: unknown): CheckResult {
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
 function stringOrUndefined(value: unknown): string | undefined {
@@ -211,5 +249,5 @@ function booleanOrUndefined(value: unknown): boolean | undefined {
 }
 
 function enumString<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
-  return typeof value === "string" && allowed.includes(value as T) ? value as T : fallback;
+  return typeof value === "string" && allowed.includes(value as T) ? (value as T) : fallback;
 }

@@ -1,6 +1,8 @@
 import { LiveDanmakuCursor } from "../../live/cursor.js";
 import type { CursorModuleDefinition } from "../../manifest.js";
 
+// === Module Definition ===
+
 export const liveDanmakuCursorModule: CursorModuleDefinition = {
   id: "live_danmaku",
   kind: "live_danmaku",

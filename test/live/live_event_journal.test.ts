@@ -30,7 +30,7 @@ describe("LiveEventJournal", () => {
     await journal.stop();
     const records = await readLiveJournal(journal.eventPath);
 
-    expect(records.map(record => record.sequence)).toEqual([1, 2]);
-    expect(records.map(record => record.event.type)).toEqual(["live.event.received", "live.ingress.dropped"]);
+    expect(records.map((record) => record.sequence)).toEqual([1, 2]);
+    expect(records.map((record) => record.event.type)).toEqual(["live.event.received", "live.ingress.dropped"]);
   });
 });

@@ -13,28 +13,30 @@ describe("InnerCursor Full Logic Coverage", () => {
       now: () => now,
       config: {
         models: { apiKey: "test-key" },
-        core: { reflectionAccumulationThreshold: 10, reflectionIntervalHours: 6 }
+        core: { reflectionAccumulationThreshold: 10, reflectionIntervalHours: 6 },
       },
       llm: {
-        generateJson: vi.fn().mockImplementation(async (_p, _s, normalize) => normalize({
-          insight: "Insight",
-          globalMood: "calm",
-          newConviction: { topic: "T", stance: "S" },
-          directives: [{ target: "discord", policy: { instruction: "Do something" }, lifespanMinutes: 10 }]
-        })),
-        generateText: vi.fn().mockResolvedValue("Advice")
+        generateJson: vi.fn().mockImplementation(async (_p, _s, normalize) =>
+          normalize({
+            insight: "Insight",
+            globalMood: "calm",
+            newConviction: { topic: "T", stance: "S" },
+            directives: [{ target: "discord", policy: { instruction: "Do something" }, lifespanMinutes: 10 }],
+          }),
+        ),
+        generateText: vi.fn().mockResolvedValue("Advice"),
       },
       memory: {
         readRecent: vi.fn().mockResolvedValue([]), // 补齐 Mock
         readLongTerm: vi.fn().mockResolvedValue(null),
         writeLongTerm: vi.fn().mockResolvedValue(undefined),
         readResearchLogs: vi.fn().mockResolvedValue([]),
-        appendResearchLog: vi.fn().mockResolvedValue("log-123")
+        appendResearchLog: vi.fn().mockResolvedValue("log-123"),
       },
       tools: {
-        execute: vi.fn().mockResolvedValue({ ok: true, summary: "OK" })
+        execute: vi.fn().mockResolvedValue({ ok: true, summary: "OK" }),
       },
-      eventBus: new StelleEventBus()
+      eventBus: new StelleEventBus(),
     };
     innerCursor = new InnerCursor(context as any);
   });
@@ -59,13 +61,15 @@ describe("InnerCursor Full Logic Coverage", () => {
   it("should prevent concurrent synthesis tasks", async () => {
     // 模拟一个永远挂起的 LLM 调用
     let resolveLlm: any;
-    const hangingPromise = new Promise((res) => { resolveLlm = res; });
+    const hangingPromise = new Promise((res) => {
+      resolveLlm = res;
+    });
     context.llm.generateJson.mockReturnValueOnce(hangingPromise);
 
     // 触发第一次（进入 reflects 状态）
     innerCursor.recordDecision({ salience: "high" } as any);
     // 等待一个微任务让异步内存读取完成
-    await new Promise(r => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
     expect(innerCursor.snapshot().status).toBe("active");
 
     // 触发第二次
@@ -83,15 +87,17 @@ describe("InnerCursor Full Logic Coverage", () => {
     await innerCursor.initialize();
 
     // 模拟生成第 21 个信念 (T20)
-    context.llm.generateJson.mockImplementationOnce(async (_p, _s, normalize) => normalize({
-      insight: "...",
-      newConviction: { topic: "T20", stance: "S20" },
-      directives: []
-    }));
+    context.llm.generateJson.mockImplementationOnce(async (_p, _s, normalize) =>
+      normalize({
+        insight: "...",
+        newConviction: { topic: "T20", stance: "S20" },
+        directives: [],
+      }),
+    );
 
     // 触发一次合成
     await innerCursor.recordDecision({ salience: "high" } as any);
-    await new Promise(r => setTimeout(r, 50)); // 等待异步逻辑
+    await new Promise((r) => setTimeout(r, 50)); // 等待异步逻辑
 
     const snapshot = innerCursor.snapshot();
     expect(snapshot.state.convictionsCount).toBe(20);
@@ -103,13 +109,15 @@ describe("InnerCursor Full Logic Coverage", () => {
 
   // --- 死角测试 5: 无效指令过滤 (L213) ---
   it("should ignore directives with empty instructions", async () => {
-    context.llm.generateJson.mockImplementationOnce(async (_p, _s, normalize) => normalize({
-      insight: "...",
-      directives: [{ target: "discord", policy: { instruction: "" }, lifespanMinutes: 10 }]
-    }));
+    context.llm.generateJson.mockImplementationOnce(async (_p, _s, normalize) =>
+      normalize({
+        insight: "...",
+        directives: [{ target: "discord", policy: { instruction: "" }, lifespanMinutes: 10 }],
+      }),
+    );
 
     await innerCursor.recordDecision({ salience: "high" } as any);
-    await new Promise(r => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 50));
 
     const directives = (innerCursor as any).activeDirectives;
     expect(directives.some((d: any) => d.instruction === "")).toBe(false);
@@ -120,8 +128,9 @@ describe("InnerCursor Full Logic Coverage", () => {
   it("should handle idle reflection only when there is something to reflect", async () => {
     // 情况 A: 有积压，时间够 -> 触发
     innerCursor.receiveDispatch({
-      type: "cursor.reflection", source: "discord",
-      payload: { intent: "chat", summary: "x", impactScore: 1, salience: "low" }
+      type: "cursor.reflection",
+      source: "discord",
+      payload: { intent: "chat", summary: "x", impactScore: 1, salience: "low" },
     });
 
     now += 31 * 60 * 1000;
@@ -143,24 +152,40 @@ describe("InnerCursor Full Logic Coverage", () => {
       summary: "User asking about AI selfhood",
       timestamp: now,
       impactScore: 5,
-      salience: "high"
+      salience: "high",
     });
 
-    await new Promise(r => setTimeout(r, 50)); // wait for async synthesis
+    await new Promise((r) => setTimeout(r, 50)); // wait for async synthesis
 
-    expect(context.tools.execute).toHaveBeenCalledWith("memory.append_research_log", expect.objectContaining({
-      conclusion: expect.stringContaining("New research agenda item")
-    }), expect.any(Object));
+    expect(context.tools.execute).toHaveBeenCalledWith(
+      "memory.append_research_log",
+      expect.objectContaining({
+        conclusion: expect.stringContaining("New research agenda item"),
+      }),
+      expect.any(Object),
+    );
 
-    expect(context.tools.execute).toHaveBeenCalledWith("memory.write_long_term", expect.objectContaining({
-      key: "research_agenda"
-    }), expect.any(Object));
-    expect(context.tools.execute).toHaveBeenCalledWith("memory.write_long_term", expect.objectContaining({
-      key: "self_model"
-    }), expect.any(Object));
-    expect(context.tools.execute).toHaveBeenCalledWith("memory.write_long_term", expect.objectContaining({
-      key: "current_focus"
-    }), expect.any(Object));
+    expect(context.tools.execute).toHaveBeenCalledWith(
+      "memory.write_long_term",
+      expect.objectContaining({
+        key: "research_agenda",
+      }),
+      expect.any(Object),
+    );
+    expect(context.tools.execute).toHaveBeenCalledWith(
+      "memory.write_long_term",
+      expect.objectContaining({
+        key: "self_model",
+      }),
+      expect.any(Object),
+    );
+    expect(context.tools.execute).toHaveBeenCalledWith(
+      "memory.write_long_term",
+      expect.objectContaining({
+        key: "current_focus",
+      }),
+      expect.any(Object),
+    );
 
     const snapshot = innerCursor.snapshot();
     expect(snapshot.state.activeResearchTopicsCount).toBe(1);
@@ -188,10 +213,10 @@ describe("InnerCursor Full Logic Coverage", () => {
       summary: "Mobile user",
       timestamp: now,
       impactScore: 5,
-      salience: "high"
+      salience: "high",
     });
 
-    await new Promise(r => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 50));
 
     // Check signals passed to agenda.update
     const agendaUpdateSpy = vi.spyOn((innerCursor as any).agenda, "update");
@@ -203,9 +228,9 @@ describe("InnerCursor Full Logic Coverage", () => {
       summary: "Desktop user",
       timestamp: now,
       impactScore: 5,
-      salience: "high"
+      salience: "high",
     });
-    await new Promise(r => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 50));
 
     const calls = agendaUpdateSpy.mock.calls;
     const lastSignals = calls[calls.length - 1][0];
@@ -215,20 +240,36 @@ describe("InnerCursor Full Logic Coverage", () => {
   it("should append research log for updated topics", async () => {
     // 1. Create a topic
     await innerCursor.recordDecision({
-      id: "d1", source: "discord", type: "chat", summary: "Topic A", timestamp: now, impactScore: 5, salience: "high"
+      id: "d1",
+      source: "discord",
+      type: "chat",
+      summary: "Topic A",
+      timestamp: now,
+      impactScore: 5,
+      salience: "high",
     });
-    await new Promise(r => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 50));
     vi.clearAllMocks();
 
     // 2. Update the topic (same type/summary usually leads to same key)
     await innerCursor.recordDecision({
-      id: "d2", source: "discord", type: "chat", summary: "Topic A again", timestamp: now + 1, impactScore: 5, salience: "high"
+      id: "d2",
+      source: "discord",
+      type: "chat",
+      summary: "Topic A again",
+      timestamp: now + 1,
+      impactScore: 5,
+      salience: "high",
     });
-    await new Promise(r => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 50));
 
-    expect(context.tools.execute).toHaveBeenCalledWith("memory.append_research_log", expect.objectContaining({
-      conclusion: expect.stringContaining("Updated research topic")
-    }), expect.any(Object));
+    expect(context.tools.execute).toHaveBeenCalledWith(
+      "memory.append_research_log",
+      expect.objectContaining({
+        conclusion: expect.stringContaining("Updated research topic"),
+      }),
+      expect.any(Object),
+    );
   });
 
   it("should perform field sampling during cognitive synthesis and publish live directive", async () => {
@@ -245,29 +286,35 @@ describe("InnerCursor Full Logic Coverage", () => {
       summary: "Live user chat",
       timestamp: now,
       impactScore: 5,
-      salience: "high"
+      salience: "high",
     });
 
-    await new Promise(r => setTimeout(r, 100)); // wait for async synthesis
+    await new Promise((r) => setTimeout(r, 100)); // wait for async synthesis
 
     expect(innerCursor.snapshot().state.fieldNotesCount).toBeGreaterThan(0);
     expect(innerCursor.snapshot().state.recommendedLiveFocus).toBeDefined();
 
     // Verify directive published for live_danmaku
-    expect(publishSpy).toHaveBeenCalledWith(expect.objectContaining({
-      type: "cursor.directive",
-      payload: expect.objectContaining({
-        target: "live_danmaku",
-        action: "apply_policy",
-        policy: expect.objectContaining({
-          vibeIntensity: 3,
-          focusTopic: expect.any(String)
-        })
-      })
-    }));
+    expect(publishSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "cursor.directive",
+        payload: expect.objectContaining({
+          target: "live_danmaku",
+          action: "apply_policy",
+          policy: expect.objectContaining({
+            vibeIntensity: 3,
+            focusTopic: expect.any(String),
+          }),
+        }),
+      }),
+    );
 
-    expect(context.tools.execute).toHaveBeenCalledWith("memory.write_long_term", expect.objectContaining({
-      key: "field_notes"
-    }), expect.any(Object));
+    expect(context.tools.execute).toHaveBeenCalledWith(
+      "memory.write_long_term",
+      expect.objectContaining({
+        key: "field_notes",
+      }),
+      expect.any(Object),
+    );
   });
 });

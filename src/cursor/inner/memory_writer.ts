@@ -2,12 +2,16 @@ import type { ResearchAgendaUpdate, SelfModelUpdate, IdentityProposal } from "./
 import type { MemoryStore } from "../../memory/memory.js";
 import type { ToolRegistry } from "../../tool.js";
 
+// === Region: Interfaces ===
+
 export interface InnerMemoryWriter {
   appendResearchLog(log: { focus: string; process: string[]; conclusion: string }): Promise<void>;
   writeResearchLog(update: ResearchAgendaUpdate | SelfModelUpdate): Promise<void>;
   writeSelfState(key: string, value: string): Promise<void>;
   proposeIdentityChange(proposal: IdentityProposal): Promise<void>;
 }
+
+// === Region: Default Implementation ===
 
 export class DefaultMemoryWriter implements InnerMemoryWriter {
   constructor(
@@ -26,11 +30,11 @@ export class DefaultMemoryWriter implements InnerMemoryWriter {
       return;
     }
 
-    const topicLines = [
-      ...update.addedTopics.map(topic => `Added ${topic.id}: ${topic.title}`),
-      ...update.updatedTopics.map(topic => `Updated ${topic.id}: ${topic.title}`),
-      ...update.closedTopics.map(topic => `Closed ${topic.id}: ${topic.title}`),
-    ];
+    const topicLines: string[] = [];
+    for (const topic of update.addedTopics) topicLines.push(`Added ${topic.id}: ${topic.title}`);
+    for (const topic of update.updatedTopics) topicLines.push(`Updated ${topic.id}: ${topic.title}`);
+    for (const topic of update.closedTopics) topicLines.push(`Closed ${topic.id}: ${topic.title}`);
+
     await this.appendResearchLog({
       focus: "Research agenda update",
       process: topicLines.length ? topicLines : ["Research agenda checked; no topic changes."],
@@ -62,16 +66,19 @@ export class DefaultMemoryWriter implements InnerMemoryWriter {
 
   async appendResearchLog(input: { focus: string; process: string[]; conclusion: string }): Promise<void> {
     if (this.tools) {
-      await this.tools.execute(
-        "memory.append_research_log",
-        input,
-        { caller: "core", cwd: this.cwd, allowedAuthority: ["safe_write"], allowedTools: ["memory.append_research_log"] },
-      );
+      await this.tools.execute("memory.append_research_log", input, {
+        caller: "core",
+        cwd: this.cwd,
+        allowedAuthority: ["safe_write"],
+        allowedTools: ["memory.append_research_log"],
+      });
       return;
     }
     await this.memory.appendResearchLog(input);
   }
 }
+
+// === Region: Helpers ===
 
 function isSelfModelUpdate(update: ResearchAgendaUpdate | SelfModelUpdate): update is SelfModelUpdate {
   return "snapshot" in update && "changes" in update;

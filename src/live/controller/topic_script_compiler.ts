@@ -1,17 +1,29 @@
+// === Imports ===
 import { parse as parseYaml } from "yaml";
-import { TopicScriptDraftSchema, type CompiledTopicScript, type TopicScriptDraft, type TopicScriptSection } from "./topic_script_schema.js";
+import {
+  TopicScriptDraftSchema,
+  type CompiledTopicScript,
+  type TopicScriptDraft,
+  type TopicScriptSection,
+} from "./topic_script_schema.js";
 
+// === Types & Errors ===
 export interface TopicScriptCompileResult {
   draft: TopicScriptDraft;
   compiled: CompiledTopicScript;
 }
 
 export class TopicScriptCompileError extends Error {
-  constructor(message: string, readonly details?: unknown) {
+  constructor(
+    message: string,
+    readonly details?: unknown,
+  ) {
     super(message);
     this.name = "TopicScriptCompileError";
   }
 }
+
+// === Core Compilation ===
 
 export function compileTopicScriptMarkdown(markdown: string): TopicScriptCompileResult {
   const { frontmatter, body } = splitFrontmatter(markdown);
@@ -42,20 +54,22 @@ export function compileTopicScriptDraft(draft: TopicScriptDraft): CompiledTopicS
       throw new TopicScriptCompileError(`Section ${section.section_id} starts before the previous section`);
     }
     previousStart = startOffsetSec;
-    const lockedLines = section.lock_level === "locked" ? [section.host_script] : [];
-    const softLines = section.lock_level === "soft" ? [section.host_script, ...section.discussion_points] : [...section.discussion_points];
-    const systemLines = section.lock_level === "system" ? [section.host_script] : [];
+
+    const isLocked = section.lock_level === "locked";
+    const isSoft = section.lock_level === "soft";
+    const isSystem = section.lock_level === "system";
+
     return {
       id: section.section_id,
       phase: section.phase,
       startOffsetSec,
       durationSec: section.duration_sec,
       goal: section.goal,
-      lockedLines,
-      softLines,
-      systemLines,
+      lockedLines: isLocked ? [section.host_script] : [],
+      softLines: isSoft ? [section.host_script, ...section.discussion_points] : [...section.discussion_points],
+      systemLines: isSystem ? [section.host_script] : [],
       questionPrompts: section.question_prompts,
-      triggers: section.interaction_triggers.map(text => ({ text })),
+      triggers: section.interaction_triggers.map((text) => ({ text })),
       guardrails: section.fact_guardrails,
       fallbackLines: section.fallback_lines,
       handoffRule: section.handoff_rule,
@@ -85,12 +99,63 @@ export function compileTopicScriptDraft(draft: TopicScriptDraft): CompiledTopicS
   };
 }
 
+// === Markdown Rendering ===
+
 export function renderTopicScriptMarkdown(draft: TopicScriptDraft): string {
   const { sections, ...frontmatter } = draft;
   const header = `---\n${stringifyYaml(frontmatter)}---`;
   const body = sections.map(renderSection).join("\n\n");
   return `${header}\n\n${body}\n`;
 }
+
+function renderSection(section: TopicScriptSection): string {
+  const lines = [`# ${section.section_id}`];
+  const keys: Array<keyof TopicScriptSection> = [
+    "section_id",
+    "phase",
+    "timestamp",
+    "duration_sec",
+    "goal",
+    "host_script",
+    "discussion_points",
+    "question_prompts",
+    "interaction_triggers",
+    "fact_guardrails",
+    "fallback_lines",
+    "cues",
+    "handoff_rule",
+    "operator_notes",
+    "lock_level",
+  ];
+  for (const key of keys) {
+    const value = section[key];
+    if (value === undefined) continue;
+    if (Array.isArray(value)) {
+      lines.push(`- ${key}:`);
+      for (const item of value) lines.push(`  - ${item}`);
+    } else {
+      lines.push(`- ${key}: ${value}`);
+    }
+  }
+  return lines.join("\n");
+}
+
+function stringifyYaml(value: unknown): string {
+  if (!value || typeof value !== "object") return "";
+  return Object.entries(value as Record<string, unknown>)
+    .map(([key, entry]) => {
+      if (Array.isArray(entry)) {
+        return `${key}:\n${entry.map((item) => `  - ${item}`).join("\n")}\n`;
+      }
+      if (entry && typeof entry === "object") {
+        return `${key}: ${JSON.stringify(entry)}\n`;
+      }
+      return `${key}: ${entry}\n`;
+    })
+    .join("");
+}
+
+// === Markdown Parsing ===
 
 function splitFrontmatter(markdown: string): { frontmatter: string; body: string } {
   const normalized = markdown.replace(/^\uFEFF/, "");
@@ -100,7 +165,10 @@ function splitFrontmatter(markdown: string): { frontmatter: string; body: string
 }
 
 function parseSections(body: string): TopicScriptSection[] {
-  const parts = body.split(/^#\s+/m).map(part => part.trim()).filter(Boolean);
+  const parts = body
+    .split(/^#\s+/m)
+    .map((part) => part.trim())
+    .filter(Boolean);
   return parts.map((part, index) => {
     const lines = part.split(/\r?\n/);
     const heading = lines.shift()?.trim();
@@ -113,6 +181,8 @@ function parseSections(body: string): TopicScriptSection[] {
     }
   });
 }
+
+// === Section Field Parser ===
 
 function parseSectionFields(lines: string[]): Record<string, unknown> {
   const out: Record<string, unknown> = {};
@@ -135,24 +205,35 @@ function parseSectionFields(lines: string[]): Record<string, unknown> {
     }
     const listItem = /^\s+-\s+(.+)$/.exec(line);
     if (listItem && currentListKey) {
-      const existing = Array.isArray(out[currentListKey]) ? out[currentListKey] as unknown[] : [];
+      const existing = Array.isArray(out[currentListKey]) ? (out[currentListKey] as unknown[]) : [];
       existing.push(coerceScalar(listItem[1]!));
       out[currentListKey] = existing;
       continue;
     }
   }
-  for (const key of ["discussion_points", "question_prompts", "interaction_triggers", "fact_guardrails", "fallback_lines", "cues"]) {
+  const listKeys = [
+    "discussion_points",
+    "question_prompts",
+    "interaction_triggers",
+    "fact_guardrails",
+    "fallback_lines",
+    "cues",
+  ];
+  for (const key of listKeys) {
     if (out[key] === undefined) out[key] = [];
     if (!Array.isArray(out[key])) out[key] = [String(out[key])];
   }
   return out;
 }
 
+// === Parser Utilities ===
+
 function parseTimestamp(value: string): number {
-  const parts = value.split(":").map(Number);
-  if (parts.some(part => !Number.isFinite(part))) throw new TopicScriptCompileError(`Invalid timestamp: ${value}`);
-  if (parts.length === 2) return parts[0]! * 60 + parts[1]!;
-  return parts[0]! * 3600 + parts[1]! * 60 + parts[2]!;
+  const parts = value.split(":").map((v) => parseInt(v, 10));
+  if (parts.some((p) => isNaN(p))) throw new TopicScriptCompileError(`Invalid timestamp: ${value}`);
+  if (parts.length === 2) return (parts[0] || 0) * 60 + (parts[1] || 0);
+  if (parts.length === 3) return (parts[0] || 0) * 3600 + (parts[1] || 0) * 60 + (parts[2] || 0);
+  return parts[0] || 0;
 }
 
 function coerceScalar(value: string): unknown {
@@ -164,45 +245,10 @@ function coerceScalar(value: string): unknown {
 }
 
 function slugify(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5]+/g, "_").replace(/^_+|_+$/g, "") || "section";
-}
-
-function renderSection(section: TopicScriptSection): string {
-  const lines = [`# ${section.section_id}`];
-  const keys: Array<keyof TopicScriptSection> = [
-    "section_id",
-    "phase",
-    "timestamp",
-    "duration_sec",
-    "goal",
-    "host_script",
-    "discussion_points",
-    "question_prompts",
-    "interaction_triggers",
-    "fact_guardrails",
-    "fallback_lines", "cues",
-    "handoff_rule",
-    "operator_notes",
-    "lock_level",
-  ];
-  for (const key of keys) {
-    const value = section[key];
-    if (value === undefined) continue;
-    if (Array.isArray(value)) {
-      lines.push(`- ${key}:`);
-      for (const item of value) lines.push(`  - ${item}`);
-    } else {
-      lines.push(`- ${key}: ${value}`);
-    }
-  }
-  return lines.join("\n");
-}
-
-function stringifyYaml(value: unknown): string {
-  return parseYaml(JSON.stringify(value)) ? Object.entries(value as Record<string, unknown>)
-    .map(([key, entry]) => {
-      if (Array.isArray(entry)) return `${key}:\n${entry.map(item => `  - ${item}`).join("\n")}\n`;
-      if (entry && typeof entry === "object") return `${key}: ${JSON.stringify(entry)}\n`;
-      return `${key}: ${entry}\n`;
-    }).join("") : "";
+  return (
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, "_")
+      .replace(/^_+|_+$/g, "") || "section"
+  );
 }

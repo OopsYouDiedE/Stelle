@@ -11,7 +11,9 @@ describe("ViewerProfileStore", () => {
     const store = new ViewerProfileStore(root);
 
     await store.updateFromEvent(event("danmaku", "晚上好"));
-    await store.updateFromEvent(event("gift", "辣条", { rawType: "gift", amount: 100, currency: "CNY", giftName: "辣条" }));
+    await store.updateFromEvent(
+      event("gift", "辣条", { rawType: "gift", amount: 100, currency: "CNY", giftName: "辣条" }),
+    );
 
     const profile = await store.read("bilibili", "42");
     expect(profile?.interactionCount).toBe(2);
@@ -27,7 +29,11 @@ describe("ViewerProfileStore", () => {
   });
 });
 
-function event(kind: NormalizedLiveEvent["kind"], text: string, trustedPayment?: NormalizedLiveEvent["trustedPayment"]): NormalizedLiveEvent {
+function event(
+  kind: NormalizedLiveEvent["kind"],
+  text: string,
+  trustedPayment?: NormalizedLiveEvent["trustedPayment"],
+): NormalizedLiveEvent {
   return {
     id: `${kind}-1`,
     source: "bilibili",

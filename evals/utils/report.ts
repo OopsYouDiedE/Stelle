@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { EvalScore } from "./scoring.js";
+import { isAutomaticEvalJudgementEnabled } from "./scoring.js";
 import { currentEvalRunStartedAt } from "./run_context.js";
 import { generateReadableEvalSummaryReport } from "./summary_report.js";
 
@@ -12,6 +13,9 @@ export interface EvalReportCase {
   latencyMs: number;
   input?: unknown;
   output: unknown;
+  prompt?: string;
+  internalState?: unknown;
+  persona?: string;
   score: EvalScore;
 }
 
@@ -25,35 +29,53 @@ export async function recordEvalCase(report: EvalReportCase): Promise<void> {
 
   const input = truncate(sanitizeSecrets(JSON.stringify(report.input ?? "未记录", null, 2)), 2500);
   const output = truncate(sanitizeSecrets(JSON.stringify(report.output, null, 2)), 4000);
-  const assessment = report.score.passed
-    ? `通过。得分 ${report.score.score.toFixed(2)}，未发现失败检查。`
-    : `未通过。得分 ${report.score.score.toFixed(2)}，失败检查：${report.score.failedChecks.join("、") || "未知"}。`;
+  const internalState = report.internalState
+    ? truncate(sanitizeSecrets(JSON.stringify(report.internalState, null, 2)), 2000)
+    : null;
+  const autograde = isAutomaticEvalJudgementEnabled();
+
+  const assessment = autograde
+    ? report.score.passed
+      ? `**自动检查通过**。得分 ${report.score.score.toFixed(2)}`
+      : `**自动检查未通过**。得分 ${report.score.score.toFixed(2)}，失败检查：${report.score.failedChecks.join("、") || "未知"}`
+    : "**待人工审阅**。本次报告只记录输入和输出，不由代码判断通过/失败。";
+
   const content = [
-    `### ${report.suite}: ${report.caseId} @ ${timestamp}`,
-    `- **测试项目**：${report.title}`,
-    `- **模型**：${report.model}`,
-    `- **耗时**：${report.latencyMs}ms`,
-    `- **是否通过**：${report.score.passed ? "通过" : "未通过"}`,
-    `- **得分**：${report.score.score.toFixed(2)}`,
-    `- **失败检查**：${report.score.failedChecks.length ? report.score.failedChecks.join("、") : "无"}`,
+    `### Case: ${report.caseId} @ ${timestamp}`,
+    `> **${report.title}**`,
     "",
-    "#### 使用数据",
+    `- **Model**: \`${report.model}\` | **Latency**: \`${report.latencyMs}ms\``,
+    `- **Assessment**: ${assessment}`,
+    "",
+    "#### Persona & Internal State",
+    report.persona ? `**Persona Prompt**:\n\`\`\`text\n${report.persona}\n\`\`\`\n` : "",
+    internalState ? `**Internal State**:\n\`\`\`json\n${internalState}\n\`\`\`\n` : "",
+    "",
+    "#### Input Context",
     "```json",
     input,
     "```",
     "",
-    "#### 输出结果",
+    "#### LLM Prompt (Traced)",
+    report.prompt ? `\`\`\`text\n${truncate(report.prompt, 2000)}\n\`\`\`` : "*(Prompt not traced)*",
+    "",
+    "#### LLM Output & Actions",
     "```json",
     output,
     "```",
     "",
-    "#### 结果评估",
-    assessment,
-    ...(report.score.notes.length ? ["", "补充说明：", ...report.score.notes.slice(0, 8).map(note => `- ${note}`)] : []),
+    "#### Review Notes",
+    autograde
+      ? (report.score.notes.length ? report.score.notes.map((note) => `- ${note}`) : ["*No additional notes*"]).join(
+          "\n",
+        )
+      : "- 请根据上方输入、Prompt 和输出自行判断是否符合预期。",
     "",
     "---",
     "",
-  ].join("\n");
+  ]
+    .filter((line) => line !== null)
+    .join("\n");
   await fs.appendFile(mdPath, content, "utf8");
 
   const summary = await readSummary(jsonPath);
@@ -64,10 +86,17 @@ export async function recordEvalCase(report: EvalReportCase): Promise<void> {
     title: report.title,
     model: report.model,
     latencyMs: report.latencyMs,
-    passed: report.score.passed,
-    score: report.score.score,
-    failedChecks: report.score.failedChecks,
-    notes: report.score.notes,
+    reviewStatus: autograde ? "auto_checked" : "pending_manual_review",
+    inputPreview: input,
+    outputPreview: output,
+    ...(autograde
+      ? {
+          passed: report.score.passed,
+          score: report.score.score,
+          failedChecks: report.score.failedChecks,
+          notes: report.score.notes,
+        }
+      : {}),
   });
   await fs.writeFile(jsonPath, `${JSON.stringify(summary, null, 2)}\n`, "utf8");
   await generateReadableEvalSummaryReport();

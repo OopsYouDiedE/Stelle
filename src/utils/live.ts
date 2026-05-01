@@ -1,22 +1,15 @@
 /**
- * 模块：Live runtime 与舞台桥接
- *
- * 运行逻辑：
- * - LiveCursor 通过工具层调用 LiveRuntime。
- * - LiveRuntime 维护当前舞台状态，并把 caption/motion/expression/background 命令发布给 renderer。
- * - OBS 控制通过 OBS WebSocket v5 执行状态读取、开播/停播与切场景。
- *
- * 主要类：
- * - `LiveRuntime`：直播舞台状态和动作执行。
- * - `LocalLiveRendererBridge` / `HttpLiveRendererBridge`：向 renderer 发布命令。
- * - `ObsWebSocketController`：OBS 状态/控制接口占位。
+ * Module: Live runtime and stage bridge
  */
+
+// === Imports ===
 import crypto from "node:crypto";
 import type { LiveRendererCommand, LiveRendererServer } from "../live/infra/renderer_server.js";
 import { sanitizeExternalText } from "./text.js";
 import { buildLiveTtsRequest } from "./tts.js";
 import type { StelleEventBus } from "./event_bus.js";
 
+// === Types & Interfaces ===
 export type LiveMotionPriority = "idle" | "normal" | "force";
 
 export interface LiveStageState {
@@ -61,6 +54,15 @@ export interface LiveRendererBridge {
   publish(command: LiveRendererCommand): Promise<void> | void;
 }
 
+export interface ObsController {
+  getStatus(): Promise<ObsStatus>;
+  startStream(): Promise<LiveActionResult>;
+  stopStream(): Promise<LiveActionResult>;
+  setCurrentScene(sceneName: string): Promise<LiveActionResult>;
+}
+
+// === Core Logic ===
+
 export class LocalLiveRendererBridge implements LiveRendererBridge {
   constructor(private readonly server: LiveRendererServer) {}
 
@@ -74,27 +76,27 @@ export class HttpLiveRendererBridge implements LiveRendererBridge {
   readonly controlToken: string;
   lastError?: string;
 
-  constructor(
-    url = process.env.LIVE_RENDERER_URL ?? "",
-    options: { controlToken?: string } = {}
-  ) {
+  constructor(url = process.env.LIVE_RENDERER_URL ?? "", options: { controlToken?: string } = {}) {
     this.url = url.replace(/\/+$/, "");
-    this.controlToken = options.controlToken ?? process.env.STELLE_CONTROL_TOKEN ?? process.env.STELLE_DEBUG_TOKEN ?? "";
+    this.controlToken =
+      options.controlToken ?? process.env.STELLE_CONTROL_TOKEN ?? process.env.STELLE_DEBUG_TOKEN ?? "";
   }
 
   async publish(command: LiveRendererCommand): Promise<void> {
     if (!this.url) return;
     try {
-      const headers: Record<string, string> = { "content-type": "application/json" };
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
       if (this.controlToken) {
-        headers["authorization"] = `Bearer ${this.controlToken}`;
+        headers["Authorization"] = `Bearer ${this.controlToken}`;
       }
       const response = await fetch(`${this.url}/command`, {
         method: "POST",
         headers,
         body: JSON.stringify(command),
       });
-      if (!response.ok) throw new Error(`Renderer command failed: ${response.status} ${response.statusText}`);
+      if (!response.ok) {
+        throw new Error(`Renderer command failed: ${response.status} ${response.statusText}`);
+      }
       this.lastError = undefined;
     } catch (error) {
       this.lastError = error instanceof Error ? error.message : String(error);
@@ -117,12 +119,16 @@ export class LiveRuntime {
   }
 
   async getStatus(): Promise<LiveStatus> {
-    return { active: this.active, stage: clone(this.stage), obs: await this.obs.getStatus() };
+    return {
+      active: this.active,
+      stage: deepClone(this.stage),
+      obs: await this.obs.getStatus(),
+    };
   }
 
   async start(): Promise<LiveActionResult> {
     this.active = true;
-    await this.renderer?.publish({ type: "state:set", state: clone(this.stage) });
+    await this.renderer?.publish({ type: "state:set", state: deepClone(this.stage) });
     return liveOk("Live runtime active.", this.stage, await this.obs.getStatus());
   }
 
@@ -157,7 +163,13 @@ export class LiveRuntime {
     return liveOk(`Streaming live caption (${caption.length} chars).`, this.stage);
   }
 
-  async showRouteDecision(input: { eventId: string; action: string; reason: string; text?: string; userName?: string }): Promise<LiveActionResult> {
+  async showRouteDecision(input: {
+    eventId: string;
+    action: string;
+    reason: string;
+    text?: string;
+    userName?: string;
+  }): Promise<LiveActionResult> {
     await this.renderer?.publish({ type: "route:decision", ...input });
     return liveOk(`Live route decision ${input.action} for ${input.eventId}.`, this.stage);
   }
@@ -211,7 +223,11 @@ export class LiveRuntime {
   }
 
   async playAudio(url: string, text?: string): Promise<LiveActionResult> {
-    await this.renderer?.publish({ type: "audio:status", status: "queued", text: text ? sanitizeExternalText(text) : undefined });
+    await this.renderer?.publish({
+      type: "audio:status",
+      status: "queued",
+      text: text ? sanitizeExternalText(text) : undefined,
+    });
     await this.renderer?.publish({ type: "audio:play", url, text: text ? sanitizeExternalText(text) : undefined });
     return liveOk(`Queued live audio playback: ${url}.`, this.stage);
   }
@@ -221,6 +237,7 @@ export class LiveRuntime {
     const speaker = typeof request.speaker === "string" ? sanitizeExternalText(request.speaker) : "Stelle";
     const rateMs = typeof request.rateMs === "number" ? request.rateMs : undefined;
     this.stage = { ...this.stage, caption, speaker };
+
     const liveTts = buildLiveTtsRequest(text, {
       voiceName: typeof request.voice === "string" ? request.voice : undefined,
       language: typeof request.language === "string" ? request.language : undefined,
@@ -229,12 +246,28 @@ export class LiveRuntime {
       speed: typeof request.speed === "number" ? request.speed : undefined,
       stream: typeof request.stream === "boolean" ? request.stream : undefined,
     });
+
     const id = `${liveTts.provider}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const url = `/tts/${liveTts.provider}/${id}`;
+
     this.publishTtsStatus("queued", liveTts.provider, caption);
-    await this.renderer?.publish({ type: "audio:status", status: "streaming", provider: liveTts.provider, text: caption });
-    await this.renderer?.publish({ type: "audio:stream", url, provider: liveTts.provider, request: liveTts.request, text: caption, speaker, rateMs });
+    await this.renderer?.publish({
+      type: "audio:status",
+      status: "streaming",
+      provider: liveTts.provider,
+      text: caption,
+    });
+    await this.renderer?.publish({
+      type: "audio:stream",
+      url,
+      provider: liveTts.provider,
+      request: liveTts.request,
+      text: caption,
+      speaker,
+      rateMs,
+    });
     this.publishTtsStatus("streaming", liveTts.provider, caption);
+
     return liveOk(`Queued live ${liveTts.provider} stream playback: ${url}.`, this.stage);
   }
 
@@ -256,13 +289,6 @@ export class LiveRuntime {
   }
 }
 
-export interface ObsController {
-  getStatus(): Promise<ObsStatus>;
-  startStream(): Promise<LiveActionResult>;
-  stopStream(): Promise<LiveActionResult>;
-  setCurrentScene(sceneName: string): Promise<LiveActionResult>;
-}
-
 export class ObsWebSocketController implements ObsController {
   private status: ObsStatus;
   private readonly password?: string;
@@ -282,15 +308,23 @@ export class ObsWebSocketController implements ObsController {
   async getStatus(): Promise<ObsStatus> {
     if (!this.status.enabled) return { ...this.status, connected: false };
     try {
-      const client = await ObsWebSocketClient.connect(this.status.url!, { password: this.password, timeoutMs: this.timeoutMs });
+      const client = await ObsWebSocketClient.connect(this.status.url!, {
+        password: this.password,
+        timeoutMs: this.timeoutMs,
+      });
       try {
-        const stream = await client.request("GetStreamStatus");
-        const scene = await client.request("GetCurrentProgramScene").catch(() => ({}));
+        const [stream, scene] = await Promise.all([
+          client.request("GetStreamStatus"),
+          client.request("GetCurrentProgramScene").catch(() => ({})),
+        ]);
         this.status = {
           ...this.status,
           connected: true,
           streaming: Boolean((stream as any).outputActive),
-          currentScene: typeof (scene as any).currentProgramSceneName === "string" ? (scene as any).currentProgramSceneName : this.status.currentScene,
+          currentScene:
+            typeof (scene as any).currentProgramSceneName === "string"
+              ? (scene as any).currentProgramSceneName
+              : this.status.currentScene,
           lastError: undefined,
         };
         return { ...this.status };
@@ -298,29 +332,38 @@ export class ObsWebSocketController implements ObsController {
         client.close();
       }
     } catch (error) {
-      this.status = { ...this.status, connected: false, lastError: error instanceof Error ? error.message : String(error) };
+      this.status = {
+        ...this.status,
+        connected: false,
+        lastError: error instanceof Error ? error.message : String(error),
+      };
       return { ...this.status };
     }
   }
 
   async startStream(): Promise<LiveActionResult> {
-    if (!this.status.enabled) return obsUnavailable("OBS WebSocket control is disabled.", this.status);
     return this.runObsAction("StartStream", undefined, "OBS stream started.");
   }
 
   async stopStream(): Promise<LiveActionResult> {
-    if (!this.status.enabled) return obsUnavailable("OBS WebSocket control is disabled.", this.status);
     return this.runObsAction("StopStream", undefined, "OBS stream stopped.");
   }
 
   async setCurrentScene(sceneName: string): Promise<LiveActionResult> {
-    if (!this.status.enabled) return obsUnavailable("OBS WebSocket control is disabled.", this.status);
     return this.runObsAction("SetCurrentProgramScene", { sceneName }, `OBS scene set to ${sceneName}.`);
   }
 
-  private async runObsAction(requestType: string, requestData: Record<string, unknown> | undefined, summary: string): Promise<LiveActionResult> {
+  private async runObsAction(
+    requestType: string,
+    requestData: Record<string, unknown> | undefined,
+    summary: string,
+  ): Promise<LiveActionResult> {
+    if (!this.status.enabled) return obsUnavailable("OBS WebSocket control is disabled.", this.status);
     try {
-      const client = await ObsWebSocketClient.connect(this.status.url!, { password: this.password, timeoutMs: this.timeoutMs });
+      const client = await ObsWebSocketClient.connect(this.status.url!, {
+        password: this.password,
+        timeoutMs: this.timeoutMs,
+      });
       try {
         await client.request(requestType, requestData);
       } finally {
@@ -336,15 +379,20 @@ export class ObsWebSocketController implements ObsController {
   }
 }
 
+// === Helpers ===
+
 class ObsWebSocketClient {
   private requestCounter = 0;
-  private pending = new Map<string, { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: NodeJS.Timeout }>();
+  private pending = new Map<
+    string,
+    { resolve: (value: any) => void; reject: (error: Error) => void; timer: NodeJS.Timeout }
+  >();
 
   private constructor(
-    private readonly ws: any,
+    private readonly ws: WebSocket,
     private readonly timeoutMs: number,
   ) {
-    ws.onmessage = (event: { data: string }) => this.handleMessage(event.data);
+    ws.onmessage = (event: MessageEvent) => this.handleMessage(String(event.data));
     ws.onerror = () => this.rejectAll(new Error("OBS websocket error."));
     ws.onclose = () => this.rejectAll(new Error("OBS websocket closed."));
   }
@@ -354,18 +402,18 @@ class ObsWebSocketClient {
     if (!WebSocketCtor) return Promise.reject(new Error("Global WebSocket is unavailable. Use Node.js >= 20."));
 
     return new Promise((resolve, reject) => {
-      const ws = new WebSocketCtor(url);
+      const ws = new WebSocketCtor(url) as WebSocket;
       const timeout = setTimeout(() => reject(new Error("OBS websocket connection timed out.")), options.timeoutMs);
       let client: ObsWebSocketClient | undefined;
 
-      ws.onopen = () => undefined;
       ws.onerror = () => {
         clearTimeout(timeout);
         reject(new Error("OBS websocket connection failed."));
       };
-      ws.onmessage = async (event: { data: string }) => {
+
+      ws.onmessage = async (event: MessageEvent) => {
         try {
-          const message = JSON.parse(event.data);
+          const message = JSON.parse(String(event.data));
           if (message.op !== 0) return;
           const authentication = message.d?.authentication;
           const identify: Record<string, unknown> = { rpcVersion: 1 };
@@ -374,12 +422,12 @@ class ObsWebSocketClient {
             identify.authentication = obsAuth(options.password, authentication.salt, authentication.challenge);
           }
           ws.send(JSON.stringify({ op: 1, d: identify }));
-          ws.onmessage = (identifiedEvent: { data: string }) => {
-            const identified = JSON.parse(identifiedEvent.data);
+          ws.onmessage = (identifiedEvent: MessageEvent) => {
+            const identified = JSON.parse(String(identifiedEvent.data));
             if (identified.op !== 2) return;
             clearTimeout(timeout);
             if (!client) client = new ObsWebSocketClient(ws, options.timeoutMs);
-            ws.onmessage = (runtimeEvent: { data: string }) => client!.handleMessage(runtimeEvent.data);
+            ws.onmessage = (runtimeEvent: MessageEvent) => client!.handleMessage(String(runtimeEvent.data));
             resolve(client);
           };
         } catch (error) {
@@ -390,7 +438,7 @@ class ObsWebSocketClient {
     });
   }
 
-  request(requestType: string, requestData: Record<string, unknown> = {}): Promise<unknown> {
+  request(requestType: string, requestData: Record<string, unknown> = {}): Promise<any> {
     const requestId = `stelle-${Date.now()}-${++this.requestCounter}`;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -406,7 +454,7 @@ class ObsWebSocketClient {
     try {
       this.ws.close();
     } catch {
-      // best effort
+      /* ignore */
     }
   }
 
@@ -437,18 +485,31 @@ class ObsWebSocketClient {
 }
 
 function obsAuth(password: string, salt: string, challenge: string): string {
-  const secret = crypto.createHash("sha256").update(password + salt).digest("base64");
-  return crypto.createHash("sha256").update(secret + challenge).digest("base64");
+  const secret = crypto
+    .createHash("sha256")
+    .update(password + salt)
+    .digest("base64");
+  return crypto
+    .createHash("sha256")
+    .update(secret + challenge)
+    .digest("base64");
 }
 
 function liveOk(summary: string, stage: LiveStageState, obs?: ObsStatus): LiveActionResult {
-  return { ok: true, summary, timestamp: Date.now(), stage: clone(stage), obs };
+  return { ok: true, summary, timestamp: Date.now(), stage: deepClone(stage), obs };
 }
 
 function obsUnavailable(message: string, status: ObsStatus): LiveActionResult {
-  return { ok: false, summary: message, timestamp: Date.now(), obs: { ...status }, error: { code: "obs_unavailable", message, retryable: true } };
+  return {
+    ok: false,
+    summary: message,
+    timestamp: Date.now(),
+    obs: { ...status },
+    error: { code: "obs_unavailable", message, retryable: true },
+  };
 }
 
-function clone<T>(value: T): T {
+function deepClone<T>(value: T): T {
+  if (typeof structuredClone === "function") return structuredClone(value);
   return JSON.parse(JSON.stringify(value)) as T;
 }

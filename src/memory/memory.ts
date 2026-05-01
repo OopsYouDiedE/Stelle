@@ -5,95 +5,62 @@
  * - Recent memory is written as JSONL per scope.
  * - When recent memory reaches the configured limit, it is compacted into a readable history markdown block.
  * - Long-term memory is stored as key-value markdown files.
- * - StelleCore appends research logs under long_term/research_logs.
- *
- * Main methods:
- * - writeRecent/readRecent: scoped recent memory.
- * - searchHistory: keyword search over compacted history markdown.
- * - readLongTerm/writeLongTerm/appendLongTerm: shared long-term state.
- * - appendResearchLog/readResearchLogs: StelleCore reflection logs.
  */
+
+// === Imports ===
 import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { sanitizeExternalText, truncateText } from "../utils/text.js";
+import {
+  atomicAppend,
+  atomicWrite,
+  defaultProposalTargetKey,
+  keywordSnippets,
+  parseJsonl,
+  safeSegment,
+  scopeLabel,
+} from "./file_helpers.js";
+import {
+  MEMORY_LAYERS,
+  type HistorySummary,
+  type MemoryEntry,
+  type MemoryLayer,
+  type MemoryProposal,
+  type MemoryProposalDecision,
+  type MemoryProposalStatus,
+  type MemoryProposalView,
+  type MemoryScope,
+  type MemorySearchQuery,
+  type MemoryStoreOptions,
+  type ResearchLog,
+} from "./types.js";
+import { buildMemoryRelevanceQuery, scoreMemoryText, type MemoryRelevanceQuery } from "./relevance.js";
 
-export type MemoryScope =
-  | { kind: "discord_channel"; channelId: string; guildId?: string | null }
-  | { kind: "discord_global" }
-  | { kind: "live" }
-  | { kind: "long_term" };
+export {
+  MEMORY_LAYERS,
+  type HistorySummary,
+  type MemoryEntry,
+  type MemoryLayer,
+  type MemoryProposal,
+  type MemoryProposalDecision,
+  type MemoryProposalStatus,
+  type MemoryProposalView,
+  type MemoryScope,
+  type MemorySearchQuery,
+  type MemoryStoreOptions,
+  type ResearchLog,
+};
 
-export interface MemoryEntry {
-  id: string;
-  timestamp: number;
-  source: "discord" | "live" | "core" | "debug";
-  type: string;
-  text: string;
-  metadata?: Record<string, unknown>;
-}
+// === Core Logic: MemoryStore Class ===
 
-export interface HistorySummary {
-  scope: MemoryScope;
-  path: string;
-  excerpt: string;
-  score: number;
-}
-
-export interface MemorySearchQuery {
-  text?: string;
-  keywords?: string[];
-  limit?: number;
-  layers?: MemoryLayer[];
-}
-
-export interface ResearchLog {
-  id?: string;
-  timestamp?: number;
-  focus: string;
-  process: string[];
-  conclusion: string;
-  metadata?: Record<string, unknown>;
-}
-
-export interface MemoryStoreOptions {
-  rootDir?: string;
-  recentLimit?: number;
-  compactionEnabled?: boolean;
-  llm?: import("./llm.js").LlmClient;
-}
-
-export const MEMORY_LAYERS = ["observations", "user_facts", "self_state", "core_identity", "research_logs"] as const;
-export type MemoryLayer = (typeof MEMORY_LAYERS)[number];
-
-export interface MemoryProposal {
-  id: string;
-  timestamp: number;
-  authorId: string;
-  source: string;
-  content: string;
-  reason: string;
-  layer: MemoryLayer;
-}
-
-export type MemoryProposalStatus = "pending" | "approved" | "rejected";
-
-export interface MemoryProposalDecision {
-  id: string;
-  proposalId: string;
-  timestamp: number;
-  status: Exclude<MemoryProposalStatus, "pending">;
-  decidedBy: string;
-  reason?: string;
-  targetKey?: string;
-  layer?: MemoryLayer;
-}
-
-export interface MemoryProposalView extends MemoryProposal {
-  status: MemoryProposalStatus;
-  decision?: MemoryProposalDecision;
-}
-
-// Module: memory store public API.
+/**
+ * MemoryStore
+ * 
+ * Manages all persistent state for the VTuber application, implementing a tiered memory system:
+ * - Layer 1 (Recent): Short-term JSONL logs.
+ * - Layer 2 (Proposals): Temporary storage for suggested memory updates.
+ * - Layer 3 (Long-Term): Structured Markdown files.
+ */
 export class MemoryStore {
   private readonly rootDir: string;
   private readonly recentLimit: number;
@@ -108,13 +75,16 @@ export class MemoryStore {
     this.llm = options.llm;
   }
 
+  /**
+   * Lifecycle
+   */
   async start(): Promise<void> {
     await this.ensureStructure();
     await this.recoverCheckpoints();
   }
 
   /**
-   * Layer 1: Raw Observations (JSONL per session)
+   * Layer 1: Raw Observations (Recent)
    */
   async writeRecent(scope: MemoryScope, entry: MemoryEntry): Promise<void> {
     await this.inScopeQueue(scope, async () => {
@@ -134,7 +104,7 @@ export class MemoryStore {
   }
 
   /**
-   * Layer 2: Memory Proposals (Transient storage for non-owners)
+   * Layer 2: Memory Proposals
    */
   async proposeMemory(proposal: Omit<MemoryProposal, "id" | "timestamp">): Promise<string> {
     const id = `prop-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -200,7 +170,7 @@ export class MemoryStore {
   }
 
   /**
-   * Layer 3: Credibility Zones (Structured Long-Term Markdown)
+   * Layer 3: Long-Term Memory (Markdown)
    */
   async readLongTerm(key: string, layer: MemoryLayer = "observations"): Promise<string | null> {
     const file = path.join(this.rootDir, "long_term", layer, `${safeSegment(key)}.md`);
@@ -229,6 +199,9 @@ export class MemoryStore {
     });
   }
 
+  /**
+   * Research Logs (StelleCore Loop)
+   */
   async appendResearchLog(log: ResearchLog): Promise<string> {
     const id = log.id ?? `research-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const timestamp = log.timestamp ?? Date.now();
@@ -259,48 +232,48 @@ export class MemoryStore {
       .slice(-limit);
   }
 
+  /**
+   * Search Logic
+   */
   async searchHistory(scope: MemoryScope, query: MemorySearchQuery): Promise<HistorySummary[]> {
-    const needles = [...(query.keywords ?? []), ...(query.text ? query.text.split(/\s+/) : [])]
-      .map((item) => item.trim().toLowerCase())
-      .filter(Boolean);
+    const relevanceQuery = buildMemoryRelevanceQuery(query);
 
     if (scope.kind === "long_term") {
-      return this.searchLongTerm(needles, query);
+      return this.searchLongTerm(relevanceQuery, query);
     }
 
-    // 1. 搜索归档历史 (history.md)
+    // 1. Search compacted history
     const historyPath = this.historyPath(scope);
     const historyRaw = await readFile(historyPath, "utf8").catch(() => "");
     const historyBlocks = historyRaw.split(/^## /m).filter((block) => block.trim());
-    
+
     const historyResults = historyBlocks.map((block) => {
-      const haystack = block.toLowerCase();
-      const score = needles.length ? needles.reduce((sum, needle) => sum + (haystack.includes(needle) ? 1 : 0), 0) : 1;
+      const score = scoreMemoryText(block, relevanceQuery);
       return { scope, path: historyPath, excerpt: truncateText(block.replace(/\s+/g, " "), 900), score };
     });
 
-    // 2. 搜索最近记忆 (recent.jsonl)
-    const recentEntries = await this.readRecent(scope, 100); // 搜索最近 100 条
+    // 2. Search recent memory
+    const recentEntries = await this.readRecent(scope, 100);
     const recentResults = recentEntries.map((entry) => {
-      const haystack = entry.text.toLowerCase();
-      const score = needles.length ? needles.reduce((sum, needle) => sum + (haystack.includes(needle) ? 1.2 : 0), 0) : 1; // 给予最近记忆略高的权重
-      return { 
-        scope, 
-        path: this.recentPath(scope), 
-        excerpt: `[Recent] ${entry.source}: ${truncateText(entry.text, 500)}`, 
-        score 
+      const score = scoreMemoryText(entry.text, relevanceQuery, { recent: true });
+      return {
+        scope,
+        path: this.recentPath(scope),
+        excerpt: `[Recent] ${entry.source}: ${truncateText(entry.text, 500)}`,
+        score,
       };
     });
 
-    // 3. 合并与排序
-    const allResults = [...recentResults, ...historyResults]
+    // 3. Merge and rank
+    return [...recentResults, ...historyResults]
       .filter((item) => item.score > 0)
       .sort((a, b) => b.score - a.score)
       .slice(0, Math.max(1, Math.min(20, query.limit ?? 3)));
-
-    return allResults;
   }
 
+  /**
+   * Observation & Recovery
+   */
   async snapshot(): Promise<Record<string, unknown>> {
     const channelRecentCounts = await this.countDiscordRecentEntries();
     return {
@@ -330,7 +303,10 @@ export class MemoryStore {
     return raw.split(/\r?\n/).filter((line) => line.trim()).length;
   }
 
-  private async searchLongTerm(needles: string[], query: MemorySearchQuery): Promise<HistorySummary[]> {
+  private async searchLongTerm(
+    relevanceQuery: MemoryRelevanceQuery,
+    query: MemorySearchQuery,
+  ): Promise<HistorySummary[]> {
     const layers = query.layers?.length ? query.layers : [...MEMORY_LAYERS];
     const results: HistorySummary[] = [];
     await Promise.all(layers.map(async (layer) => {
@@ -340,8 +316,7 @@ export class MemoryStore {
         const fullPath = path.join(dir, file);
         const raw = await readFile(fullPath, "utf8").catch(() => "");
         if (!raw.trim()) return;
-        const haystack = raw.toLowerCase();
-        const score = needles.length ? needles.reduce((sum, needle) => sum + (haystack.includes(needle) ? 1 : 0), 0) : 1;
+        const score = scoreMemoryText(raw, relevanceQuery);
         if (score <= 0) return;
         const key = file.replace(/\.md$/i, "");
         results.push({
@@ -375,7 +350,8 @@ export class MemoryStore {
     });
   }
 
-  // Module: compaction and checkpoint recovery.
+  // === Compaction & Checkpoint Logic ===
+
   private async ensureStructure(): Promise<void> {
     await Promise.all([
       mkdir(path.join(this.rootDir, "discord", "channels"), { recursive: true }),
@@ -479,8 +455,9 @@ export class MemoryStore {
   }
 
   private async recoverCheckpoints(): Promise<void> {
-    const roots = [path.join(this.rootDir, "live"), path.join(this.rootDir, "discord", "channels")];
-    roots.push(path.join(this.rootDir, "discord", "global"));
+    // Recovery scans only the known live/discord roots so an interrupted compaction can
+    // be resumed without touching unrelated workspace data.
+    const roots = [path.join(this.rootDir, "live"), path.join(this.rootDir, "discord", "channels"), path.join(this.rootDir, "discord", "global")];
     for (const root of roots) {
       await this.recoverCheckpointsUnder(root);
     }
@@ -510,7 +487,8 @@ export class MemoryStore {
     return null;
   }
 
-  // Module: path helpers and per-scope serialization queue.
+  // === Path Helpers & Internal Queue ===
+
   private scopeDir(scope: MemoryScope): string {
     if (scope.kind === "live") return path.join(this.rootDir, "live");
     if (scope.kind === "long_term") return path.join(this.rootDir, "long_term");
@@ -527,6 +505,8 @@ export class MemoryStore {
   }
 
   private async inScopeQueue(scope: MemoryScope, task: () => Promise<void>): Promise<void> {
+    // Serialize writes per scope to keep recent logs, checkpoints, and long-term files
+    // from racing each other under concurrent events.
     const key = scopeLabel(scope);
     const pending = this.queues.get(key) ?? Promise.resolve();
     const next = pending.then(task, task);
@@ -539,50 +519,3 @@ export class MemoryStore {
   }
 }
 
-// Module: standalone helpers.
-function safeSegment(value: string): string {
-  return value.trim().replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-").replace(/\s+/g, "-") || "untitled";
-}
-
-function parseJsonl<T>(raw: string): T[] {
-  const entries: T[] = [];
-  for (const line of raw.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    try {
-      entries.push(JSON.parse(trimmed) as T);
-    } catch {
-      // Ignore one corrupt JSONL line so the rest of memory remains readable.
-    }
-  }
-  return entries;
-}
-
-function defaultProposalTargetKey(proposal: MemoryProposal): string {
-  if (proposal.layer === "user_facts") return `user_${safeSegment(proposal.authorId)}`;
-  return "approved_proposals";
-}
-
-function scopeLabel(scope: MemoryScope): string {
-  if (scope.kind === "discord_channel") return `discord:${scope.channelId}`;
-  if (scope.kind === "discord_global") return "discord:global";
-  return scope.kind;
-}
-
-function keywordSnippets(text: string): string[] {
-  const clean = sanitizeExternalText(text).replace(/https?:\/\/\S+/g, " ");
-  // 提取连续的字母数字或中文字符
-  const matches = clean.match(/[\p{L}\p{N}]{2,12}/gu) || [];
-  return matches.slice(0, 6);
-}
-
-async function atomicWrite(file: string, content: string): Promise<void> {
-  const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
-  await writeFile(temp, content, "utf8");
-  await rename(temp, file);
-}
-
-async function atomicAppend(file: string, content: string): Promise<void> {
-  const previous = await readFile(file, "utf8").catch(() => "");
-  await atomicWrite(file, previous + content);
-}

@@ -12,8 +12,9 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import express from "express";
 import { Server as SocketIOServer } from "socket.io";
-import { fetchLiveTtsAudio, normalizeTtsProvider, type TtsProviderName } from "../../utils/tts.js";
 import type { MemoryLayer, MemoryProposalStatus, MemoryScope } from "../../memory/memory.js";
+import { allowControlRequest, allowDebugRequest } from "./renderer_auth.js";
+import { fetchRendererTtsAudio, RendererTtsRequestStore } from "./renderer_tts_proxy.js";
 
 export interface LiveRendererServerOptions {
   host?: string;
@@ -52,13 +53,27 @@ export interface LiveRendererLiveController {
 export interface LiveRendererMemoryController {
   snapshot?(): Promise<unknown> | unknown;
   readRecent?(scope: MemoryScope, limit?: number): Promise<unknown> | unknown;
-  search?(scope: MemoryScope, input: { text?: string; keywords?: string[]; limit?: number; layers?: MemoryLayer[] }): Promise<unknown> | unknown;
+  search?(
+    scope: MemoryScope,
+    input: { text?: string; keywords?: string[]; limit?: number; layers?: MemoryLayer[] },
+  ): Promise<unknown> | unknown;
   readLongTerm?(key: string, layer?: MemoryLayer): Promise<unknown> | unknown;
   writeLongTerm?(key: string, value: string, layer?: MemoryLayer): Promise<unknown> | unknown;
   appendLongTerm?(key: string, value: string, layer?: MemoryLayer): Promise<unknown> | unknown;
-  propose?(input: { content: string; reason: string; layer?: MemoryLayer; authorId?: string; source?: string }): Promise<unknown> | unknown;
+  propose?(input: {
+    content: string;
+    reason: string;
+    layer?: MemoryLayer;
+    authorId?: string;
+    source?: string;
+  }): Promise<unknown> | unknown;
   listProposals?(input?: { limit?: number; status?: MemoryProposalStatus }): Promise<unknown> | unknown;
-  approveProposal?(input: { proposalId: string; targetKey?: string; reason?: string; decidedBy?: string }): Promise<unknown> | unknown;
+  approveProposal?(input: {
+    proposalId: string;
+    targetKey?: string;
+    reason?: string;
+    decidedBy?: string;
+  }): Promise<unknown> | unknown;
   rejectProposal?(input: { proposalId: string; reason?: string; decidedBy?: string }): Promise<unknown> | unknown;
 }
 
@@ -77,7 +92,7 @@ export class LiveRendererServer {
     visible: true,
     caption: "Stelle renderer ready.",
   };
-  private readonly ttsRequests = new Map<string, { provider: TtsProviderName; request: Record<string, unknown>; createdAt: number }>();
+  private readonly ttsRequests = new RendererTtsRequestStore();
 
   constructor(private readonly options: LiveRendererServerOptions = {}) {
     this.setupRoutes();
@@ -145,7 +160,7 @@ export class LiveRendererServer {
     if (command.type === "audio:status") {
       this.state = { ...this.state, audioStatus: command.status };
     }
-    
+
     // 统一通过 Socket.io 广播
     this.io.emit("command", command);
   }
@@ -168,7 +183,7 @@ export class LiveRendererServer {
       const entry = this.ttsRequests.get(req.params.id);
       if (!entry) return res.status(404).json({ ok: false, error: "tts request not found or expired" });
       try {
-        const response = await fetchLiveTtsAudio(entry.provider, entry.request);
+        const response = await fetchRendererTtsAudio(entry);
         res.status(response.status);
         response.headers.forEach((value, key) => {
           if (!["content-encoding", "transfer-encoding", "connection"].includes(key.toLowerCase())) {
@@ -188,7 +203,12 @@ export class LiveRendererServer {
           reader.releaseLock();
         }
       } catch (error) {
-        this.publish({ type: "audio:status", status: "error", provider: req.params.provider, text: error instanceof Error ? error.message : String(error) });
+        this.publish({
+          type: "audio:status",
+          status: "error",
+          provider: req.params.provider,
+          text: error instanceof Error ? error.message : String(error),
+        });
         res.status(502).json({ ok: false, error: error instanceof Error ? error.message : String(error) });
       }
     });
@@ -202,7 +222,8 @@ export class LiveRendererServer {
     // 页面路由
     const serveIndex = async (_req: express.Request, res: express.Response) => {
       const indexPath = path.resolve("dist/live-renderer/index.html");
-      const fallback = "<!doctype html><html><body><main id=\"app\">Stelle renderer ready.</main><script type=\"module\" src=\"/assets/index.js\"></script></body></html>";
+      const fallback =
+        '<!doctype html><html><body><main id="app">Stelle renderer ready.</main><script type="module" src="/assets/index.js"></script></body></html>';
       try {
         const html = await fs.readFile(indexPath, "utf8");
         res.send(html);
@@ -228,40 +249,61 @@ export class LiveRendererServer {
       if (!this.controlAllowed(req, res)) return;
       res.send(controlHtml(this.options.control?.requireToken !== false));
     });
-    
+
     this.app.get("/_debug/api/snapshot", async (req, res) => {
       if (!this.debugAllowed(req, res)) return;
       if (!this.options.debugController) return res.status(503).json({ ok: false, error: "unavailable" });
-      try { res.json({ ok: true, snapshot: await this.options.debugController.getSnapshot() }); }
-      catch(e) { res.status(500).json({ ok: false, error: String(e) }); }
+      try {
+        res.json({ ok: true, snapshot: await this.options.debugController.getSnapshot() });
+      } catch (e) {
+        res.status(500).json({ ok: false, error: String(e) });
+      }
     });
 
     this.app.post("/_debug/api/tool/use", async (req, res) => {
       if (!this.debugAllowed(req, res)) return;
       if (!this.options.debugController?.useTool) return res.status(503).json({ ok: false, error: "unavailable" });
-      try { res.json({ ok: true, result: await this.options.debugController.useTool(req.body.name ?? "", req.body.input ?? {}) }); }
-      catch(e) { res.status(500).json({ ok: false, error: String(e) }); }
+      try {
+        res.json({
+          ok: true,
+          result: await this.options.debugController.useTool(req.body.name ?? "", req.body.input ?? {}),
+        });
+      } catch (e) {
+        res.status(500).json({ ok: false, error: String(e) });
+      }
     });
 
     this.app.post("/_debug/api/live/request", async (req, res) => {
       if (!this.debugAllowed(req, res)) return;
-      if (!this.options.debugController?.sendLiveRequest) return res.status(503).json({ ok: false, error: "unavailable" });
-      try { res.json({ ok: true, result: await this.options.debugController.sendLiveRequest(req.body) }); }
-      catch(e) { res.status(500).json({ ok: false, error: String(e) }); }
+      if (!this.options.debugController?.sendLiveRequest)
+        return res.status(503).json({ ok: false, error: "unavailable" });
+      try {
+        res.json({ ok: true, result: await this.options.debugController.sendLiveRequest(req.body) });
+      } catch (e) {
+        res.status(500).json({ ok: false, error: String(e) });
+      }
     });
 
     this.app.post("/_debug/api/live/event", async (req, res) => {
       if (!this.debugAllowed(req, res)) return;
-      if (!this.options.debugController?.sendLiveEvent) return res.status(503).json({ ok: false, error: "unavailable" });
-      try { res.json({ ok: true, result: await this.options.debugController.sendLiveEvent(req.body) }); }
-      catch(e) { res.status(500).json({ ok: false, error: String(e) }); }
+      if (!this.options.debugController?.sendLiveEvent)
+        return res.status(503).json({ ok: false, error: "unavailable" });
+      try {
+        res.json({ ok: true, result: await this.options.debugController.sendLiveEvent(req.body) });
+      } catch (e) {
+        res.status(500).json({ ok: false, error: String(e) });
+      }
     });
 
     this.app.post("/_debug/api/live/control", async (req, res) => {
       if (!this.debugAllowed(req, res)) return;
-      if (!this.options.liveController?.runControlCommand) return res.status(503).json({ ok: false, error: "unavailable" });
-      try { res.json({ ok: true, result: await this.options.liveController.runControlCommand(req.body) }); }
-      catch(e) { res.status(500).json({ ok: false, error: String(e) }); }
+      if (!this.options.liveController?.runControlCommand)
+        return res.status(503).json({ ok: false, error: "unavailable" });
+      try {
+        res.json({ ok: true, result: await this.options.liveController.runControlCommand(req.body) });
+      } catch (e) {
+        res.status(500).json({ ok: false, error: String(e) });
+      }
     });
 
     // 旧版控制接口
@@ -274,15 +316,22 @@ export class LiveRendererServer {
     this.app.post("/api/live/event", async (req, res) => {
       if (!this.controlAllowed(req, res)) return;
       if (!this.options.liveController?.sendLiveEvent) return res.status(503).json({ ok: false, error: "unavailable" });
-      try { res.json({ ok: true, result: await this.options.liveController.sendLiveEvent(req.body) }); }
-      catch(e) { res.status(500).json({ ok: false, error: String(e) }); }
+      try {
+        res.json({ ok: true, result: await this.options.liveController.sendLiveEvent(req.body) });
+      } catch (e) {
+        res.status(500).json({ ok: false, error: String(e) });
+      }
     });
 
     this.app.post("/api/live/request", async (req, res) => {
       if (!this.controlAllowed(req, res)) return;
-      if (!this.options.liveController?.sendLiveRequest) return res.status(503).json({ ok: false, error: "unavailable" });
-      try { res.json({ ok: true, result: await this.options.liveController.sendLiveRequest(req.body) }); }
-      catch(e) { res.status(500).json({ ok: false, error: String(e) }); }
+      if (!this.options.liveController?.sendLiveRequest)
+        return res.status(503).json({ ok: false, error: "unavailable" });
+      try {
+        res.json({ ok: true, result: await this.options.liveController.sendLiveRequest(req.body) });
+      } catch (e) {
+        res.status(500).json({ ok: false, error: String(e) });
+      }
     });
 
     this.app.get("/api/live/health", async (req, res) => {
@@ -292,42 +341,62 @@ export class LiveRendererServer {
         const snapshot = await this.options.liveController.getHealth();
         this.publishHealth(snapshot);
         res.json({ ok: true, snapshot });
-      } catch(e) { res.status(500).json({ ok: false, error: String(e) }); }
+      } catch (e) {
+        res.status(500).json({ ok: false, error: String(e) });
+      }
     });
 
     this.app.get("/api/live/journal", async (req, res) => {
       if (!this.controlAllowed(req, res)) return;
       if (!this.options.liveController?.getJournal) return res.status(503).json({ ok: false, error: "unavailable" });
-      try { res.json({ ok: true, journal: await this.options.liveController.getJournal(Number(req.query.limit ?? 40)) }); }
-      catch(e) { res.status(500).json({ ok: false, error: String(e) }); }
+      try {
+        res.json({ ok: true, journal: await this.options.liveController.getJournal(Number(req.query.limit ?? 40)) });
+      } catch (e) {
+        res.status(500).json({ ok: false, error: String(e) });
+      }
     });
 
     this.app.post("/api/live/control", async (req, res) => {
       if (!this.controlAllowed(req, res)) return;
-      if (!this.options.liveController?.runControlCommand) return res.status(503).json({ ok: false, error: "unavailable" });
-      try { res.json({ ok: true, result: await this.options.liveController.runControlCommand(req.body) }); }
-      catch(e) { res.status(500).json({ ok: false, error: String(e) }); }
+      if (!this.options.liveController?.runControlCommand)
+        return res.status(503).json({ ok: false, error: "unavailable" });
+      try {
+        res.json({ ok: true, result: await this.options.liveController.runControlCommand(req.body) });
+      } catch (e) {
+        res.status(500).json({ ok: false, error: String(e) });
+      }
     });
 
     this.app.get("/api/memory/snapshot", async (req, res) => {
       if (!this.controlAllowed(req, res)) return;
-      if (!this.options.memoryController?.snapshot) return res.status(503).json({ ok: false, error: "memory unavailable" });
-      try { res.json({ ok: true, snapshot: await this.options.memoryController.snapshot() }); }
-      catch(e) { res.status(500).json({ ok: false, error: String(e) }); }
+      if (!this.options.memoryController?.snapshot)
+        return res.status(503).json({ ok: false, error: "memory unavailable" });
+      try {
+        res.json({ ok: true, snapshot: await this.options.memoryController.snapshot() });
+      } catch (e) {
+        res.status(500).json({ ok: false, error: String(e) });
+      }
     });
 
     this.app.post("/api/memory/recent/read", async (req, res) => {
       if (!this.controlAllowed(req, res)) return;
-      if (!this.options.memoryController?.readRecent) return res.status(503).json({ ok: false, error: "memory unavailable" });
+      if (!this.options.memoryController?.readRecent)
+        return res.status(503).json({ ok: false, error: "memory unavailable" });
       try {
         const body = req.body as Record<string, unknown>;
-        res.json({ ok: true, entries: await this.options.memoryController.readRecent(body.scope as MemoryScope, Number(body.limit ?? 20)) });
-      } catch(e) { res.status(500).json({ ok: false, error: String(e) }); }
+        res.json({
+          ok: true,
+          entries: await this.options.memoryController.readRecent(body.scope as MemoryScope, Number(body.limit ?? 20)),
+        });
+      } catch (e) {
+        res.status(500).json({ ok: false, error: String(e) });
+      }
     });
 
     this.app.post("/api/memory/search", async (req, res) => {
       if (!this.controlAllowed(req, res)) return;
-      if (!this.options.memoryController?.search) return res.status(503).json({ ok: false, error: "memory unavailable" });
+      if (!this.options.memoryController?.search)
+        return res.status(503).json({ ok: false, error: "memory unavailable" });
       try {
         const body = req.body as Record<string, unknown>;
         res.json({
@@ -336,40 +405,64 @@ export class LiveRendererServer {
             text: typeof body.text === "string" ? body.text : undefined,
             keywords: Array.isArray(body.keywords) ? body.keywords.map(String) : undefined,
             limit: body.limit === undefined ? undefined : Number(body.limit),
-            layers: Array.isArray(body.layers) ? body.layers.map(String) as MemoryLayer[] : undefined,
+            layers: Array.isArray(body.layers) ? (body.layers.map(String) as MemoryLayer[]) : undefined,
           }),
         });
-      } catch(e) { res.status(500).json({ ok: false, error: String(e) }); }
+      } catch (e) {
+        res.status(500).json({ ok: false, error: String(e) });
+      }
     });
 
     this.app.get("/api/memory/long-term/:layer/:key", async (req, res) => {
       if (!this.controlAllowed(req, res)) return;
-      if (!this.options.memoryController?.readLongTerm) return res.status(503).json({ ok: false, error: "memory unavailable" });
-      try { res.json({ ok: true, value: await this.options.memoryController.readLongTerm(req.params.key, req.params.layer as MemoryLayer) }); }
-      catch(e) { res.status(500).json({ ok: false, error: String(e) }); }
+      if (!this.options.memoryController?.readLongTerm)
+        return res.status(503).json({ ok: false, error: "memory unavailable" });
+      try {
+        res.json({
+          ok: true,
+          value: await this.options.memoryController.readLongTerm(req.params.key, req.params.layer as MemoryLayer),
+        });
+      } catch (e) {
+        res.status(500).json({ ok: false, error: String(e) });
+      }
     });
 
     this.app.put("/api/memory/long-term/:layer/:key", async (req, res) => {
       if (!this.controlAllowed(req, res)) return;
-      if (!this.options.memoryController?.writeLongTerm) return res.status(503).json({ ok: false, error: "memory unavailable" });
+      if (!this.options.memoryController?.writeLongTerm)
+        return res.status(503).json({ ok: false, error: "memory unavailable" });
       try {
-        await this.options.memoryController.writeLongTerm(req.params.key, String((req.body as Record<string, unknown>).value ?? ""), req.params.layer as MemoryLayer);
+        await this.options.memoryController.writeLongTerm(
+          req.params.key,
+          String((req.body as Record<string, unknown>).value ?? ""),
+          req.params.layer as MemoryLayer,
+        );
         res.json({ ok: true });
-      } catch(e) { res.status(500).json({ ok: false, error: String(e) }); }
+      } catch (e) {
+        res.status(500).json({ ok: false, error: String(e) });
+      }
     });
 
     this.app.post("/api/memory/long-term/:layer/:key/append", async (req, res) => {
       if (!this.controlAllowed(req, res)) return;
-      if (!this.options.memoryController?.appendLongTerm) return res.status(503).json({ ok: false, error: "memory unavailable" });
+      if (!this.options.memoryController?.appendLongTerm)
+        return res.status(503).json({ ok: false, error: "memory unavailable" });
       try {
-        await this.options.memoryController.appendLongTerm(req.params.key, String((req.body as Record<string, unknown>).value ?? ""), req.params.layer as MemoryLayer);
+        await this.options.memoryController.appendLongTerm(
+          req.params.key,
+          String((req.body as Record<string, unknown>).value ?? ""),
+          req.params.layer as MemoryLayer,
+        );
         res.json({ ok: true });
-      } catch(e) { res.status(500).json({ ok: false, error: String(e) }); }
+      } catch (e) {
+        res.status(500).json({ ok: false, error: String(e) });
+      }
     });
 
     this.app.post("/api/memory/propose", async (req, res) => {
       if (!this.controlAllowed(req, res)) return;
-      if (!this.options.memoryController?.propose) return res.status(503).json({ ok: false, error: "memory unavailable" });
+      if (!this.options.memoryController?.propose)
+        return res.status(503).json({ ok: false, error: "memory unavailable" });
       try {
         const body = req.body as Record<string, unknown>;
         const result = await this.options.memoryController.propose({
@@ -380,113 +473,113 @@ export class LiveRendererServer {
           source: typeof body.source === "string" ? body.source : undefined,
         });
         res.json({ ok: true, result });
-      } catch(e) { res.status(500).json({ ok: false, error: String(e) }); }
+      } catch (e) {
+        res.status(500).json({ ok: false, error: String(e) });
+      }
     });
 
     this.app.get("/api/memory/proposals", async (req, res) => {
       if (!this.controlAllowed(req, res)) return;
-      if (!this.options.memoryController?.listProposals) return res.status(503).json({ ok: false, error: "memory unavailable" });
+      if (!this.options.memoryController?.listProposals)
+        return res.status(503).json({ ok: false, error: "memory unavailable" });
       try {
         res.json({
           ok: true,
           proposals: await this.options.memoryController.listProposals({
             limit: Number(req.query.limit ?? 50),
-            status: typeof req.query.status === "string" ? req.query.status as MemoryProposalStatus : undefined,
+            status: typeof req.query.status === "string" ? (req.query.status as MemoryProposalStatus) : undefined,
           }),
         });
-      } catch(e) { res.status(500).json({ ok: false, error: String(e) }); }
+      } catch (e) {
+        res.status(500).json({ ok: false, error: String(e) });
+      }
     });
 
     this.app.post("/api/memory/proposals/:proposalId/approve", async (req, res) => {
       if (!this.controlAllowed(req, res)) return;
-      if (!this.options.memoryController?.approveProposal) return res.status(503).json({ ok: false, error: "memory unavailable" });
+      if (!this.options.memoryController?.approveProposal)
+        return res.status(503).json({ ok: false, error: "memory unavailable" });
       try {
         const body = req.body as Record<string, unknown>;
-        res.json({ ok: true, result: await this.options.memoryController.approveProposal({
-          proposalId: req.params.proposalId,
-          targetKey: typeof body.targetKey === "string" ? body.targetKey : undefined,
-          reason: typeof body.reason === "string" ? body.reason : undefined,
-          decidedBy: typeof body.decidedBy === "string" ? body.decidedBy : undefined,
-        }) });
-      } catch(e) { res.status(500).json({ ok: false, error: String(e) }); }
+        res.json({
+          ok: true,
+          result: await this.options.memoryController.approveProposal({
+            proposalId: req.params.proposalId,
+            targetKey: typeof body.targetKey === "string" ? body.targetKey : undefined,
+            reason: typeof body.reason === "string" ? body.reason : undefined,
+            decidedBy: typeof body.decidedBy === "string" ? body.decidedBy : undefined,
+          }),
+        });
+      } catch (e) {
+        res.status(500).json({ ok: false, error: String(e) });
+      }
     });
 
     this.app.post("/api/memory/proposals/:proposalId/reject", async (req, res) => {
       if (!this.controlAllowed(req, res)) return;
-      if (!this.options.memoryController?.rejectProposal) return res.status(503).json({ ok: false, error: "memory unavailable" });
+      if (!this.options.memoryController?.rejectProposal)
+        return res.status(503).json({ ok: false, error: "memory unavailable" });
       try {
         const body = req.body as Record<string, unknown>;
-        res.json({ ok: true, result: await this.options.memoryController.rejectProposal({
-          proposalId: req.params.proposalId,
-          reason: typeof body.reason === "string" ? body.reason : undefined,
-          decidedBy: typeof body.decidedBy === "string" ? body.decidedBy : undefined,
-        }) });
-      } catch(e) { res.status(500).json({ ok: false, error: String(e) }); }
+        res.json({
+          ok: true,
+          result: await this.options.memoryController.rejectProposal({
+            proposalId: req.params.proposalId,
+            reason: typeof body.reason === "string" ? body.reason : undefined,
+            decidedBy: typeof body.decidedBy === "string" ? body.decidedBy : undefined,
+          }),
+        });
+      } catch (e) {
+        res.status(500).json({ ok: false, error: String(e) });
+      }
     });
 
     this.app.get("/api/live/viewer/:platform/:viewerId", async (req, res) => {
       if (!this.controlAllowed(req, res)) return;
-      if (!this.options.liveController?.getViewerProfile) return res.status(503).json({ ok: false, error: "unavailable" });
-      try { res.json({ ok: true, profile: await this.options.liveController.getViewerProfile(req.params.platform, req.params.viewerId) }); }
-      catch(e) { res.status(500).json({ ok: false, error: String(e) }); }
+      if (!this.options.liveController?.getViewerProfile)
+        return res.status(503).json({ ok: false, error: "unavailable" });
+      try {
+        res.json({
+          ok: true,
+          profile: await this.options.liveController.getViewerProfile(req.params.platform, req.params.viewerId),
+        });
+      } catch (e) {
+        res.status(500).json({ ok: false, error: String(e) });
+      }
     });
 
     this.app.delete("/api/live/viewer/:platform/:viewerId", async (req, res) => {
       if (!this.controlAllowed(req, res)) return;
-      if (!this.options.liveController?.deleteViewerProfile) return res.status(503).json({ ok: false, error: "unavailable" });
-      try { res.json({ ok: true, result: await this.options.liveController.deleteViewerProfile(req.params.platform, req.params.viewerId) }); }
-      catch(e) { res.status(500).json({ ok: false, error: String(e) }); }
+      if (!this.options.liveController?.deleteViewerProfile)
+        return res.status(503).json({ ok: false, error: "unavailable" });
+      try {
+        res.json({
+          ok: true,
+          result: await this.options.liveController.deleteViewerProfile(req.params.platform, req.params.viewerId),
+        });
+      } catch (e) {
+        res.status(500).json({ ok: false, error: String(e) });
+      }
     });
   }
 
   private captureTtsRequest(command: LiveRendererCommand): void {
-    if (command.type !== "audio:stream" || typeof command.url !== "string") return;
-    const match = command.url.match(/^\/tts\/([^/?#]+)\/([^/?#]+)/);
-    if (!match) return;
-    const request = command.request;
-    if (!request || typeof request !== "object" || Array.isArray(request)) return;
-    const now = Date.now();
-    this.ttsRequests.set(match[2]!, { provider: normalizeTtsProvider(match[1]!), request: request as Record<string, unknown>, createdAt: now });
-    for (const [id, entry] of this.ttsRequests) {
-      if (now - entry.createdAt > 5 * 60 * 1000) this.ttsRequests.delete(id);
-    }
+    this.ttsRequests.capture(command);
   }
 
   private debugAllowed(req: express.Request, res: express.Response): boolean {
-    if (!this.options.debug?.enabled) {
-      res.status(404).json({ ok: false, error: "debug disabled" });
-      return false;
-    }
-    if (this.options.debug.requireToken === false) return true;
-    const expected = this.options.debug.token;
-    if (!expected) {
-      res.status(403).json({ ok: false, error: "debug token is required but not configured" });
-      return false;
-    }
-    const header = req.header("authorization")?.replace(/^Bearer\s+/i, "");
-    const query = typeof req.query.token === "string" ? req.query.token : undefined;
-    if (header === expected || query === expected) return true;
-    res.status(401).json({ ok: false, error: "invalid debug token" });
-    return false;
+    return allowDebugRequest(this.options.debug, req, res);
   }
 
   private controlAllowed(req: express.Request, res: express.Response): boolean {
-    if (this.options.control?.requireToken === false) return true;
-    const expected = this.options.control?.token;
-    if (!expected) {
-      res.status(403).json({ ok: false, error: "control token is required but not configured" });
-      return false;
-    }
-    const header = req.header("authorization")?.replace(/^Bearer\s+/i, "");
-    const query = typeof req.query.token === "string" ? req.query.token : undefined;
-    if (header === expected || query === expected) return true;
-    res.status(401).json({ ok: false, error: "invalid control token" });
-    return false;
+    return allowControlRequest(this.options.control, req, res);
   }
 }
 
 function debugHtml(requireToken: boolean): string {
-  const tokenScript = requireToken ? "const token = new URLSearchParams(location.search).get('token') || '';" : "const token = '';";
+  const tokenScript = requireToken
+    ? "const token = new URLSearchParams(location.search).get('token') || '';"
+    : "const token = '';";
   return `<!doctype html><html><head><meta charset="utf-8"><title>Stelle Debug Panel</title><style>
 :root{color-scheme:dark;--bg:#0d1117;--panel:#151b23;--panel2:#0f1620;--line:#303b49;--muted:#8b9aac;--text:#e6edf3;--accent:#7cc7ff;--good:#8ee0b3;--warn:#f0bd6a;--bad:#ff8c8c}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:Segoe UI,Microsoft YaHei,Arial,sans-serif;font-size:14px}
@@ -610,7 +703,9 @@ setInterval(refresh, 5000);
 }
 
 function controlHtml(requireToken: boolean): string {
-  const tokenScript = requireToken ? "const token = new URLSearchParams(location.search).get('token') || ''; const qs = token ? `?token=${encodeURIComponent(token)}` : '';" : "const qs = '';";
+  const tokenScript = requireToken
+    ? "const token = new URLSearchParams(location.search).get('token') || ''; const qs = token ? `?token=${encodeURIComponent(token)}` : '';"
+    : "const qs = '';";
   return `<!doctype html><html><head><meta charset="utf-8"><title>Stelle Live Control</title><style>
 body{margin:0;background:#0b1118;color:#dbe7ef;font-family:Segoe UI,Microsoft YaHei,sans-serif}
 main{display:grid;grid-template-columns:1.2fr .8fr;gap:16px;padding:18px;min-height:100vh}

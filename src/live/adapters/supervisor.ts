@@ -1,6 +1,8 @@
+// === Imports ===
 import type { StelleEventBus } from "../../utils/event_bus.js";
 import type { LivePlatformBridge } from "./types.js";
 
+// === Types ===
 export interface LivePlatformSupervisorOptions {
   connectTimeoutMs?: number;
   pollIntervalMs?: number;
@@ -9,6 +11,7 @@ export interface LivePlatformSupervisorOptions {
   jitterMs?: number;
 }
 
+// === Main Class ===
 export class LivePlatformSupervisor {
   private stopped = true;
   private reconnectAttempt = 0;
@@ -21,6 +24,7 @@ export class LivePlatformSupervisor {
     private readonly options: LivePlatformSupervisorOptions = {},
   ) {}
 
+  // --- Lifecycle ---
   start(): void {
     if (!this.bridge.status().enabled || this.runPromise) return;
     this.stopped = false;
@@ -35,6 +39,7 @@ export class LivePlatformSupervisor {
     this.publishStatus("stopped");
   }
 
+  // --- Execution Loop ---
   private async run(): Promise<void> {
     while (!this.stopped) {
       try {
@@ -72,6 +77,7 @@ export class LivePlatformSupervisor {
     return base + jitter;
   }
 
+  // --- Status/Error Reporting ---
   private publishStatus(reason: string): void {
     const status = this.bridge.status();
     this.eventBus.publish({
@@ -107,6 +113,7 @@ export class LivePlatformSupervisor {
   }
 }
 
+// === Helpers ===
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`connect timeout after ${timeoutMs}ms`)), timeoutMs);
@@ -124,5 +131,5 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
 }
 
 function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

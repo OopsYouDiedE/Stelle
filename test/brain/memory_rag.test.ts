@@ -26,7 +26,7 @@ March: Look at that shiny trashcan!
   it("should find relevant history by keyword", async () => {
     const store = new MemoryStore({ rootDir: testRootDir });
     const results = await store.searchHistory({ kind: "discord_channel", channelId: "c1" }, { keywords: ["Trashcan"] });
-    
+
     expect(results.length).toBeGreaterThan(0);
     expect(results[0].excerpt).toContain("Discussion about the next destination");
   });
@@ -56,6 +56,38 @@ March: Look at that shiny trashcan!
 
     expect(results.length).toBe(1);
     expect(results[0].excerpt).toContain("LongTerm:user_facts/profile");
+  });
+
+  it("does not let a repeated single keyword outrank broader relevance", async () => {
+    await writeFile(
+      path.join(testRootDir, "discord", "channels", "c1", "recent.jsonl"),
+      [
+        JSON.stringify({
+          id: "keyword-spam",
+          timestamp: 1,
+          source: "discord",
+          type: "message",
+          text: "Trashcan trashcan trashcan trashcan but no useful context.",
+        }),
+        JSON.stringify({
+          id: "semantic-match",
+          timestamp: 2,
+          source: "discord",
+          type: "message",
+          text: "March connected Trashcan lore with quiet jokes and Express crew habits.",
+        }),
+      ].join("\n"),
+      "utf8",
+    );
+    const store = new MemoryStore({ rootDir: testRootDir });
+
+    const results = await store.searchHistory(
+      { kind: "discord_channel", channelId: "c1" },
+      { text: "Trashcan quiet jokes Express", limit: 5 },
+    );
+
+    expect(results[0].excerpt).toContain("March connected");
+    expect(results.some((result) => result.excerpt.includes("keyword-spam"))).toBe(false);
   });
 
   it("can approve memory proposals into long-term memory", async () => {

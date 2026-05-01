@@ -58,7 +58,13 @@ export async function replayLiveJournal(
   return metrics;
 }
 
-function injectFaults(sequence: number, scenario: LiveReplayScenario, eventBus: StelleEventBus, metrics: LiveReplayMetrics, timestamp: number): void {
+function injectFaults(
+  sequence: number,
+  scenario: LiveReplayScenario,
+  eventBus: StelleEventBus,
+  metrics: LiveReplayMetrics,
+  timestamp: number,
+): void {
   if (scenario.faults?.ttsFailureAtSequence === sequence) {
     metrics.ttsFailuresInjected += 1;
     eventBus.publish({

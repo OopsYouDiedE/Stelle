@@ -63,8 +63,8 @@ describe("topic script runtime", () => {
     });
     await Promise.resolve();
 
-    expect(intents.some(intent => intent.lane === "direct_response" && intent.text.includes("为什么"))).toBe(true);
-    expect(intents.find(intent => intent.lane === "direct_response")).toMatchObject({
+    expect(intents.some((intent) => intent.lane === "direct_response" && intent.text.includes("为什么"))).toBe(true);
+    expect(intents.find((intent) => intent.lane === "direct_response")).toMatchObject({
       cursorId: "topic_script_runtime",
       priority: 72,
       interrupt: "soft",
@@ -94,7 +94,7 @@ describe("topic script runtime", () => {
       payload: { id: "q1", source: "fixture", cmd: "DANMU_MSG", text: "为什么要记住观众？" },
     });
     await Promise.resolve();
-    const interruptIntent = intents.find(intent => intent.lane === "direct_response");
+    const interruptIntent = intents.find((intent) => intent.lane === "direct_response");
 
     eventBus.publish({
       type: "stage.output.completed",

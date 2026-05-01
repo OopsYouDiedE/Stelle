@@ -1,8 +1,10 @@
+// === Imports ===
 import { asRecord } from "../../utils/json.js";
 import type { NormalizedLiveEvent } from "../../utils/live_event.js";
 import type { LivePlatformBridge, LivePlatformEventHandler, LivePlatformStatus } from "./types.js";
 import { liveEventId } from "./types.js";
 
+// === Types ===
 export interface TikTokPlatformOptions {
   enabled: boolean;
   username?: string;
@@ -24,6 +26,7 @@ type WebSocketLike = WebSocket & {
   onclose: ((event: CloseEvent) => void) | null;
 };
 
+// === Main Class ===
 export class TikTokPlatformBridge implements LivePlatformBridge {
   readonly platform = "tiktok" as const;
   private socket?: WebSocketLike;
@@ -38,9 +41,12 @@ export class TikTokPlatformBridge implements LivePlatformBridge {
     private readonly onEvent: LivePlatformEventHandler,
   ) {}
 
+  // --- Lifecycle ---
   async start(): Promise<void> {
     if (!this.options.enabled) return;
-    const provider = this.options.provider ?? (this.options.webSocketUrl || process.env.TIKTOK_LIVE_WS_URL ? "websocket" : "tiktok-live-connector");
+    const provider =
+      this.options.provider ??
+      (this.options.webSocketUrl || process.env.TIKTOK_LIVE_WS_URL ? "websocket" : "tiktok-live-connector");
     if (provider === "websocket") {
       await this.startWebSocket();
       return;
@@ -69,6 +75,7 @@ export class TikTokPlatformBridge implements LivePlatformBridge {
     };
   }
 
+  // --- WebSocket Implementation ---
   private async startWebSocket(): Promise<void> {
     const webSocketUrl = this.options.webSocketUrl ?? process.env.TIKTOK_LIVE_WS_URL;
     if (!webSocketUrl) {
@@ -119,6 +126,7 @@ export class TikTokPlatformBridge implements LivePlatformBridge {
     });
   }
 
+  // --- Connector Implementation ---
   private async startConnector(): Promise<void> {
     const username = this.options.username ?? process.env.TIKTOK_USERNAME;
     if (!username) {
@@ -128,7 +136,9 @@ export class TikTokPlatformBridge implements LivePlatformBridge {
     try {
       const dynamicImport = new Function("specifier", "return import(specifier)") as DynamicImport;
       const mod = await dynamicImport("tiktok-live-connector");
-      const Connection = (mod.WebcastPushConnection ?? mod.TikTokLiveConnection) as (new (uniqueId: string) => TikTokConnector) | undefined;
+      const Connection = (mod.WebcastPushConnection ?? mod.TikTokLiveConnection) as
+        | (new (uniqueId: string) => TikTokConnector)
+        | undefined;
       if (!Connection) throw new Error("tiktok-live-connector does not export WebcastPushConnection.");
       const connector = new Connection(username);
       this.connector = connector;
@@ -157,14 +167,22 @@ export class TikTokPlatformBridge implements LivePlatformBridge {
   }
 }
 
+// === Normalization ===
 export function normalizeTikTokPayload(payload: unknown): NormalizedLiveEvent[] {
   const record = asRecord(payload);
-  const messages = Array.isArray(record.messages) ? record.messages : Array.isArray(record.data) ? record.data : undefined;
+  const messages = Array.isArray(record.messages)
+    ? record.messages
+    : Array.isArray(record.data)
+      ? record.data
+      : undefined;
   if (messages) return messages.map((item) => normalizeTikTokObject(asRecord(item))).filter(Boolean);
   return [normalizeTikTokObject(record)];
 }
 
-function normalizeTikTokObject(record: Record<string, unknown>, forcedKind?: NormalizedLiveEvent["kind"]): NormalizedLiveEvent {
+function normalizeTikTokObject(
+  record: Record<string, unknown>,
+  forcedKind?: NormalizedLiveEvent["kind"],
+): NormalizedLiveEvent {
   const eventType = String(record.event ?? record.type ?? record.msgType ?? forcedKind ?? "unknown").toLowerCase();
   const kind = forcedKind ?? kindFromTikTokType(eventType);
   const user = asRecord(record.user ?? record.userDetails);
@@ -183,12 +201,15 @@ function normalizeTikTokObject(record: Record<string, unknown>, forcedKind?: Nor
       name: String(record.nickname ?? record.uniqueId ?? user.nickname ?? user.uniqueId ?? "viewer"),
     },
     text: String(record.comment ?? record.text ?? giftName ?? ""),
-    trustedPayment: kind === "gift" ? {
-      rawType: "gift",
-      amount: Number.isFinite(amount) ? amount : undefined,
-      currency: "diamonds",
-      giftName: giftName || "gift",
-    } : undefined,
+    trustedPayment:
+      kind === "gift"
+        ? {
+            rawType: "gift",
+            amount: Number.isFinite(amount) ? amount : undefined,
+            currency: "diamonds",
+            giftName: giftName || "gift",
+          }
+        : undefined,
     rawCommand: eventType,
     raw: record,
   };
@@ -203,6 +224,7 @@ function kindFromTikTokType(value: string): NormalizedLiveEvent["kind"] {
   return "unknown";
 }
 
+// === Helpers ===
 function parseJson(raw: string): unknown {
   try {
     return JSON.parse(raw);

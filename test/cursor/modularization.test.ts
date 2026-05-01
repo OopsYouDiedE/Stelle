@@ -42,10 +42,12 @@ function makeDiscordMessage() {
 
 describe("cursor modularization", () => {
   it("registry exposes mode-aware cursor modules", () => {
-    const runtimeIds = cursorModules.filter(m => m.enabledInModes.includes("runtime")).map(m => m.id);
-    const discordIds = cursorModules.filter(m => m.enabledInModes.includes("discord")).map(m => m.id);
+    const runtimeIds = cursorModules.filter((m) => m.enabledInModes.includes("runtime")).map((m) => m.id);
+    const discordIds = cursorModules.filter((m) => m.enabledInModes.includes("discord")).map((m) => m.id);
 
-    expect(runtimeIds).toEqual(expect.arrayContaining(["inner", "discord_text_channel", "live_danmaku", "browser", "desktop_input"]));
+    expect(runtimeIds).toEqual(
+      expect.arrayContaining(["inner", "discord_text_channel", "live_danmaku", "browser", "desktop_input"]),
+    );
     expect(discordIds).toEqual(expect.arrayContaining(["inner", "discord_text_channel"]));
     expect(discordIds).not.toContain("live_danmaku");
   });
@@ -64,7 +66,7 @@ describe("cursor modularization", () => {
         desktopInput: { enabled: false },
         rawYaml: { cursors: { discord: { enabled: false }, live: { enabled: false } } },
       } as any,
-    }).map(module => module.id);
+    }).map((module) => module.id);
 
     expect(selected).not.toContain("discord_text_channel");
     expect(selected).not.toContain("live_danmaku");
@@ -76,8 +78,16 @@ describe("cursor modularization", () => {
     const receiveSpy = vi.spyOn(cursor, "receiveMessage").mockResolvedValue({ observed: true, reason: "mocked" });
 
     await cursor.initialize();
-    context.eventBus.publish({ type: "discord.message.received", source: "discord", payload: { message: makeDiscordMessage() } });
-    context.eventBus.publish({ type: "discord.text.message.received", source: "discord", payload: { message: makeDiscordMessage() } });
+    context.eventBus.publish({
+      type: "discord.message.received",
+      source: "discord",
+      payload: { message: makeDiscordMessage() },
+    });
+    context.eventBus.publish({
+      type: "discord.text.message.received",
+      source: "discord",
+      payload: { message: makeDiscordMessage() },
+    });
 
     expect(receiveSpy).toHaveBeenCalledTimes(2);
     await cursor.stop();
@@ -86,7 +96,9 @@ describe("cursor modularization", () => {
   it("bridges legacy and typed danmaku live events to the danmaku cursor", async () => {
     const context = makeContext();
     const cursor = new LiveDanmakuCursor(context);
-    const receiveSpy = vi.spyOn(cursor, "receiveLiveEvent").mockResolvedValue({ accepted: true, reason: "mocked" } as any);
+    const receiveSpy = vi
+      .spyOn(cursor, "receiveLiveEvent")
+      .mockResolvedValue({ accepted: true, reason: "mocked" } as any);
 
     await cursor.initialize();
     context.eventBus.publish({ type: "live.event.danmaku", source: "system", payload: { text: "new" } });
@@ -101,7 +113,7 @@ describe("cursor modularization", () => {
       drivers: [new MockDeviceActionDriver("browser")],
       eventBus: new StelleEventBus(),
       now: () => 1000,
-      allowlist: { cursors: ["browser"], resources: ["default"], risks: ["system"] }
+      allowlist: { cursors: ["browser"], resources: ["default"], risks: ["system"] },
     });
 
     const decision = await arbiter.propose({
@@ -152,13 +164,15 @@ describe("cursor modularization", () => {
     });
 
     expect(result.accepted).toBe(true);
-    expect(deviceAction.propose).toHaveBeenCalledWith(expect.objectContaining({
-      cursorId: "desktop_input",
-      resourceKind: "desktop_input",
-      resourceId: "desktop",
-      actionKind: "click",
-      risk: "safe_interaction",
-      payload: { x: 100, y: 200 },
-    }));
+    expect(deviceAction.propose).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cursorId: "desktop_input",
+        resourceKind: "desktop_input",
+        resourceId: "desktop",
+        actionKind: "click",
+        risk: "safe_interaction",
+        payload: { x: 100, y: 200 },
+      }),
+    );
   });
 });

@@ -2,6 +2,7 @@
  * Module: Inner Cursor (Ego & Cognitive Synthesis Engine)
  */
 
+// === Imports ===
 import { asRecord, enumValue } from "../../utils/json.js";
 import { truncateText } from "../../utils/text.js";
 import type { CursorContext, CursorSnapshot, StelleEvent, StelleCursor } from "../types.js";
@@ -12,11 +13,29 @@ import { DefaultInnerObserver } from "./observer.js";
 import { DefaultPressureValve } from "./pressure.js";
 import { DefaultDirectivePlanner } from "./directive_planner.js";
 import { DefaultMemoryWriter, type InnerMemoryWriter } from "./memory_writer.js";
-import type { CognitiveSignal, SelfModelSnapshot, FieldNote, CursorDirectiveEnvelope, ResearchAgendaUpdate } from "./types.js";
+import { SemanticClusterService } from "../../memory/semantic.js";
+import type {
+  CognitiveSignal,
+  SelfModelSnapshot,
+  FieldNote,
+  CursorDirectiveEnvelope,
+  ResearchAgendaUpdate,
+} from "./types.js";
+
+// === Types & Interfaces ===
 
 export interface RuntimeDecision {
   id: string;
-  source: "discord" | "discord_text_channel" | "live" | "live_danmaku" | "browser" | "desktop_input" | "android_device" | "stage_output" | "system";
+  source:
+    | "discord"
+    | "discord_text_channel"
+    | "live"
+    | "live_danmaku"
+    | "browser"
+    | "desktop_input"
+    | "android_device"
+    | "stage_output"
+    | "system";
   type: string;
   summary: string;
   timestamp: number;
@@ -25,7 +44,15 @@ export interface RuntimeDecision {
 }
 
 export interface CursorDirective {
-  target: "discord" | "discord_text_channel" | "live" | "live_danmaku" | "browser" | "desktop_input" | "android_device" | "global";
+  target:
+    | "discord"
+    | "discord_text_channel"
+    | "live"
+    | "live_danmaku"
+    | "browser"
+    | "desktop_input"
+    | "android_device"
+    | "global";
   instruction: string;
   expiresAt: number;
   policy?: CursorDirectiveEnvelope["policy"];
@@ -37,11 +64,22 @@ export interface CoreConviction {
   stance: string;
 }
 
+// === InnerCursor Class ===
+
+/**
+ * InnerCursor
+ *
+ * Represents the cognitive center of Stelle. It observes external events,
+ * processes them through a tiered cognitive loop, and generates high-level
+ * directives and mood shifts that guide the interaction cursors.
+ */
 export class InnerCursor implements StelleCursor {
+  // === Identification ===
   readonly id = "inner";
   readonly kind = "inner";
   readonly displayName = "Inner Cursor";
 
+  // === State & Properties ===
   private status: CursorSnapshot["status"] = "idle";
   private summary = "Ego is dormant.";
 
@@ -49,7 +87,7 @@ export class InnerCursor implements StelleCursor {
   private currentGlobalMood = "calm";
   private activeDirectives: CursorDirective[] = [];
   private coreConvictions: CoreConviction[] = [];
-  
+
   private unreflectedCount = 0;
   private pendingImpactScore = 0;
   private lastReflectionAt = 0;
@@ -58,6 +96,7 @@ export class InnerCursor implements StelleCursor {
   private unsubscribes: (() => void)[] = [];
   private currentFocus = "保持轻量观察：先关注最近对话里反复出现的关系、情绪和未完成问题。";
 
+  // === Sub-engines ===
   private readonly agenda: DefaultResearchAgenda;
   private readonly observer: DefaultInnerObserver;
   private readonly fieldSampler: DefaultFieldSampler;
@@ -71,7 +110,10 @@ export class InnerCursor implements StelleCursor {
   constructor(private readonly context: CursorContext) {
     this.lastReflectionAt = context.now();
     this.lastCoreReflectionAt = context.now();
-    this.agenda = new DefaultResearchAgenda();
+    const semanticService =
+      (context.config.core as any).semanticResearchAgenda === true ? new SemanticClusterService(context) : undefined;
+
+    this.agenda = new DefaultResearchAgenda(semanticService);
     this.observer = new DefaultInnerObserver();
     this.pressure = new DefaultPressureValve({
       accumulationThreshold: context.config.core.reflectionAccumulationThreshold,
@@ -83,58 +125,75 @@ export class InnerCursor implements StelleCursor {
     this.selfModel = new DefaultSelfModel({
       mood: this.currentGlobalMood,
       currentFocus: this.currentFocus,
-      activeConvictions: this.coreConvictions.map(c => ({ topic: c.topic, stance: c.stance, confidence: 1 })),
+      activeConvictions: this.coreConvictions.map((c) => ({ topic: c.topic, stance: c.stance, confidence: 1 })),
     });
   }
+
+  // === Lifecycle ===
 
   async initialize(): Promise<void> {
     this.unsubscribes.push(
       this.context.eventBus.subscribe("inner.tick", () => {
-        void this.tick().catch(e => console.error("[InnerCursor] Tick error:", e));
-      })
+        void this.tick().catch((e) => console.error("[InnerCursor] Tick error:", e));
+      }),
+      this.context.eventBus.subscribe(
+        "cursor.reflection",
+        (event: Extract<StelleEvent, { type: "cursor.reflection" }>) => {
+          this.receiveDispatch(event);
+        },
+      ),
     );
-    this.unsubscribes.push(
-      this.context.eventBus.subscribe("cursor.reflection", (event: Extract<StelleEvent, { type: "cursor.reflection" }>) => {
-        this.receiveDispatch(event);
-      })
-    );
-    
+
     if (!this.context.memory) return;
+
+    // Load persisted state
+    await this.loadPersistedConvictions();
+    await this.loadPersistedAgenda();
+    await this.loadPersistedFieldNotes();
+    await this.loadPersistedSelfModel();
+  }
+
+  private async loadPersistedConvictions(): Promise<void> {
     try {
-      const savedConvictions = await this.context.memory.readLongTerm("core_convictions", "self_state");
-      if (savedConvictions) {
-        this.coreConvictions = JSON.parse(savedConvictions) as CoreConviction[];
+      const saved = await this.context.memory?.readLongTerm("core_convictions", "self_state");
+      if (saved) {
+        this.coreConvictions = JSON.parse(saved) as CoreConviction[];
         this.selfModel.hydrate({
-          activeConvictions: this.coreConvictions.map(c => ({ topic: c.topic, stance: c.stance, confidence: 1 })),
+          activeConvictions: this.coreConvictions.map((c) => ({ topic: c.topic, stance: c.stance, confidence: 1 })),
         });
       }
     } catch (e) {
       console.warn("[Inner] Failed to load convictions.");
     }
+  }
 
+  private async loadPersistedAgenda(): Promise<void> {
     try {
-      const savedAgenda = await this.context.memory.readLongTerm("research_agenda", "self_state");
-      if (savedAgenda) {
-        const topics = JSON.parse(savedAgenda);
-        this.agenda.hydrate(topics);
+      const saved = await this.context.memory?.readLongTerm("research_agenda", "self_state");
+      if (saved) {
+        this.agenda.hydrate(JSON.parse(saved));
       }
     } catch (e) {
       console.warn("[Inner] Failed to load research agenda.");
     }
+  }
 
+  private async loadPersistedFieldNotes(): Promise<void> {
     try {
-      const savedNotes = await this.context.memory.readLongTerm("field_notes", "self_state");
-      if (savedNotes) {
-        this.recentFieldNotes = JSON.parse(savedNotes) as FieldNote[];
+      const saved = await this.context.memory?.readLongTerm("field_notes", "self_state");
+      if (saved) {
+        this.recentFieldNotes = JSON.parse(saved) as FieldNote[];
       }
     } catch (e) {
       console.warn("[Inner] Failed to load field notes.");
     }
+  }
 
+  private async loadPersistedSelfModel(): Promise<void> {
     try {
-      const savedSelfModel = await this.context.memory.readLongTerm("self_model", "self_state");
-      if (savedSelfModel) {
-        this.selfModel.hydrate(JSON.parse(savedSelfModel));
+      const saved = await this.context.memory?.readLongTerm("self_model", "self_state");
+      if (saved) {
+        this.selfModel.hydrate(JSON.parse(saved));
         const snap = this.selfModel.snapshot();
         this.currentGlobalMood = snap.mood;
         this.currentFocus = snap.currentFocus;
@@ -149,9 +208,15 @@ export class InnerCursor implements StelleCursor {
     this.unsubscribes = [];
   }
 
+  // === Event Processing ===
+
   receiveDispatch(event: StelleEvent): { accepted: boolean; reason: string; eventId: string } {
     if (event.type !== "cursor.reflection") {
-      return { accepted: false, reason: `InnerCursor cannot handle ${event.type}.`, eventId: event.id ?? `inner-${Date.now()}` };
+      return {
+        accepted: false,
+        reason: `InnerCursor cannot handle ${event.type}.`,
+        eventId: event.id ?? `inner-${Date.now()}`,
+      };
     }
     this.observer.recordEvent(event);
     const normalized = {
@@ -179,17 +244,23 @@ export class InnerCursor implements StelleCursor {
 
     const pressureDecision = this.pressure.evaluate(this.context.now());
     if (pressureDecision.mode !== "none") {
-      void this.triggerCognitiveSynthesis().catch(e => console.error("[Inner] Synthesis failed:", e));
+      void this.triggerCognitiveSynthesis().catch((e) => console.error("[Inner] Synthesis failed:", e));
     }
   }
 
+  // === Ticking & Scheduling ===
+
   async tick(): Promise<void> {
     const now = this.context.now();
-    this.activeDirectives = this.activeDirectives.filter(d => d.expiresAt > now);
+    this.activeDirectives = this.activeDirectives.filter((d) => d.expiresAt > now);
 
     const idleTime = now - this.lastReflectionAt;
     const pressureDecision = this.pressure.evaluate(now);
-    if (this.unreflectedCount > 0 && !this.isReflecting && (idleTime > 30 * 60 * 1000 || pressureDecision.mode !== "none")) {
+    if (
+      this.unreflectedCount > 0 &&
+      !this.isReflecting &&
+      (idleTime > 30 * 60 * 1000 || pressureDecision.mode !== "none")
+    ) {
       await this.triggerCognitiveSynthesis();
     }
 
@@ -199,86 +270,7 @@ export class InnerCursor implements StelleCursor {
     }
   }
 
-  private mapSourceToCognitive(source: unknown): CognitiveSignal["source"] {
-    if (typeof source !== "string") return "system";
-    const s = source.toLowerCase();
-    if (s === "discord" || s === "discord_text_channel") return "discord_text_channel";
-    if (s === "live" || s === "live_danmaku") return "live_danmaku";
-    if (s === "stage_output") return "stage_output";
-    if (s === "browser") return "browser";
-    if (s === "system") return "system";
-    // Map unsupported runtime sources such as desktop_input/android_device to system
-    return "system";
-  }
-
-  private decisionToSignal(decision: RuntimeDecision): CognitiveSignal {
-    return {
-      id: decision.id ?? `decision-${decision.timestamp}-${Math.random().toString(36).slice(2)}`,
-      source: this.mapSourceToCognitive(decision.source),
-      kind: decision.type,
-      summary: decision.summary,
-      timestamp: decision.timestamp ?? this.context.now(),
-      impactScore: decision.impactScore ?? 1,
-      salience: decision.salience ?? "low",
-    };
-  }
-
-  async triggerCoreReflection(): Promise<void> {
-    if (this.isReflecting || !this.context.config.models.apiKey || !this.context.memory) return;
-    this.isReflecting = true;
-    this.status = "active";
-
-    try {
-      const previousFocus = await this.context.memory.readLongTerm("current_focus", "self_state");
-      const recentLogs = await this.context.memory.readResearchLogs(6);
-
-      const prompt = [
-        "You are StelleCore, the private reflective loop for Stelle.",
-        "Write one concise current focus for future cursor prompts. Plain text only.",
-        `Previous focus:\n${previousFocus ?? "(none)"}`,
-        `Recent research logs:\n${recentLogs.join("\n\n") || "(none)"}`,
-      ].join("\n\n");
-
-      const focus = await this.context.llm.generateText(prompt, { role: "secondary", temperature: 0.5, maxOutputTokens: 240 });
-      if (focus) {
-        this.currentFocus = truncateText(focus, 1200);
-        await this.writeSelfState("current_focus", this.currentFocus);
-        await this.appendResearchLog({
-          focus: this.currentFocus,
-          process: [`Scheduled reflection`, `Previous focus: ${truncateText(previousFocus ?? "(none)", 240)}`],
-          conclusion: this.currentFocus,
-        });
-        this.lastCoreReflectionAt = this.context.now();
-        this.addReflection(`Core focus updated: ${truncateText(this.currentFocus, 60)}`);
-      }
-    } finally {
-      this.isReflecting = false;
-      this.status = "idle";
-    }
-  }
-
-  async consult(_source: "discord" | "discord_text_channel" | "live" | "live_danmaku", query: string, _contextPayload: string): Promise<string> {
-    if (!this.context.config.models.apiKey) return "跟随你的直觉。";
-
-    const convictionBlock = this.coreConvictions.map(c => `- On ${c.topic}: ${c.stance}`).join("\n");
-    const prompt = [
-      "You are Stelle's 'Inner Ego'. Advice needed.",
-      `Core Convictions:\n${convictionBlock || "(none)"}`,
-      `Mood: ${this.currentGlobalMood}`,
-      `Query: ${query}`
-    ].join("\n\n");
-
-    try {
-      this.status = "active";
-      const advice = await this.context.llm.generateText(prompt, { role: "primary", temperature: 0.4, maxOutputTokens: 400 });
-      this.addReflection(`Consulted on [${query.substring(0, 20)}...].`);
-      return advice || "保持底线，不要盲目附和。";
-    } catch {
-      return "遵循核心逻辑行事。";
-    } finally {
-      this.status = "idle";
-    }
-  }
+  // === Cognitive Synthesis (Orchestration) ===
 
   /**
    * Orchestrates the cognitive synthesis process by decomposing it into distinct phases.
@@ -312,7 +304,6 @@ export class InnerCursor implements StelleCursor {
 
       // Phase 5: Global Synthesis (LLM)
       await this.generateGlobalSynthesis(decisionsToReflect, now);
-
     } catch (e) {
       console.error("[InnerCursor] Synthesis failed:", e);
     } finally {
@@ -328,6 +319,8 @@ export class InnerCursor implements StelleCursor {
     this.pressure.reset("quick");
   }
 
+  // === Synthesis Phases ===
+
   private async updateResearchAgenda(signals: CognitiveSignal[], now: number): Promise<ResearchAgendaUpdate> {
     const agendaUpdate = await this.agenda.update(signals, this.getSelfSnapshot(), now);
 
@@ -337,9 +330,9 @@ export class InnerCursor implements StelleCursor {
           focus: topic.title,
           process: [
             `Topic created: ${topic.title}`,
-            ...topic.evidence.map(e => `Evidence [${e.source}]: ${e.excerpt}`)
+            ...topic.evidence.map((e) => `Evidence [${e.source}]: ${e.excerpt}`),
           ],
-          conclusion: `New research agenda item: ${topic.id}`
+          conclusion: `New research agenda item: ${topic.id}`,
         }).catch(() => {});
       }
       for (const topic of agendaUpdate.updatedTopics) {
@@ -347,9 +340,9 @@ export class InnerCursor implements StelleCursor {
           focus: topic.title,
           process: [
             `Topic updated: ${topic.title}`,
-            ...topic.evidence.slice(-3).map(e => `Recent Evidence [${e.source}]: ${e.excerpt}`)
+            ...topic.evidence.slice(-3).map((e) => `Recent Evidence [${e.source}]: ${e.excerpt}`),
           ],
-          conclusion: `Updated research topic: ${topic.id} (Confidence: ${topic.confidence.toFixed(2)})`
+          conclusion: `Updated research topic: ${topic.id} (Confidence: ${topic.confidence.toFixed(2)})`,
         }).catch(() => {});
       }
       for (const topic of agendaUpdate.closedTopics) {
@@ -380,7 +373,7 @@ export class InnerCursor implements StelleCursor {
     const samplingResult = await this.fieldSampler.sample({
       activeTopics: this.agenda.activeTopics(),
       recentSignals: signals,
-      selfModel: this.getSelfSnapshot()
+      selfModel: this.getSelfSnapshot(),
     });
     this.recentFieldNotes = samplingResult.notes;
     this.recommendedLiveFocus = samplingResult.recommendedFocus;
@@ -393,9 +386,12 @@ export class InnerCursor implements StelleCursor {
           focus: "Field Sampling",
           process: [
             `Sampled ${this.recentFieldNotes.length} field notes.`,
-            `Recommended focus: ${this.recommendedLiveFocus || "none"}`
+            `Recommended focus: ${this.recommendedLiveFocus || "none"}`,
           ],
-          conclusion: `Field sampling complete. Recent vibes: ${this.recentFieldNotes.map(n => n.vibe).slice(0, 3).join(", ")}`
+          conclusion: `Field sampling complete. Recent vibes: ${this.recentFieldNotes
+            .map((n) => n.vibe)
+            .slice(0, 3)
+            .join(", ")}`,
         }).catch(() => {});
       }
     }
@@ -411,6 +407,77 @@ export class InnerCursor implements StelleCursor {
     this.applyDirectiveEnvelopes(envelopes, now);
   }
 
+  // === LLM Synthesis & Reflection ===
+
+  async triggerCoreReflection(): Promise<void> {
+    if (this.isReflecting || !this.context.config.models.apiKey || !this.context.memory) return;
+    this.isReflecting = true;
+    this.status = "active";
+
+    try {
+      const previousFocus = await this.context.memory.readLongTerm("current_focus", "self_state");
+      const recentLogs = await this.context.memory.readResearchLogs(6);
+
+      const prompt = [
+        "You are StelleCore, the private reflective loop for Stelle.",
+        "Write one concise current focus for future cursor prompts. Plain text only.",
+        `Previous focus:\n${previousFocus ?? "(none)"}`,
+        `Recent research logs:\n${recentLogs.join("\n\n") || "(none)"}`,
+      ].join("\n\n");
+
+      const focus = await this.context.llm.generateText(prompt, {
+        role: "secondary",
+        temperature: 0.5,
+        maxOutputTokens: 240,
+      });
+      if (focus) {
+        this.currentFocus = truncateText(focus, 1200);
+        await this.writeSelfState("current_focus", this.currentFocus);
+        await this.appendResearchLog({
+          focus: this.currentFocus,
+          process: [`Scheduled reflection`, `Previous focus: ${truncateText(previousFocus ?? "(none)", 240)}`],
+          conclusion: this.currentFocus,
+        });
+        this.lastCoreReflectionAt = this.context.now();
+        this.addReflection(`Core focus updated: ${truncateText(this.currentFocus, 60)}`);
+      }
+    } finally {
+      this.isReflecting = false;
+      this.status = "idle";
+    }
+  }
+
+  async consult(
+    _source: "discord" | "discord_text_channel" | "live" | "live_danmaku",
+    query: string,
+    _contextPayload: string,
+  ): Promise<string> {
+    if (!this.context.config.models.apiKey) return "跟随你的直觉。";
+
+    const convictionBlock = this.coreConvictions.map((c) => `- On ${c.topic}: ${c.stance}`).join("\n");
+    const prompt = [
+      "You are Stelle's 'Inner Ego'. Advice needed.",
+      `Core Convictions:\n${convictionBlock || "(none)"}`,
+      `Mood: ${this.currentGlobalMood}`,
+      `Query: ${query}`,
+    ].join("\n\n");
+
+    try {
+      this.status = "active";
+      const advice = await this.context.llm.generateText(prompt, {
+        role: "primary",
+        temperature: 0.4,
+        maxOutputTokens: 400,
+      });
+      this.addReflection(`Consulted on [${query.substring(0, 20)}...].`);
+      return advice || "保持底线，不要盲目附和。";
+    } catch {
+      return "遵循核心逻辑行事。";
+    } finally {
+      this.status = "idle";
+    }
+  }
+
   private constructCognitiveSynthesisPrompt(decisionLog: string, rawBackground: string): string {
     return [
       "You are the 'Inner Mind'. Review recent actions and synthesize a cognitive policy.",
@@ -422,7 +489,7 @@ export class InnerCursor implements StelleCursor {
   }
 
   private async generateGlobalSynthesis(decisionsToReflect: RuntimeDecision[], now: number): Promise<void> {
-    const decisionLog = decisionsToReflect.map(d => `[${d.source}] ${d.type}: ${d.summary}`).join("\n");
+    const decisionLog = decisionsToReflect.map((d) => `[${d.source}] ${d.type}: ${d.summary}`).join("\n");
 
     let rawBackground = "";
     if (this.context.memory) {
@@ -430,7 +497,8 @@ export class InnerCursor implements StelleCursor {
       const liveRecent = await this.context.memory.readRecent({ kind: "live" }, 10).catch(() => []);
       rawBackground = [...discordRecent, ...liveRecent]
         .sort((a, b) => a.timestamp - b.timestamp)
-        .map(e => `[Raw:${e.source}] ${e.text}`).join("\n");
+        .map((e) => `[Raw:${e.source}] ${e.text}`)
+        .join("\n");
     }
 
     const prompt = this.constructCognitiveSynthesisPrompt(decisionLog, rawBackground);
@@ -443,25 +511,31 @@ export class InnerCursor implements StelleCursor {
         return {
           insight: String(v.insight || "Processing."),
           globalMood: String(v.globalMood || this.currentGlobalMood),
-          newConviction: v.newConviction ? { topic: String(asRecord(v.newConviction).topic), stance: String(asRecord(v.newConviction).stance) } : undefined,
-          directives: Array.isArray(v.directives) ? v.directives.map((d: any) => {
-            const rec = asRecord(d);
-            const pol = asRecord(rec.policy);
-            let target = String(rec.target || "global");
-            if (target === "all") target = "global";
-            if (target === "discord") target = "discord_text_channel";
-            if (target === "live") target = "live_danmaku";
-            return {
-              target: target as CursorDirective["target"],
-              policy: {
-                replyBias: pol.replyBias ? enumValue(pol.replyBias, ["aggressive", "normal", "selective", "silent"] as const, "normal") : undefined,
-                vibeIntensity: typeof pol.vibeIntensity === "number" ? pol.vibeIntensity : undefined,
-                focusTopic: pol.focusTopic ? String(pol.focusTopic) : undefined,
-                instruction: pol.instruction ? String(pol.instruction) : undefined,
-              },
-              lifespanMinutes: Number(rec.lifespanMinutes || 30)
-            };
-          }) : []
+          newConviction: v.newConviction
+            ? { topic: String(asRecord(v.newConviction).topic), stance: String(asRecord(v.newConviction).stance) }
+            : undefined,
+          directives: Array.isArray(v.directives)
+            ? v.directives.map((d: any) => {
+                const rec = asRecord(d);
+                const pol = asRecord(rec.policy);
+                let target = String(rec.target || "global");
+                if (target === "all") target = "global";
+                if (target === "discord") target = "discord_text_channel";
+                if (target === "live") target = "live_danmaku";
+                return {
+                  target: target as CursorDirective["target"],
+                  policy: {
+                    replyBias: pol.replyBias
+                      ? enumValue(pol.replyBias, ["aggressive", "normal", "selective", "silent"] as const, "normal")
+                      : undefined,
+                    vibeIntensity: typeof pol.vibeIntensity === "number" ? pol.vibeIntensity : undefined,
+                    focusTopic: pol.focusTopic ? String(pol.focusTopic) : undefined,
+                    instruction: pol.instruction ? String(pol.instruction) : undefined,
+                  },
+                  lifespanMinutes: Number(rec.lifespanMinutes || 30),
+                };
+              })
+            : [],
         };
       },
       {
@@ -473,7 +547,7 @@ export class InnerCursor implements StelleCursor {
           globalMood: this.currentGlobalMood,
           directives: [],
         },
-      }
+      },
     );
 
     this.currentGlobalMood = result.globalMood;
@@ -481,9 +555,9 @@ export class InnerCursor implements StelleCursor {
 
     if (result.newConviction && result.newConviction.topic && result.newConviction.stance) {
       this.coreConvictions.push(result.newConviction);
-      if (this.coreConvictions.length > 20) this.coreConvictions.shift(); 
+      if (this.coreConvictions.length > 20) this.coreConvictions.shift();
       this.selfModel.hydrate({
-        activeConvictions: this.coreConvictions.map(c => ({ topic: c.topic, stance: c.stance, confidence: 1 })),
+        activeConvictions: this.coreConvictions.map((c) => ({ topic: c.topic, stance: c.stance, confidence: 1 })),
       });
       if (this.context.memory) {
         await this.writeSelfState("core_convictions", JSON.stringify(this.coreConvictions));
@@ -492,15 +566,20 @@ export class InnerCursor implements StelleCursor {
 
     for (const d of result.directives) {
       const instruction = d.policy.instruction || "";
-      if (!instruction && !d.policy.replyBias && !d.policy.vibeIntensity) continue; 
-      
-      this.applyDirectiveEnvelopes([{
-        target: d.target,
-        action: "apply_policy",
-        policy: d.policy,
-        expiresAt: now + (d.lifespanMinutes * 60 * 1000),
-        priority: 2,
-      }], now);
+      if (!instruction && !d.policy.replyBias && !d.policy.vibeIntensity) continue;
+
+      this.applyDirectiveEnvelopes(
+        [
+          {
+            target: d.target,
+            action: "apply_policy",
+            policy: d.policy,
+            expiresAt: now + d.lifespanMinutes * 60 * 1000,
+            priority: 2,
+          },
+        ],
+        now,
+      );
     }
 
     if (this.context.memory) {
@@ -508,10 +587,7 @@ export class InnerCursor implements StelleCursor {
     }
   }
 
-  private addReflection(text: string): void {
-    this.reflections.push(`[${new Date().toLocaleTimeString()}] ${text}`);
-    while (this.reflections.length > 50) this.reflections.shift();
-  }
+  // === Persistence & Writing ===
 
   private async writeSelfState(key: string, value: string): Promise<void> {
     if (!this.context.memory) return;
@@ -523,12 +599,15 @@ export class InnerCursor implements StelleCursor {
     await this.memoryWriter?.appendResearchLog(input).catch(() => {});
   }
 
+  // === State Access & Transformation ===
+
   buildContextBlock(callerSource?: "discord" | "discord_text_channel" | "live" | "live_danmaku"): string {
     const relevantDirectives = this.activeDirectives
-      .filter(d => d.target === "global" || (callerSource && d.target === callerSource))
-      .map(d => `[URGENT DIRECTIVE]: ${d.instruction}`);
-    const allDirectivesForStorage = this.activeDirectives
-      .map(d => `[DIRECTIVE TO ${d.target.toUpperCase()}]: ${d.instruction}`);
+      .filter((d) => d.target === "global" || (callerSource && d.target === callerSource))
+      .map((d) => `[URGENT DIRECTIVE]: ${d.instruction}`);
+    const allDirectivesForStorage = this.activeDirectives.map(
+      (d) => `[DIRECTIVE TO ${d.target.toUpperCase()}]: ${d.instruction}`,
+    );
     const displayDirectives = callerSource ? relevantDirectives : allDirectivesForStorage;
 
     return [
@@ -536,7 +615,7 @@ export class InnerCursor implements StelleCursor {
       `Mood: ${this.currentGlobalMood}`,
       ...displayDirectives,
       "Convictions:",
-      ...this.coreConvictions.slice(-5).map(c => `- ${c.stance}`),
+      ...this.coreConvictions.slice(-5).map((c) => `- ${c.stance}`),
     ].join("\n");
   }
 
@@ -575,15 +654,16 @@ export class InnerCursor implements StelleCursor {
   private applySelfModelSnapshot(snapshot: SelfModelSnapshot): void {
     this.currentGlobalMood = snapshot.mood;
     this.currentFocus = snapshot.currentFocus || this.currentFocus;
-    this.coreConvictions = snapshot.activeConvictions
-      .slice(0, 20)
-      .map(c => ({ topic: c.topic, stance: c.stance }));
+    this.coreConvictions = snapshot.activeConvictions.slice(0, 20).map((c) => ({ topic: c.topic, stance: c.stance }));
   }
 
   snapshot(): CursorSnapshot {
     const selfSnap = this.selfModel.snapshot();
     return {
-      id: this.id, kind: this.kind, status: this.status, summary: this.summary,
+      id: this.id,
+      kind: this.kind,
+      status: this.status,
+      summary: this.summary,
       state: {
         globalMood: this.currentGlobalMood,
         activeDirectivesCount: this.activeDirectives.length,
@@ -600,5 +680,34 @@ export class InnerCursor implements StelleCursor {
         ...this.agenda.snapshot(),
       },
     };
+  }
+
+  // === Internal Converters & Utilities ===
+
+  private mapSourceToCognitive(source: unknown): CognitiveSignal["source"] {
+    if (typeof source !== "string") return "system";
+    const s = source.toLowerCase();
+    if (s === "discord" || s === "discord_text_channel") return "discord_text_channel";
+    if (s === "live" || s === "live_danmaku") return "live_danmaku";
+    if (s === "stage_output") return "stage_output";
+    if (s === "browser") return "browser";
+    return "system";
+  }
+
+  private decisionToSignal(decision: RuntimeDecision): CognitiveSignal {
+    return {
+      id: decision.id ?? `decision-${decision.timestamp}-${Math.random().toString(36).slice(2)}`,
+      source: this.mapSourceToCognitive(decision.source),
+      kind: decision.type,
+      summary: decision.summary,
+      timestamp: decision.timestamp ?? this.context.now(),
+      impactScore: decision.impactScore ?? 1,
+      salience: decision.salience ?? "low",
+    };
+  }
+
+  private addReflection(text: string): void {
+    this.reflections.push(`[${new Date().toLocaleTimeString()}] ${text}`);
+    while (this.reflections.length > 50) this.reflections.shift();
   }
 }

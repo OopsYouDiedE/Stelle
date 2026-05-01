@@ -4,7 +4,7 @@ import type { StelleScheduler } from "../scheduler.js";
 
 /**
  * CoreModule
- * 
+ *
  * Manages foundational runtime wiring, including scheduler-to-bus bridging
  * and global cursor reflection logging.
  */

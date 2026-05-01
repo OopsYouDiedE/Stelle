@@ -1,5 +1,4 @@
 ---
-
 name: gemini-centric-multi-agent
 description: Use GPT-5.5 as the high-level architect (framework, task allocation, test design) and coordinate Gemini CLI as the sole primary engine for code generation and review.
 ---
@@ -34,28 +33,32 @@ Gemini CLI is the sole primary force for writing code. Select the model strictly
 
 ## Session Discipline
 
-- Always establish the framework and test plan (by GPT-5.5) *before* dispatching Gemini to write code.
+- Always establish the framework and test plan (by GPT-5.5) _before_ dispatching Gemini to write code.
 - Maintain interactive sessions for continuous features. Do not throw away context if a file requires multiple passes.
 - If Gemini writes code, GPT-5.5 must verify it against the initial test workflow design before accepting the patch.
 
 ## Gemini CLI Patterns
 
 **Architectural Planning (GPT-5.5 local thought process, no CLI):**
+
 1. Define folder structure.
 2. Define interfaces.
 3. Design test strategy.
 
 **Standard Development (Flash):**
+
 ```bash
 gemini --approval-mode auto --model flash -i "Implement the UserService class according to this interface contract. Ensure error handling follows the project standard. Target file: src/user_service.ts"
 ```
 
 **Complex Code Optimization (Pro):**
+
 ```bash
 gemini --approval-mode plan --model pro -i "Review and optimize this 1200-line legacy state manager. Refactor it to use the new immutable store pattern. Retain all existing event hook behaviors."
 ```
 
 **Non-Coding / Verification (Flash-Lite):**
+
 ```bash
 gemini --approval-mode auto --model flash-lite -i "Extract the stack trace from this log file and identify the failing module name."
 ```
@@ -86,9 +89,11 @@ If `gemini-pro` quota is exhausted, rate-limited, or unavailable during a comple
 When `pro` is exhausted, instead of one massive prompt, GPT-5.5 should execute a sequence like this:
 
 # Step 1: Flash handles chunk A
+
 ```bash
 gemini --approval-mode auto --model flash -i "Refactor ONLY the data fetching methods (lines 1-300) in this legacy state manager to use the new immutable pattern."
 ```
+
 ```bash
 # Step 2: Flash handles chunk B
 gemini --approval-mode auto --model flash -i "Now refactor the event emitters (lines 301-600) based on the newly updated data fetching methods..."

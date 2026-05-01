@@ -1,8 +1,10 @@
+// === Imports ===
 import { brotliDecompressSync, inflateSync } from "node:zlib";
 import { EventEmitter } from "node:events";
 import crypto from "node:crypto";
 import { safeErrorMessage } from "./json.js";
 
+// === Types & Interfaces ===
 const ROOM_INIT_URL = "https://api.live.bilibili.com/room/v1/Room/room_init";
 const DANMU_INFO_URL = "https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo";
 const NAV_URL = "https://api.bilibili.com/x/web-interface/nav";
@@ -18,10 +20,9 @@ const OP_COMMAND = 5;
 const OP_AUTH = 7;
 const OP_AUTH_REPLY = 8;
 const WBI_MIXIN_KEY_ENC_TAB = [
-  46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35,
-  27, 43, 5, 49, 33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13,
-  37, 48, 7, 16, 24, 55, 40, 61, 26, 17, 0, 1, 60, 51, 30, 4,
-  22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11, 36, 20, 34, 44, 52,
+  46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35, 27, 43, 5, 49, 33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41,
+  13, 37, 48, 7, 16, 24, 55, 40, 61, 26, 17, 0, 1, 60, 51, 30, 4, 22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11, 36, 20, 34,
+  44, 52,
 ] as const;
 
 let cachedWbiKeys: { imgKey: string; subKey: string; expiresAt: number } | undefined;
@@ -84,6 +85,8 @@ type WebSocketLike = WebSocket & {
   onclose: ((event: CloseEvent) => void) | null;
 };
 
+// === Core Logic ===
+
 export class BilibiliDanmakuClient extends EventEmitter {
   private socket?: WebSocketLike;
   private heartbeatTimer?: NodeJS.Timeout;
@@ -142,7 +145,12 @@ export class BilibiliDanmakuClient extends EventEmitter {
         return;
       } catch (error) {
         lastError = error;
-        this.statusState = { ...this.statusState, connected: false, authenticated: false, lastError: safeErrorMessage(error) };
+        this.statusState = {
+          ...this.statusState,
+          connected: false,
+          authenticated: false,
+          lastError: safeErrorMessage(error),
+        };
       }
     }
     throw lastError ?? new Error("No Bilibili danmaku host available.");
@@ -223,7 +231,7 @@ export class BilibiliDanmakuClient extends EventEmitter {
     const attempt = this.statusState.reconnectAttempts + 1;
     this.statusState = { ...this.statusState, reconnectAttempts: attempt };
     const delayMs = Math.min(60_000, 1000 * attempt + Math.floor(Math.random() * 1500));
-    await new Promise(resolve => setTimeout(resolve, delayMs));
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
     if (this.closedByUser) return;
     try {
       const url = this.nextReconnectUrl();
@@ -313,14 +321,19 @@ export async function resolveBilibiliRoom(roomId: number, fetchImpl: typeof fetc
   };
 }
 
-export async function fetchBilibiliDanmuInfo(roomId: number, fetchImpl: typeof fetch = fetch): Promise<BilibiliDanmuInfo> {
+export async function fetchBilibiliDanmuInfo(
+  roomId: number,
+  fetchImpl: typeof fetch = fetch,
+): Promise<BilibiliDanmuInfo> {
   const url = new URL(DANMU_INFO_URL);
   url.searchParams.set("id", String(roomId));
   url.searchParams.set("type", "0");
   const payload = await getBilibiliJson(url, fetchImpl, { retryWithWbi: true });
   const data = asRecord(payload.data);
   const token = String(data.token ?? "");
-  const hostList = Array.isArray(data.host_list) ? data.host_list.map(toDanmuHost).filter(isDanmuHost) : [];
+  const hostList = Array.isArray(data.host_list)
+    ? data.host_list.map(toDanmuHost).filter((h): h is BilibiliDanmuHost => !!h)
+    : [];
   if (!token || hostList.length === 0) {
     throw new Error("Bilibili getDanmuInfo did not return token/host_list.");
   }
@@ -332,18 +345,28 @@ export function selectBilibiliWsUrl(hostList: BilibiliDanmuHost[]): string {
 }
 
 export function selectBilibiliWsUrls(hostList: BilibiliDanmuHost[]): string[] {
-  const host = hostList.find(item => item.host && item.wss_port) ?? hostList.find(item => item.host);
   const urls = hostList
-    .filter(item => item.host)
-    .map(item => `wss://${item.host}:${item.wss_port ?? item.port ?? 443}/sub`);
-  if (host?.host) {
-    const preferred = `wss://${host.host}:${host.wss_port ?? host.port ?? 443}/sub`;
-    return [preferred, ...urls.filter(url => url !== preferred)];
+    .filter((item) => item.host)
+    .map((item) => `wss://${item.host}:${item.wss_port ?? item.port ?? 443}/sub`);
+
+  if (!urls.length) return ["wss://broadcastlv.chat.bilibili.com/sub"];
+
+  // Prioritize hosts with wss_port
+  const preferredHost = hostList.find((item) => item.host && item.wss_port);
+  if (preferredHost) {
+    const preferredUrl = `wss://${preferredHost.host}:${preferredHost.wss_port}/sub`;
+    return [preferredUrl, ...urls.filter((u) => u !== preferredUrl)];
   }
-  return urls.length ? urls : ["wss://broadcastlv.chat.bilibili.com/sub"];
+
+  return urls;
 }
 
-export function encodeBilibiliPacket(operation: number, body: string | Buffer = "", protocolVersion = PROTOCOL_JSON, sequence = 1): Buffer {
+export function encodeBilibiliPacket(
+  operation: number,
+  body: string | Buffer = "",
+  protocolVersion = PROTOCOL_JSON,
+  sequence = 1,
+): Buffer {
   const bodyBuffer = Buffer.isBuffer(body) ? body : Buffer.from(body);
   const packet = Buffer.alloc(HEADER_LENGTH + bodyBuffer.byteLength);
   packet.writeUInt32BE(packet.byteLength, 0);
@@ -388,7 +411,7 @@ export function decodeBilibiliCommands(packet: BilibiliPacket): BilibiliCommand[
   } catch {
     return text
       .split(/(?<=})\s*(?={)/)
-      .map(chunk => {
+      .map((chunk) => {
         try {
           return JSON.parse(chunk) as BilibiliCommand;
         } catch {
@@ -399,7 +422,13 @@ export function decodeBilibiliCommands(packet: BilibiliPacket): BilibiliCommand[
   }
 }
 
-async function getBilibiliJson(url: URL, fetchImpl: typeof fetch, options: { retryWithWbi?: boolean } = {}): Promise<Record<string, unknown>> {
+// === Helpers ===
+
+async function getBilibiliJson(
+  url: URL,
+  fetchImpl: typeof fetch,
+  options: { retryWithWbi?: boolean } = {},
+): Promise<Record<string, unknown>> {
   const payload = await fetchBilibiliJson(url, fetchImpl);
   const code = Number(payload.code ?? 0);
   if (code !== -352 || !options.retryWithWbi) return assertBilibiliOk(payload);
@@ -425,7 +454,7 @@ async function fetchWithRetry(url: URL, fetchImpl: typeof fetch, init: RequestIn
       return await fetchImpl(url, init);
     } catch (error) {
       lastError = error;
-      await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+      await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
     }
   }
   throw lastError;
@@ -435,7 +464,8 @@ function assertBilibiliOk(payload: Record<string, unknown>): Record<string, unkn
   const code = Number(payload.code ?? 0);
   if (code !== 0) {
     const message = String(payload.message ?? payload.msg ?? "");
-    const hint = code === -352 ? " (risk control or WBI signature rejected; refresh BILIBILI_COOKIE and device cookies)" : "";
+    const hint =
+      code === -352 ? " (risk control or WBI signature rejected; refresh BILIBILI_COOKIE and device cookies)" : "";
     throw new Error(`Bilibili API returned code=${code}: ${message}${hint}`);
   }
   return payload;
@@ -450,7 +480,10 @@ async function signBilibiliWbiUrl(url: URL, fetchImpl: typeof fetch): Promise<vo
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value.replace(/[!'()*]/g, ""))}`)
     .join("&");
-  const wRid = crypto.createHash("md5").update(sorted + mixinKey).digest("hex");
+  const wRid = crypto
+    .createHash("md5")
+    .update(sorted + mixinKey)
+    .digest("hex");
   url.searchParams.set("w_rid", wRid);
 }
 
@@ -470,7 +503,9 @@ async function fetchBilibiliWbiKeys(fetchImpl: typeof fetch): Promise<{ imgKey: 
 }
 
 function getBilibiliMixinKey(raw: string): string {
-  return WBI_MIXIN_KEY_ENC_TAB.map(index => raw[index] ?? "").join("").slice(0, 32);
+  return WBI_MIXIN_KEY_ENC_TAB.map((index) => raw[index] ?? "")
+    .join("")
+    .slice(0, 32);
 }
 
 function extractBilibiliWbiKey(value: unknown): string {
@@ -481,23 +516,24 @@ function extractBilibiliWbiKey(value: unknown): string {
 
 function buildBilibiliHeaders(cookie?: string): Record<string, string> {
   return {
-    "accept": "application/json, text/plain, */*",
-    "accept-language": "zh-CN,zh;q=0.9,en;q=0.8",
-    "cache-control": "no-cache",
-    "connection": "close",
-    "origin": "https://live.bilibili.com",
-    "pragma": "no-cache",
-    "referer": "https://live.bilibili.com/",
-    "sec-fetch-dest": "empty",
-    "sec-fetch-mode": "cors",
-    "sec-fetch-site": "same-site",
-    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    ...(cookie ? { "cookie": cookie } : {}),
+    Accept: "application/json, text/plain, */*",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+    "Cache-Control": "no-cache",
+    Connection: "close",
+    Origin: "https://live.bilibili.com",
+    Pragma: "no-cache",
+    Referer: "https://live.bilibili.com/",
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Site": "same-site",
+    "User-Agent":
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    ...(cookie ? { Cookie: cookie } : {}),
   };
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
 function toDanmuHost(value: unknown): BilibiliDanmuHost | undefined {
@@ -512,13 +548,9 @@ function toDanmuHost(value: unknown): BilibiliDanmuHost | undefined {
   };
 }
 
-function isDanmuHost(value: BilibiliDanmuHost | undefined): value is BilibiliDanmuHost {
-  return Boolean(value);
-}
-
 function numberOrUndefined(value: unknown): number | undefined {
-  const number = Number(value);
-  return Number.isFinite(number) && number > 0 ? number : undefined;
+  const num = Number(value);
+  return Number.isFinite(num) && num > 0 ? num : undefined;
 }
 
 function parseCookie(cookie: string): Record<string, string> {

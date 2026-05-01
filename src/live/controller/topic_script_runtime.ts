@@ -6,6 +6,8 @@ import { classifyText } from "./orchestrator.js";
 import { TopicScriptRepository } from "./topic_script_repository.js";
 import type { CompiledTopicScript, CompiledTopicScriptSection } from "./topic_script_schema.js";
 
+// === Types ===
+
 export interface TopicScriptRuntimeDeps {
   eventBus: StelleEventBus;
   stageOutput: StageOutputArbiter;
@@ -25,6 +27,8 @@ export interface TopicScriptRuntimeState {
   updatedAt: number;
 }
 
+// === Service ===
+
 export class TopicScriptRuntimeService {
   private readonly repository: TopicScriptRepository;
   private readonly now: () => number;
@@ -36,29 +40,41 @@ export class TopicScriptRuntimeService {
   constructor(private readonly deps: TopicScriptRuntimeDeps) {
     this.repository = deps.repository ?? new TopicScriptRepository();
     this.now = deps.now ?? (() => Date.now());
-    this.state = { status: "idle", sectionIndex: 0, interruptedCount: 0, fallbackCount: 0, updatedAt: this.now() };
+    this.state = {
+      status: "idle",
+      sectionIndex: 0,
+      interruptedCount: 0,
+      fallbackCount: 0,
+      updatedAt: this.now(),
+    };
   }
 
+  // === Lifecycle ===
+
   async start(): Promise<void> {
-    this.unsubscribes.push(this.deps.eventBus.subscribe("live.event.received", event => {
-      void this.handleLivePayload(event.payload).catch(error => this.fail(error));
-    }));
-    this.unsubscribes.push(this.deps.eventBus.subscribe("stage.output.completed", event => {
-      if (event.payload.intent.cursorId === "topic_script_runtime") void this.advance("stage_completed").catch(error => this.fail(error));
-    }));
-    this.unsubscribes.push(this.deps.eventBus.subscribe("core.tick", () => {
-      void this.advance("tick").catch(error => this.fail(error));
-    }));
+    this.unsubscribes.push(
+      this.deps.eventBus.subscribe("live.event.received", (event) => {
+        void this.handleLivePayload(event.payload).catch((error) => this.fail(error));
+      }),
+    );
+    this.unsubscribes.push(
+      this.deps.eventBus.subscribe("stage.output.completed", (event) => {
+        if (event.payload.intent.cursorId === "topic_script_runtime") {
+          void this.advance("stage_completed").catch((error) => this.fail(error));
+        }
+      }),
+    );
+    this.unsubscribes.push(
+      this.deps.eventBus.subscribe("core.tick", () => {
+        void this.advance("tick").catch((error) => this.fail(error));
+      }),
+    );
     await this.loadLatestApproved();
   }
 
   async stop(): Promise<void> {
     for (const unsubscribe of this.unsubscribes) unsubscribe();
     this.unsubscribes = [];
-  }
-
-  snapshot(): TopicScriptRuntimeState {
-    return { ...this.state };
   }
 
   async loadLatestApproved(): Promise<boolean> {
@@ -80,6 +96,12 @@ export class TopicScriptRuntimeService {
     return true;
   }
 
+  // === State Controls ===
+
+  snapshot(): TopicScriptRuntimeState {
+    return { ...this.state };
+  }
+
   pause(): TopicScriptRuntimeState {
     this.state = { ...this.state, status: "paused", updatedAt: this.now() };
     return this.snapshot();
@@ -93,6 +115,8 @@ export class TopicScriptRuntimeService {
     return this.snapshot();
   }
 
+  // === Runtime Controls ===
+
   async skipSection(reason = "operator_skip"): Promise<TopicScriptRuntimeState> {
     if (!this.script) return this.snapshot();
     this.publish("topic_script.interrupted", { reason, sectionId: this.currentSection()?.id });
@@ -104,11 +128,21 @@ export class TopicScriptRuntimeService {
   async forceFallback(reason = "operator_fallback"): Promise<TopicScriptRuntimeState> {
     const section = this.currentSection();
     if (!section) return this.snapshot();
-    await this.propose(section.fallbackLines[0] ?? "这段先收束一下，我们换个安全一点的话题。", section, "topic_hosting", 42, "low", "none", { source: "fallback", reason });
+    await this.propose(
+      section.fallbackLines[0] ?? "这段先收束一下，我们换个安全一点的话题。",
+      section,
+      "topic_hosting",
+      42,
+      "low",
+      "none",
+      { source: "fallback", reason },
+    );
     this.state = { ...this.state, fallbackCount: this.state.fallbackCount + 1, updatedAt: this.now() };
     this.publish("topic_script.fallback_used", { reason, sectionId: section.id });
     return this.snapshot();
   }
+
+  // === Handlers ===
 
   private async handleLivePayload(payload: Record<string, unknown>): Promise<void> {
     if (this.state.status !== "running" || !this.script) return;
@@ -120,10 +154,15 @@ export class TopicScriptRuntimeService {
     if (!section) return;
     this.publish("topic_script.interrupted", { sectionId: section.id, reason: label, text: event.text });
     this.state = { ...this.state, interruptedCount: this.state.interruptedCount + 1, updatedAt: this.now() };
-    const text = label === "question"
-      ? `我先接这个问题：${event.text}`
-      : `这个质疑先记下来：${event.text}。我先按安全范围回应，再回到剧本。`;
-    await this.propose(text, section, "direct_response", 72, "high", "soft", { sourceEventId: event.id, source: "viewer_interrupt", label });
+    const text =
+      label === "question"
+        ? `我先接这个问题：${event.text}`
+        : `这个质疑先记下来：${event.text}。我先按安全范围回应，再回到剧本。`;
+    await this.propose(text, section, "direct_response", 72, "high", "soft", {
+      sourceEventId: event.id,
+      source: "viewer_interrupt",
+      label,
+    });
   }
 
   private async advance(reason: string): Promise<void> {
@@ -136,6 +175,8 @@ export class TopicScriptRuntimeService {
     await this.enterCurrentSection(reason);
   }
 
+  // === Internals ===
+
   private async enterCurrentSection(reason: string): Promise<void> {
     const section = this.currentSection();
     if (!this.script || !section) {
@@ -144,7 +185,12 @@ export class TopicScriptRuntimeService {
     }
     this.sectionStartedAt = this.now();
     this.state = { ...this.state, status: "running", sectionId: section.id, updatedAt: this.now() };
-    this.publish("topic_script.section_started", { scriptId: this.script.scriptId, revision: this.script.revision, sectionId: section.id, reason });
+    this.publish("topic_script.section_started", {
+      scriptId: this.script.scriptId,
+      revision: this.script.revision,
+      sectionId: section.id,
+      reason,
+    });
     const firstLine = section.lockedLines[0] ?? section.softLines[0] ?? section.fallbackLines[0];
     if (!firstLine) {
       await this.forceFallback("empty_section");

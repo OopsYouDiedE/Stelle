@@ -1,8 +1,10 @@
+// === Imports ===
 import type { CursorContext } from "../../types.js";
 import type { DeviceActionIntent } from "../../../device/action_types.js";
 import { DeviceObservationRouter } from "../device_observation_parts.js";
 import type { BrowserObservation, BrowserRouteDecision } from "./types.js";
 
+// === Router Implementation ===
 export class BrowserRouter extends DeviceObservationRouter<BrowserObservation, BrowserRouteDecision> {
   constructor(context: CursorContext, cursorId: string) {
     super(context, cursorId);

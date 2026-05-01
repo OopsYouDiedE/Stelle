@@ -1,5 +1,7 @@
+// === Imports ===
 import type { DeviceActionIntent } from "../../../device/action_types.js";
 
+// === Types ===
 export interface BrowserObservation {
   resourceId: string;
   url?: string;

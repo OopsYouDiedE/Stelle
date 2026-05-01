@@ -6,10 +6,13 @@ import type { ToolResult } from "./types.js";
 
 export async function validatePublicHttpUrl(url: URL): Promise<ToolResult | undefined> {
   const host = url.hostname.replace(/^\[|\]$/g, "");
-  if (url.protocol !== "http:" && url.protocol !== "https:") return fail("ssrf_blocked", "Only HTTP(S) URLs are allowed.");
+  if (url.protocol !== "http:" && url.protocol !== "https:")
+    return fail("ssrf_blocked", "Only HTTP(S) URLs are allowed.");
   if (!host || host.toLowerCase() === "localhost") return fail("ssrf_blocked", "Localhost access is blocked.");
 
   try {
+    // Resolve the host before any fetch-style tool uses it so private, loopback, and
+    // mapped-address targets get rejected at the boundary instead of downstream.
     const literalReason = blockedIpReason(host);
     if (isIP(host) && literalReason) return fail("ssrf_blocked", `${literalReason}: ${host}`);
     const addresses = isIP(host) ? [{ address: host }] : await lookup(host, { all: true });
@@ -37,10 +40,20 @@ function blockedIpReason(ip: string): string | null {
 
 function isBlockedIpv4(ip: string): boolean {
   return [
-    ["0.0.0.0", 8], ["10.0.0.0", 8], ["100.64.0.0", 10], ["127.0.0.0", 8],
-    ["169.254.0.0", 16], ["172.16.0.0", 12], ["192.0.0.0", 24], ["192.0.2.0", 24],
-    ["192.168.0.0", 16], ["198.18.0.0", 15], ["198.51.100.0", 24], ["203.0.113.0", 24],
-    ["224.0.0.0", 4], ["240.0.0.0", 4],
+    ["0.0.0.0", 8],
+    ["10.0.0.0", 8],
+    ["100.64.0.0", 10],
+    ["127.0.0.0", 8],
+    ["169.254.0.0", 16],
+    ["172.16.0.0", 12],
+    ["192.0.0.0", 24],
+    ["192.0.2.0", 24],
+    ["192.168.0.0", 16],
+    ["198.18.0.0", 15],
+    ["198.51.100.0", 24],
+    ["203.0.113.0", 24],
+    ["224.0.0.0", 4],
+    ["240.0.0.0", 4],
   ].some(([range, bits]) => ipv4InCidr(ip, range as string, bits as number));
 }
 
@@ -48,8 +61,17 @@ function isBlockedIpv6(ip: string): boolean {
   const bytes = parseIpv6(ip);
   if (!bytes) return true;
   return [
-    ["::", 128], ["::1", 128], ["::ffff:0:0", 96], ["64:ff9b::", 96], ["100::", 64],
-    ["2001::", 23], ["2001:db8::", 32], ["2002::", 16], ["fc00::", 7], ["fe80::", 10], ["ff00::", 8],
+    ["::", 128],
+    ["::1", 128],
+    ["::ffff:0:0", 96],
+    ["64:ff9b::", 96],
+    ["100::", 64],
+    ["2001::", 23],
+    ["2001:db8::", 32],
+    ["2002::", 16],
+    ["fc00::", 7],
+    ["fe80::", 10],
+    ["ff00::", 8],
   ].some(([range, bits]) => ipv6InCidr(bytes, range as string, bits as number));
 }
 

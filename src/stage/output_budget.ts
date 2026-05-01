@@ -1,6 +1,8 @@
+// === Imports ===
 import { truncateText } from "../utils/text.js";
 import type { OutputIntent, OutputLane } from "./output_types.js";
 
+// === Types & Constants ===
 export interface OutputBudget {
   maxChars: number;
   ttsBudgetMs: number;
@@ -16,6 +18,7 @@ const LANE_BUDGETS: Record<OutputLane, OutputBudget> = {
   debug: { maxChars: 160, ttsBudgetMs: 12_000 },
 };
 
+// === Logic ===
 export function budgetForLane(lane: OutputLane): OutputBudget {
   return LANE_BUDGETS[lane];
 }

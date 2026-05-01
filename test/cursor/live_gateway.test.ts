@@ -10,7 +10,7 @@ describe("LiveGateway ingress decisions", () => {
 
     const result = await gateway.receive(
       { id: "noise-1", source: "fixture", cmd: "DANMU_MSG", text: "666666" },
-      batch => flushed.push(batch),
+      (batch) => flushed.push(batch),
     );
 
     expect(result).toEqual({ accepted: true, reason: "noise_filtered" });
@@ -21,9 +21,8 @@ describe("LiveGateway ingress decisions", () => {
     const flushed: NormalizedLiveEvent[][] = [];
     const gateway = new LiveGateway(fakeContext(), immediatePolicy());
 
-    const result = await gateway.receive(
-      { id: "gift-1", source: "fixture", cmd: "SEND_GIFT", text: "辣条" },
-      batch => flushed.push(batch),
+    const result = await gateway.receive({ id: "gift-1", source: "fixture", cmd: "SEND_GIFT", text: "辣条" }, (batch) =>
+      flushed.push(batch),
     );
 
     expect(result).toEqual({ accepted: true, reason: "engagement_event" });
@@ -36,7 +35,7 @@ describe("LiveGateway ingress decisions", () => {
 
     const result = await gateway.receive(
       { id: "q-1", source: "fixture", cmd: "DANMU_MSG", text: "能看到我的弹幕吗？", userName: "小星" },
-      batch => flushed.push(batch),
+      (batch) => flushed.push(batch),
     );
 
     expect(result).toEqual({ accepted: true, reason: "buffered" });

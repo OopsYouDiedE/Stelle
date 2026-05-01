@@ -1,5 +1,7 @@
+// === Imports ===
 import type { NormalizedLiveEvent } from "../../utils/live_event.js";
 
+// === Types ===
 export interface LiveBatchAggregatorPolicy {
   flushIntervalMs: number;
   maxWaitMs: number;
@@ -8,15 +10,11 @@ export interface LiveBatchAggregatorPolicy {
   maxBufferSize: number;
 }
 
-export type DropReason =
-  | "buffer_overflow"
-  | "expired"
-  | "moderation_rejected"
-  | "duplicate"
-  | "noise_filtered";
+export type DropReason = "buffer_overflow" | "expired" | "moderation_rejected" | "duplicate" | "noise_filtered";
 
 export type FlushReason = "timer" | "urgent" | "max_batch_size" | "max_wait" | "drain";
 
+// === Main Class ===
 export class LiveBatchAggregator {
   private buffer: NormalizedLiveEvent[] = [];
   private timer?: NodeJS.Timeout;
@@ -30,6 +28,7 @@ export class LiveBatchAggregator {
     private readonly onDrop: (event: NormalizedLiveEvent, reason: DropReason) => void,
   ) {}
 
+  // --- Buffer Management ---
   push(event: NormalizedLiveEvent): void {
     const t = this.now();
     const accepted = this.acceptWithOverflow(event);
@@ -98,15 +97,19 @@ export class LiveBatchAggregator {
     return dropped?.id !== incoming.id;
   }
 
+  // --- Timer Logic ---
   private ensureTimer(delayMs: number, reason: FlushReason): void {
     const dueAt = this.now() + Math.max(0, delayMs);
     if (this.timer && this.timerDueAt <= dueAt) return;
 
     this.clearTimer();
     this.timerDueAt = dueAt;
-    this.timer = setTimeout(() => {
-      this.flush(reason);
-    }, Math.max(0, delayMs));
+    this.timer = setTimeout(
+      () => {
+        this.flush(reason);
+      },
+      Math.max(0, delayMs),
+    );
   }
 
   private clearTimer(): void {
@@ -121,6 +124,7 @@ export class LiveBatchAggregator {
   }
 }
 
+// === Helpers ===
 function priorityScore(event: NormalizedLiveEvent): number {
   if (event.priority === "high") return 3;
   if (event.priority === "medium") return 2;

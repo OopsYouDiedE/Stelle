@@ -1,3 +1,4 @@
+// === Imports ===
 import type { CursorContext } from "../../types.js";
 import { DeviceObservationCursor } from "../device_observation_cursor.js";
 import { BrowserExecutor } from "./executor.js";
@@ -7,6 +8,7 @@ import { BrowserResponder } from "./responder.js";
 import { BrowserRouter } from "./router.js";
 import type { BrowserObservation, BrowserRouteDecision } from "./types.js";
 
+// === Cursor Implementation ===
 export class BrowserCursor extends DeviceObservationCursor<BrowserObservation, BrowserRouteDecision> {
   constructor(context: CursorContext) {
     super(context, {

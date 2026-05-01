@@ -1,5 +1,22 @@
-import type { CognitiveSignal, ResearchTopic, ResearchAgendaUpdate, SelfModelSnapshot, ResearchEvidence } from "./types.js";
+import type {
+  CognitiveSignal,
+  ResearchTopic,
+  ResearchAgendaUpdate,
+  SelfModelSnapshot,
+  ResearchEvidence,
+} from "./types.js";
 import { truncateText } from "../../utils/text.js";
+import { SemanticClusterService } from "../../memory/semantic.js";
+
+// === Region: Constants ===
+
+const DEFAULT_TOPIC_TTL = 6 * 60 * 60 * 1000; // 6 hours
+const DEFAULT_MAX_TOPICS = 10;
+const DEFAULT_MEDIUM_SIGNAL_THRESHOLD = 3;
+const NON_ALPHANUMERIC_REGEX = /[^\w\s]/g;
+const WHITESPACE_REGEX = /\s+/;
+
+// === Region: Interfaces ===
 
 export interface ResearchAgenda {
   update(signals: CognitiveSignal[], self: SelfModelSnapshot, now?: number): Promise<ResearchAgendaUpdate>;
@@ -14,27 +31,37 @@ export interface ResearchAgendaOptions {
   mediumSignalThreshold?: number;
 }
 
+// === Region: Default Implementation ===
+
 export class DefaultResearchAgenda implements ResearchAgenda {
   private topics: ResearchTopic[] = [];
   private readonly topicTtlMs: number;
   private readonly maxTopics: number;
   private readonly mediumSignalThreshold: number;
+  private readonly semanticService?: SemanticClusterService;
 
-  constructor(options: ResearchAgendaOptions = {}) {
-    this.topicTtlMs = options.topicTtlMs ?? 6 * 60 * 60 * 1000; // 6 hours
-    this.maxTopics = options.maxTopics ?? 10;
-    this.mediumSignalThreshold = options.mediumSignalThreshold ?? 3;
+  constructor(
+    semanticServiceOrOptions: SemanticClusterService | ResearchAgendaOptions = {},
+    options: ResearchAgendaOptions = {},
+  ) {
+    const hasSemanticService =
+      typeof (semanticServiceOrOptions as SemanticClusterService).extractFeatures === "function";
+    const resolvedOptions = hasSemanticService ? options : (semanticServiceOrOptions as ResearchAgendaOptions);
+    this.semanticService = hasSemanticService ? (semanticServiceOrOptions as SemanticClusterService) : undefined;
+    this.topicTtlMs = resolvedOptions.topicTtlMs ?? DEFAULT_TOPIC_TTL;
+    this.maxTopics = resolvedOptions.maxTopics ?? DEFAULT_MAX_TOPICS;
+    this.mediumSignalThreshold = resolvedOptions.mediumSignalThreshold ?? DEFAULT_MEDIUM_SIGNAL_THRESHOLD;
   }
 
   hydrate(topics: ResearchTopic[]): void {
     if (!Array.isArray(topics)) return;
     // Basic validation to avoid corrupt memory
-    this.topics = topics.filter(t => 
-      t && typeof t.id === "string" && 
-      t.status === "active" && 
-      Array.isArray(t.evidence)
+    this.topics = topics.filter(
+      (t) => t && typeof t.id === "string" && t.status === "active" && Array.isArray(t.evidence),
     );
   }
+
+  // === Region: Core Update Logic ===
 
   async update(signals: CognitiveSignal[], _self: SelfModelSnapshot, now = Date.now()): Promise<ResearchAgendaUpdate> {
     const addedTopics: ResearchTopic[] = [];
@@ -53,28 +80,52 @@ export class DefaultResearchAgenda implements ResearchAgenda {
     const signalsByKey = new Map<string, CognitiveSignal[]>();
     for (const signal of signals) {
       const key = this.getNormalizedKey(signal);
-      if (!signalsByKey.has(key)) {
-        signalsByKey.set(key, []);
+      let group = signalsByKey.get(key);
+      if (!group) {
+        group = [];
+        signalsByKey.set(key, group);
       }
-      signalsByKey.get(key)!.push(signal);
+      group.push(signal);
     }
 
     // 3. Process signal groups
-    for (const [key, group] of signalsByKey) {
-      const highSalience = group.filter(s => s.salience === "high");
-      const mediumSalience = group.filter(s => s.salience === "medium");
+    for (const [heuristicKey, group] of signalsByKey) {
+      const highSalience = group.filter((s) => s.salience === "high");
+      const mediumSalience = group.filter((s) => s.salience === "medium");
 
       if (highSalience.length > 0 || mediumSalience.length >= this.mediumSignalThreshold) {
         const primarySignal = highSalience[0] || mediumSalience[0];
-        const existingTopic = this.topics.find(t => t.status === "active" && this.isTopicRelated(t, primarySignal));
+
+        // 3.1 Extract Semantic Features (Formal NLP Layer)
+        const features = this.semanticService
+          ? await this.semanticService.extractFeatures(primarySignal.summary)
+          : null;
+
+        const semanticKey = features?.normalizedKey || heuristicKey;
+        const existingTopic = this.topics.find(
+          (t) => t.status === "active" && (t.id.includes(semanticKey) || this.isTopicRelated(t, primarySignal)),
+        );
 
         if (existingTopic) {
           this.updateTopic(existingTopic, group, now);
+          if (features) {
+            const existingEntities = Array.isArray(existingTopic.metadata?.entities)
+              ? existingTopic.metadata.entities.map((item) => String(item))
+              : [];
+            existingTopic.metadata = {
+              ...existingTopic.metadata,
+              entities: [...new Set([...existingEntities, ...features.entities.map((e) => e.name)])],
+            };
+          }
           if (!updatedTopics.includes(existingTopic)) {
             updatedTopics.push(existingTopic);
           }
         } else if (this.activeTopics().length < this.maxTopics) {
-          const newTopic = this.createTopic(primarySignal, group, now, key);
+          const newTopic = this.createTopic(primarySignal, group, now, semanticKey);
+          if (features) {
+            newTopic.title = features.primaryTopic;
+            newTopic.metadata = { ...newTopic.metadata, entities: features.entities.map((e) => e.name) };
+          }
           this.topics.push(newTopic);
           addedTopics.push(newTopic);
         }
@@ -85,45 +136,46 @@ export class DefaultResearchAgenda implements ResearchAgenda {
   }
 
   activeTopics(): ResearchTopic[] {
-    return this.topics.filter(t => t.status === "active");
+    return this.topics.filter((t) => t.status === "active");
   }
 
   snapshot(): Record<string, unknown> {
     const active = this.activeTopics();
     return {
       activeResearchTopicsCount: active.length,
-      activeResearchTopics: active.map(t => ({
+      activeResearchTopics: active.map((t) => ({
         id: t.id,
         title: truncateText(t.title, 60),
-        priority: t.priority
-      }))
+        priority: t.priority,
+      })),
     };
   }
 
+  // === Region: Helpers & Normalization ===
+
   private getNormalizedKey(signal: CognitiveSignal): string {
-    // Stable normalized key derived from kind/source/summary
     const kind = (signal.kind || "unknown").toLowerCase().trim();
     const source = (signal.source || "unknown").toLowerCase().trim();
-    // Use first 2 words of summary for broad grouping
-    const summary = (signal.summary || "none").toLowerCase()
-      .replace(/[^\w\s]/g, "")
+    const summary = (signal.summary || "none")
+      .toLowerCase()
+      .replace(NON_ALPHANUMERIC_REGEX, "")
       .trim()
-      .split(/\s+/)
+      .split(WHITESPACE_REGEX)
       .slice(0, 2)
       .join("_");
     return `${kind}:${source}:${summary}`;
   }
 
   private isTopicRelated(topic: ResearchTopic, signal: CognitiveSignal): boolean {
-    // Simple heuristic: title overlap or same normalized key components
     const key = this.getNormalizedKey(signal);
     const [kind] = key.split(":");
-    
+
     if (topic.subjectKind === this.mapKindToSubject(kind)) {
-      const signalWords = signal.summary.toLowerCase().split(/\s+/);
-      const titleWords = topic.title.toLowerCase().split(/\s+/);
-      const overlap = signalWords.filter(w => w.length > 2 && titleWords.includes(w));
-      return overlap.length >= 1;
+      const signalWords = signal.summary.toLowerCase().split(WHITESPACE_REGEX);
+      const titleWords = topic.title.toLowerCase().split(WHITESPACE_REGEX);
+      for (const sw of signalWords) {
+        if (sw.length > 2 && titleWords.includes(sw)) return true;
+      }
     }
     return false;
   }
@@ -140,7 +192,6 @@ export class DefaultResearchAgenda implements ResearchAgenda {
 
   private createTopic(primary: CognitiveSignal, group: CognitiveSignal[], now: number, key: string): ResearchTopic {
     const subjectKind = this.mapKindToSubject(primary.kind);
-    // Deterministic ID: kind-source-summary-createdAt
     const safeKey = key.replace(/[:\s]/g, "-");
     return {
       id: `topic-${safeKey}-${now}`,
@@ -152,21 +203,21 @@ export class DefaultResearchAgenda implements ResearchAgenda {
       createdAt: now,
       updatedAt: now,
       expiresAt: now + this.topicTtlMs,
-      evidence: group.flatMap(s => this.signalToEvidence(s)),
+      evidence: group.flatMap((s) => this.signalToEvidence(s)),
       openQuestions: [`Why is ${primary.summary} occurring?`],
       provisionalFindings: [],
-      nextActions: [{ type: "observe", description: "Collect more evidence", status: "pending" }]
+      nextActions: [{ type: "observe", description: "Collect more evidence", status: "pending" }],
     };
   }
 
   private updateTopic(topic: ResearchTopic, group: CognitiveSignal[], now: number): void {
     topic.updatedAt = now;
     topic.expiresAt = now + this.topicTtlMs;
-    
+
     for (const s of group) {
       const evidences = this.signalToEvidence(s);
       for (const e of evidences) {
-        if (!topic.evidence.some(existing => existing.timestamp === e.timestamp && existing.excerpt === e.excerpt)) {
+        if (!topic.evidence.some((existing) => existing.timestamp === e.timestamp && existing.excerpt === e.excerpt)) {
           topic.evidence.push(e);
         }
       }
@@ -174,8 +225,8 @@ export class DefaultResearchAgenda implements ResearchAgenda {
         topic.priority = Math.min(5, topic.priority + 1);
       }
     }
-    
-    topic.confidence = Math.min(1.0, topic.confidence + (group.length * 0.05));
+
+    topic.confidence = Math.min(1.0, topic.confidence + group.length * 0.05);
     if (topic.evidence.length > 20) {
       topic.evidence = topic.evidence.slice(-20);
     }
@@ -183,16 +234,18 @@ export class DefaultResearchAgenda implements ResearchAgenda {
 
   private signalToEvidence(signal: CognitiveSignal): ResearchEvidence[] {
     if (signal.evidence && signal.evidence.length > 0) {
-      return signal.evidence.map(e => ({
+      return signal.evidence.map((e) => ({
         source: e.source || signal.source,
         excerpt: e.excerpt,
-        timestamp: e.timestamp ?? signal.timestamp
+        timestamp: e.timestamp ?? signal.timestamp,
       }));
     }
-    return [{
-      source: signal.source,
-      excerpt: signal.summary,
-      timestamp: signal.timestamp
-    }];
+    return [
+      {
+        source: signal.source,
+        excerpt: signal.summary,
+        timestamp: signal.timestamp,
+      },
+    ];
   }
 }

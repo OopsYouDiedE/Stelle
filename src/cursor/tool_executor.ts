@@ -1,6 +1,7 @@
 import { asRecord } from "../utils/json.js";
 import type { ToolAuthority, ToolContext, ToolError, ToolRegistry } from "../tool.js";
 
+// === Types ===
 export interface CursorToolCall {
   tool: string;
   parameters: Record<string, unknown>;
@@ -29,16 +30,14 @@ export interface ExecuteToolPlanOptions {
   cascadeSearchRead?: boolean;
 }
 
+// === Executor ===
 export class CursorToolExecutor {
   constructor(private readonly options: CursorToolExecutorOptions) {}
 
-  async executePlan(
-    calls: CursorToolCall[],
-    plan: ExecuteToolPlanOptions = {},
-  ): Promise<CursorToolResultView[]> {
+  async executePlan(calls: CursorToolCall[], plan: ExecuteToolPlanOptions = {}): Promise<CursorToolResultView[]> {
     const selected = calls.slice(0, plan.maxCalls ?? 3);
     if (plan.parallel) {
-      const results = await Promise.all(selected.map(call => this.executeSingle(call.tool, call.parameters, plan)));
+      const results = await Promise.all(selected.map((call) => this.executeSingle(call.tool, call.parameters, plan)));
       return results.flat().slice(0, plan.maxResults ?? 5);
     }
 
@@ -77,6 +76,7 @@ export class CursorToolExecutor {
     }
   }
 
+  // === Internal Helpers ===
   private firstSearchResultUrl(result: CursorToolResultView): string | null {
     const results = asRecord(result.data).results;
     return Array.isArray(results) && results[0] ? String(asRecord(results[0]).url) : null;

@@ -5,6 +5,8 @@ import type { LiveRendererServer } from "../infra/renderer_server.js";
 import type { LiveRuntime, ObsStatus } from "../../utils/live.js";
 import type { StelleEventBus } from "../../utils/event_bus.js";
 
+// === Types ===
+
 export interface LiveHealthSnapshot {
   sessionId: string;
   platforms: LivePlatformStatus[];
@@ -43,6 +45,8 @@ export interface LiveHealthServiceDeps {
   platforms?: LivePlatformManager;
 }
 
+// === LiveHealthService ===
+
 export class LiveHealthService {
   private unsubscribes: Array<() => void> = [];
   private received = 0;
@@ -64,54 +68,69 @@ export class LiveHealthService {
   constructor(private readonly deps: LiveHealthServiceDeps) {}
 
   start(): void {
-    this.unsubscribes.push(this.deps.eventBus.subscribe("*", (event) => {
-      if (event.type === "live.event.received") {
-        this.received += 1;
-        const receivedAt = Number(event.payload.receivedAt ?? event.timestamp);
-        this.lastEventAt = event.timestamp;
-        const latency = Math.max(0, Date.now() - receivedAt);
-        this.latencySamples.push(latency);
-        if (this.latencySamples.length > 100) this.latencySamples.shift();
-      }
-      if (event.type === "live.ingress.dropped") {
-        this.dropped += 1;
-        if (event.payload.reason === "duplicate") this.duplicates += 1;
-      }
-      if (event.type === "live.tts.status") {
-        this.ttsQueued += event.payload.status === "queued" || event.payload.status === "streaming" ? 1 : 0;
-        this.ttsLastProvider = typeof event.payload.provider === "string" ? event.payload.provider : this.ttsLastProvider;
-        this.ttsLastStatusAt = event.timestamp;
-      }
-      if (event.type === "live.tts.error") {
-        this.ttsFailures += 1;
-        this.ttsLastError = String(event.payload.error ?? event.payload.message ?? "tts error");
-        this.ttsLastStatusAt = event.timestamp;
-      }
-      if (event.type === "live.moderation.decision") {
-        this.moderationLastDecision = event.payload;
-        if (event.payload.action === "drop") this.moderationDropped += 1;
-        else if (event.payload.action === "hide") this.moderationHidden += 1;
-        else this.moderationAllowed += 1;
-      }
-    }));
+    this.unsubscribes.push(
+      this.deps.eventBus.subscribe("*", (event) => {
+        switch (event.type) {
+          case "live.event.received": {
+            this.received += 1;
+            const receivedAt = Number(event.payload.receivedAt ?? event.timestamp);
+            this.lastEventAt = event.timestamp;
+            const latency = Math.max(0, Date.now() - receivedAt);
+            this.latencySamples.push(latency);
+            if (this.latencySamples.length > 100) this.latencySamples.shift();
+            break;
+          }
+          case "live.ingress.dropped": {
+            this.dropped += 1;
+            if (event.payload.reason === "duplicate") this.duplicates += 1;
+            break;
+          }
+          case "live.tts.status": {
+            this.ttsQueued += event.payload.status === "queued" || event.payload.status === "streaming" ? 1 : 0;
+            this.ttsLastProvider =
+              typeof event.payload.provider === "string" ? event.payload.provider : this.ttsLastProvider;
+            this.ttsLastStatusAt = event.timestamp;
+            break;
+          }
+          case "live.tts.error": {
+            this.ttsFailures += 1;
+            this.ttsLastError = String(event.payload.error ?? event.payload.message ?? "tts error");
+            this.ttsLastStatusAt = event.timestamp;
+            break;
+          }
+          case "live.moderation.decision": {
+            this.moderationLastDecision = event.payload;
+            if (event.payload.action === "drop") this.moderationDropped += 1;
+            else if (event.payload.action === "hide") this.moderationHidden += 1;
+            else this.moderationAllowed += 1;
+            break;
+          }
+        }
+      }),
+    );
+
     this.timer = setInterval(() => {
-      void this.snapshot().then((snapshot) => {
-        this.deps.renderer?.publishHealth(snapshot);
-        this.deps.eventBus.publish({
-          type: "live.health.updated",
-          source: "live_health",
-          id: `live-health-${Date.now()}`,
-          timestamp: Date.now(),
-          payload: snapshot as any,
-        });
-      }).catch(() => undefined);
+      void this.snapshot()
+        .then((snapshot) => {
+          this.deps.renderer?.publishHealth(snapshot);
+          this.deps.eventBus.publish({
+            type: "live.health.updated",
+            source: "live_health",
+            id: `live-health-${Date.now()}`,
+            timestamp: Date.now(),
+            payload: snapshot as any,
+          });
+        })
+        .catch(() => undefined);
     }, 5_000);
     this.timer.unref?.();
   }
 
   stop(): void {
-    if (this.timer) clearInterval(this.timer);
-    this.timer = undefined;
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = undefined;
+    }
     for (const unsubscribe of this.unsubscribes) unsubscribe();
     this.unsubscribes = [];
   }
@@ -149,7 +168,10 @@ export class LiveHealthService {
   }
 }
 
+// === Helpers ===
+
 function average(values: number[]): number | undefined {
-  if (!values.length) return undefined;
-  return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
+  const len = values.length;
+  if (len === 0) return undefined;
+  return Math.round(values.reduce((sum, value) => sum + value, 0) / len);
 }

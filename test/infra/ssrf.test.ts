@@ -10,11 +10,15 @@ describe("SSRF protection", () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
     const registry = createDefaultToolRegistry();
 
-    const result = await registry.execute("search.web_read", { url: "http://127.0.0.1/admin" }, {
-      caller: "runtime",
-      cwd: process.cwd(),
-      allowedAuthority: ["network_read"],
-    });
+    const result = await registry.execute(
+      "search.web_read",
+      { url: "http://127.0.0.1/admin" },
+      {
+        caller: "runtime",
+        cwd: process.cwd(),
+        allowedAuthority: ["network_read"],
+      },
+    );
 
     expect(result.ok).toBe(false);
     expect(result.error?.code).toBe("ssrf_blocked");
@@ -31,11 +35,15 @@ describe("SSRF protection", () => {
     } as unknown as Response);
     const registry = createDefaultToolRegistry();
 
-    const result = await registry.execute("search.web_read", { url: "https://1.1.1.1/start" }, {
-      caller: "runtime",
-      cwd: process.cwd(),
-      allowedAuthority: ["network_read"],
-    });
+    const result = await registry.execute(
+      "search.web_read",
+      { url: "https://1.1.1.1/start" },
+      {
+        caller: "runtime",
+        cwd: process.cwd(),
+        allowedAuthority: ["network_read"],
+      },
+    );
 
     expect(result.ok).toBe(false);
     expect(result.summary).toContain("blocked");
@@ -46,11 +54,15 @@ describe("SSRF protection", () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
     const registry = createDefaultToolRegistry();
 
-    const result = await registry.execute("search.web_read", { url: "http://[::ffff:127.0.0.1]/admin" }, {
-      caller: "runtime",
-      cwd: process.cwd(),
-      allowedAuthority: ["network_read"],
-    });
+    const result = await registry.execute(
+      "search.web_read",
+      { url: "http://[::ffff:127.0.0.1]/admin" },
+      {
+        caller: "runtime",
+        cwd: process.cwd(),
+        allowedAuthority: ["network_read"],
+      },
+    );
 
     expect(result.ok).toBe(false);
     expect(result.error?.code).toBe("ssrf_blocked");

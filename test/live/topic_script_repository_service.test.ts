@@ -12,7 +12,11 @@ describe("topic script repository and service", () => {
     const repository = new TopicScriptRepository({ rootDir, now: () => 1000 });
     const service = new TopicScriptService({ repository, now: () => 1000 });
 
-    const { draft, record } = await service.generateDraft({ templateId: "ai_reflection", title: "AI 记忆边界", scriptId: "ts_repo_smoke" });
+    const { draft, record } = await service.generateDraft({
+      templateId: "ai_reflection",
+      title: "AI 记忆边界",
+      scriptId: "ts_repo_smoke",
+    });
 
     expect(record.status).toBe("draft");
     expect(draft.sections.length).toBeGreaterThan(0);
@@ -77,7 +81,11 @@ describe("topic script repository and service", () => {
     const { draft } = await service.generateDraft({ templateId: "ai_reflection", scriptId: "ts_locked", revision: 1 });
     draft.sections[0]!.lock_level = "locked";
 
-    const revised = await service.reviseSection({ draft, sectionId: draft.sections[0]!.section_id, viewerSignal: "这个事实不对" });
+    const revised = await service.reviseSection({
+      draft,
+      sectionId: draft.sections[0]!.section_id,
+      viewerSignal: "这个事实不对",
+    });
 
     expect(revised).toBe(draft);
   });

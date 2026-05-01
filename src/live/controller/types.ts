@@ -4,30 +4,11 @@ import type { WorldCanonEntry } from "./world_canon.js";
 import type { PromptLabExperiment } from "./prompt_lab.js";
 import type { AnonymousCommunityMapState } from "./community_map.js";
 
-export type ProgramMode =
-  | "observation"
-  | "court"
-  | "lab"
-  | "archive"
-  | "diagnosis"
-  | "story"
-  | "reflection";
+export type ProgramMode = "observation" | "court" | "lab" | "archive" | "diagnosis" | "story" | "reflection";
 
-export type TopicPhase =
-  | "opening"
-  | "sampling"
-  | "clustering"
-  | "debating"
-  | "summarizing"
-  | "closing";
+export type TopicPhase = "opening" | "sampling" | "clustering" | "debating" | "summarizing" | "closing";
 
-export type ChatClusterLabel =
-  | "question"
-  | "opinion"
-  | "joke"
-  | "setting_suggestion"
-  | "challenge"
-  | "other";
+export type ChatClusterLabel = "question" | "opinion" | "joke" | "setting_suggestion" | "challenge" | "other";
 
 export type ProgramWidgetName =
   | "topic_compass"

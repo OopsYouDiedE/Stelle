@@ -14,10 +14,34 @@ describe("LiveHealthService", () => {
     const health = new LiveHealthService({ sessionId: "s1", eventBus, stageOutput, live });
     health.start();
 
-    eventBus.publish({ type: "live.event.received", source: "system", id: "e1", timestamp: 20, payload: { receivedAt: 10 } });
-    eventBus.publish({ type: "live.ingress.dropped", source: "system", id: "d1", timestamp: 21, payload: { reason: "duplicate" } });
-    eventBus.publish({ type: "live.tts.error", source: "system", id: "t1", timestamp: 22, payload: { error: "timeout" } } as any);
-    eventBus.publish({ type: "live.moderation.decision", source: "system", id: "m1", timestamp: 23, payload: { action: "drop" } } as any);
+    eventBus.publish({
+      type: "live.event.received",
+      source: "system",
+      id: "e1",
+      timestamp: 20,
+      payload: { receivedAt: 10 },
+    });
+    eventBus.publish({
+      type: "live.ingress.dropped",
+      source: "system",
+      id: "d1",
+      timestamp: 21,
+      payload: { reason: "duplicate" },
+    });
+    eventBus.publish({
+      type: "live.tts.error",
+      source: "system",
+      id: "t1",
+      timestamp: 22,
+      payload: { error: "timeout" },
+    } as any);
+    eventBus.publish({
+      type: "live.moderation.decision",
+      source: "system",
+      id: "m1",
+      timestamp: 23,
+      payload: { action: "drop" },
+    } as any);
 
     const snapshot = await health.snapshot();
     health.stop();

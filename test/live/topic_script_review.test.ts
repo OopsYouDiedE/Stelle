@@ -32,6 +32,8 @@ describe("topic script review", () => {
     const { draft } = await service.generateDraft({ templateId: "ai_reflection", scriptId: "ts_approved_lock" });
     await review.approve({ scriptId: "ts_approved_lock", revision: 1, actor: "test" });
 
-    await expect(review.lockSection({ scriptId: "ts_approved_lock", revision: 1, sectionId: draft.sections[0]!.section_id })).rejects.toThrow(/Approved/);
+    await expect(
+      review.lockSection({ scriptId: "ts_approved_lock", revision: 1, sectionId: draft.sections[0]!.section_id }),
+    ).rejects.toThrow(/Approved/);
   });
 });

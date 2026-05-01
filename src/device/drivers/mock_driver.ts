@@ -1,4 +1,9 @@
-import type { DeviceActionDriver, DeviceActionIntent, DeviceActionResult, DeviceResourceKind } from "../action_types.js";
+import type {
+  DeviceActionDriver,
+  DeviceActionIntent,
+  DeviceActionResult,
+  DeviceResourceKind,
+} from "../action_types.js";
 
 export class MockDeviceActionDriver implements DeviceActionDriver {
   constructor(public readonly resourceKind: DeviceResourceKind = "browser") {}

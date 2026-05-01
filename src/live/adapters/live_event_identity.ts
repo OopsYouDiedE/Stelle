@@ -1,6 +1,8 @@
+// === Imports ===
 import { createHash } from "node:crypto";
 import type { LiveEventKind, LiveEventSource, NormalizedLiveEvent } from "../../utils/live_event.js";
 
+// === Types ===
 export interface LiveEventIdentity {
   id: string;
   platformEventId?: string;
@@ -19,6 +21,7 @@ export interface LiveEventIdentityInput {
   receivedAt: number;
 }
 
+// === Core Logic ===
 export function buildLiveEventIdentity(input: LiveEventIdentityInput): LiveEventIdentity {
   const platformEventId = clean(input.platformEventId);
   const roomId = input.roomId ?? "unknown";
@@ -42,7 +45,10 @@ export function buildLiveEventIdentity(input: LiveEventIdentityInput): LiveEvent
   return { id, platformEventId, fingerprint };
 }
 
-export function applyLiveEventIdentity(event: NormalizedLiveEvent, platformEventId = event.platformEventId): NormalizedLiveEvent {
+export function applyLiveEventIdentity(
+  event: NormalizedLiveEvent,
+  platformEventId = event.platformEventId,
+): NormalizedLiveEvent {
   const identity = buildLiveEventIdentity({
     platform: event.source,
     roomId: event.roomId,
@@ -57,6 +63,7 @@ export function applyLiveEventIdentity(event: NormalizedLiveEvent, platformEvent
   return { ...event, ...identity };
 }
 
+// === Helpers ===
 function normalizeText(text: string): string {
   return text.trim().replace(/\s+/g, " ").toLowerCase();
 }

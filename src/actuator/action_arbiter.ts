@@ -1,20 +1,27 @@
+// === Imports ===
 import { DeviceActionRenderer } from "../device/action_renderer.js";
 import { DeviceActionIntentSchema } from "../device/action_types.js";
 import { validateDeviceActionPolicy } from "../device/action_policy.js";
-import type { 
-  DeviceActionArbiterDeps, 
+import type {
+  DeviceActionArbiterDeps,
   DeviceActionArbiterSnapshot,
-  DeviceActionDecision, 
-  DeviceActionIntent
+  DeviceActionDecision,
+  DeviceActionIntent,
 } from "../device/action_types.js";
 import { BaseArbiter } from "./base_arbiter.js";
 
+// === Types ===
 interface ResourceLease {
   cursorId: string;
   expiresAt: number;
 }
 
-export class DeviceActionArbiter extends BaseArbiter<DeviceActionIntent, DeviceActionDecision, DeviceActionArbiterSnapshot> {
+// === Main Class ===
+export class DeviceActionArbiter extends BaseArbiter<
+  DeviceActionIntent,
+  DeviceActionDecision,
+  DeviceActionArbiterSnapshot
+> {
   private readonly renderer: DeviceActionRenderer;
   private readonly leases = new Map<string, ResourceLease>(); // resourceId -> lease
 
@@ -23,16 +30,17 @@ export class DeviceActionArbiter extends BaseArbiter<DeviceActionIntent, DeviceA
     this.renderer = new DeviceActionRenderer(deps.drivers ?? []);
   }
 
+  // === Logic ===
   async propose(input: unknown): Promise<DeviceActionDecision> {
     const now = this.deps.now();
     // 1. Zod Validation
     const validation = DeviceActionIntentSchema.safeParse(input);
     if (!validation.success) {
       const reason = `Invalid intent structure: ${validation.error.message}`;
-      return { 
-        status: "rejected", 
-        reason, 
-        intent: input as any 
+      return {
+        status: "rejected",
+        reason,
+        intent: input as any,
       };
     }
     const intent = validation.data;
@@ -65,7 +73,7 @@ export class DeviceActionArbiter extends BaseArbiter<DeviceActionIntent, DeviceA
     // Accept and acquire lease
     this.leases.set(intent.resourceId, {
       cursorId: intent.cursorId,
-      expiresAt: expiresAt
+      expiresAt: expiresAt,
     });
 
     this.publish("device.action.accepted", intent, { reason: "accepted" });
@@ -87,6 +95,7 @@ export class DeviceActionArbiter extends BaseArbiter<DeviceActionIntent, DeviceA
     }
   }
 
+  // === Lifecycle & Snapshot ===
   snapshot(): DeviceActionArbiterSnapshot {
     const now = this.deps.now();
     for (const [resourceId, lease] of this.leases) {
@@ -99,4 +108,3 @@ export class DeviceActionArbiter extends BaseArbiter<DeviceActionIntent, DeviceA
     };
   }
 }
-

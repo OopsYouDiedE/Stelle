@@ -1,6 +1,8 @@
+// === Imports ===
 import type { CursorModuleDefinition } from "../../manifest.js";
 import { BrowserCursor } from "./cursor.js";
 
+// === Module Definition ===
 export const browserCursorModule: CursorModuleDefinition = {
   id: "browser",
   kind: "device_browser",

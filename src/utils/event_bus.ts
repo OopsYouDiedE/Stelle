@@ -1,9 +1,12 @@
+// === Imports ===
 import { EventEmitter } from "node:events";
 import { StelleEventSchema, type StelleEvent, type StelleEventType } from "./event_schema.js";
 
+// === Core Logic ===
+
 /**
  * 模块：Stelle 增强型事件总线
- * 
+ *
  * 核心改进：
  * 1. 强类型校验：基于 Zod Schema 确保事件结构符合协议。
  * 2. 自动元数据注入：发布时自动补齐 ID、时间戳。
@@ -22,9 +25,7 @@ export class StelleEventBus {
   /**
    * 发布一个事件 (带元数据注入和校验)
    */
-  public publish(
-    input: { type: StelleEventType; source: string } & Record<string, unknown>
-  ): void {
+  public publish(input: { type: StelleEventType; source: string } & Record<string, unknown>): void {
     const eventData = {
       ...input,
       id: (input.id as string) || `evt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -38,7 +39,7 @@ export class StelleEventBus {
       return;
     }
 
-    const event = result.data as StelleEvent;
+    const event = result.data; // Type is already StelleEvent from schema
 
     // 记录历史 (环形缓冲区)
     this.history.push(event);
@@ -56,7 +57,7 @@ export class StelleEventBus {
    */
   public subscribe<T extends StelleEventType>(
     type: T | "*",
-    listener: (event: T extends StelleEventType ? Extract<StelleEvent, { type: T }> : StelleEvent) => void
+    listener: (event: T extends StelleEventType ? Extract<StelleEvent, { type: T }> : StelleEvent) => void,
   ): () => void {
     const wrapper = (event: StelleEvent) => listener(event as any);
     this.emitter.on(type, wrapper);

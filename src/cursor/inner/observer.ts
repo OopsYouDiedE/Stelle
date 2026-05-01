@@ -1,9 +1,20 @@
 import type { CognitiveSignal } from "./types.js";
 import type { StelleEvent } from "../types.js";
 
+// === Region: Interfaces ===
+
 export interface InnerObservation {
   id: string;
-  source: "discord" | "discord_text_channel" | "live" | "live_danmaku" | "browser" | "desktop_input" | "android_device" | "stage_output" | "system";
+  source:
+    | "discord"
+    | "discord_text_channel"
+    | "live"
+    | "live_danmaku"
+    | "browser"
+    | "desktop_input"
+    | "android_device"
+    | "stage_output"
+    | "system";
   type: string;
   summary: string;
   timestamp: number;
@@ -18,6 +29,8 @@ export interface InnerObserver {
   recentObservations(limit: number): InnerObservation[];
   snapshot(): Record<string, unknown>;
 }
+
+// === Region: Default Implementation ===
 
 export class DefaultInnerObserver implements InnerObserver {
   private readonly recentDecisions: InnerObservation[] = [];
@@ -37,7 +50,9 @@ export class DefaultInnerObserver implements InnerObserver {
 
   recordDecision(decision: InnerObservation): void {
     this.recentDecisions.push(decision);
-    while (this.recentDecisions.length > 200) this.recentDecisions.shift();
+    if (this.recentDecisions.length > 200) {
+      this.recentDecisions.shift();
+    }
   }
 
   async collectRecentSignals(limit = 50): Promise<CognitiveSignal[]> {
@@ -53,6 +68,18 @@ export class DefaultInnerObserver implements InnerObserver {
   }
 }
 
+// === Region: Mappers ===
+
+const SOURCE_MAP: Record<string, CognitiveSignal["source"]> = {
+  discord: "discord_text_channel",
+  discord_text_channel: "discord_text_channel",
+  live: "live_danmaku",
+  live_danmaku: "live_danmaku",
+  stage_output: "stage_output",
+  browser: "browser",
+  system: "system",
+};
+
 function decisionToSignal(decision: InnerObservation): CognitiveSignal {
   return {
     id: decision.id,
@@ -67,11 +94,5 @@ function decisionToSignal(decision: InnerObservation): CognitiveSignal {
 
 function mapSourceToCognitive(source: unknown): CognitiveSignal["source"] {
   if (typeof source !== "string") return "system";
-  const s = source.toLowerCase();
-  if (s === "discord" || s === "discord_text_channel") return "discord_text_channel";
-  if (s === "live" || s === "live_danmaku") return "live_danmaku";
-  if (s === "stage_output") return "stage_output";
-  if (s === "browser") return "browser";
-  if (s === "system") return "system";
-  return "system";
+  return SOURCE_MAP[source.toLowerCase()] ?? "system";
 }

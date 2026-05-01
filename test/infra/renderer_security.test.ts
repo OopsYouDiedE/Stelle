@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { LiveRendererServer, type LiveRendererLiveController, type LiveRendererMemoryController } from "../../src/live/infra/renderer_server.js";
+import {
+  LiveRendererServer,
+  type LiveRendererLiveController,
+  type LiveRendererMemoryController,
+} from "../../src/live/infra/renderer_server.js";
 import { HttpLiveRendererBridge } from "../../src/utils/live.js";
 
 describe("LiveRendererServer Security", () => {
@@ -22,16 +26,16 @@ describe("LiveRendererServer Security", () => {
     });
     const url = await server.start();
     const bridge = new HttpLiveRendererBridge(url, { controlToken: "bridge-test-token" });
-    
+
     // Use a state:set command to prove mutation
     const testState = { visible: true, customValue: "verified" };
     await bridge.publish({ type: "state:set", state: testState });
 
     expect(bridge.lastError).toBeUndefined();
-    
+
     // Verify state was actually mutated in the server
     const response = await fetch(`${url}/state`);
-    const data = await response.json() as any;
+    const data = (await response.json()) as any;
     expect(data.ok).toBe(true);
     expect(data.state).toMatchObject(testState);
   });
@@ -78,7 +82,7 @@ describe("LiveRendererServer Security", () => {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": "Bearer test-token",
+        Authorization: "Bearer test-token",
       },
       body: JSON.stringify({ text: "hello" }),
     });

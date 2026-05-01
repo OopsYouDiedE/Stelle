@@ -1,3 +1,4 @@
+// === Imports ===
 import { asRecord, enumValue } from "../../utils/json.js";
 import { capabilitySet, CURSOR_CAPABILITIES } from "../capabilities.js";
 import type { DiscordMessageSummary } from "../../utils/discord.js";
@@ -5,48 +6,65 @@ import type { CursorContext } from "../types.js";
 import type { DiscordChannelSession, DiscordReplyPolicy, DiscordToolPlan } from "./types.js";
 import type { BehaviorPolicyOverlay } from "../policy_overlay_store.js";
 
+// === Constants ===
 const ALLOWED_POLICY_TOOLS = capabilitySet(CURSOR_CAPABILITIES.discord.planTools);
 
 /**
  * 模块：DiscordRouter (决策层)
  * 职责：意图识别、响应模式判定、工具链规划。
  */
+// === Router Layer ===
 export class DiscordRouter {
-  constructor(private readonly context: CursorContext, private readonly persona: string) {}
+  constructor(
+    private readonly context: CursorContext,
+    private readonly persona: string,
+  ) {}
 
+  // === Policy Design ===
   public async designPolicy(
     session: DiscordChannelSession,
     batch: DiscordMessageSummary[],
     isMentioned: boolean,
-    activePolicies: BehaviorPolicyOverlay[] = []
+    activePolicies: BehaviorPolicyOverlay[] = [],
   ): Promise<DiscordReplyPolicy> {
     // 默认回退逻辑：没被提到则保持沉默，被提到则简单回复
-    const fallback: DiscordReplyPolicy = { 
-      mode: isMentioned ? "reply" : "silent", 
-      intent: "local_chat", 
-      reason: "llm_error_fallback", 
-      needsThinking: false 
+    const fallback: DiscordReplyPolicy = {
+      mode: isMentioned ? "reply" : "silent",
+      intent: "local_chat",
+      reason: "llm_error_fallback",
+      needsThinking: false,
     };
     if (!this.context.config.models.apiKey) return fallback;
 
     // 结构化策略先行：如果 InnerMind 强制要求沉默，则直接返回
-    if (activePolicies.some(p => p.replyBias === "silent")) {
-      return { mode: "silent", intent: "local_chat", reason: "inner_mind_silent_bias", needsThinking: false, waitSeconds: 300 };
+    if (activePolicies.some((p) => p.replyBias === "silent")) {
+      return {
+        mode: "silent",
+        intent: "local_chat",
+        reason: "inner_mind_silent_bias",
+        needsThinking: false,
+        waitSeconds: 300,
+      };
     }
 
-    const batchContent = batch.map(m => `${m.author.username}: ${m.cleanContent}`).join("\n");
-    const recentHistory = session.history.slice(-15).map(m => `${m.author.username}: ${m.cleanContent}`).join("\n");
-    
+    const batchContent = batch.map((m) => `${m.author.username}: ${m.cleanContent}`).join("\n");
+    const recentHistory = session.history
+      .slice(-15)
+      .map((m) => `${m.author.username}: ${m.cleanContent}`)
+      .join("\n");
+
     // 构造指令块
-    const directiveBlock = activePolicies.length 
-      ? `\nCURRENT ACTIVE BEHAVIOR POLICIES:\n${activePolicies.map(p => {
-          const parts = [];
-          if (p.replyBias) parts.push(`Reply Bias: ${p.replyBias}`);
-          if (p.vibeIntensity) parts.push(`Vibe Intensity: ${p.vibeIntensity}/5`);
-          if (p.focusTopic) parts.push(`Current Focus: ${p.focusTopic}`);
-          if (p.instruction) parts.push(`Instruction: ${p.instruction}`);
-          return `- ${parts.join(" | ")}`;
-        }).join("\n")}`
+    const directiveBlock = activePolicies.length
+      ? `\nCURRENT ACTIVE BEHAVIOR POLICIES:\n${activePolicies
+          .map((p) => {
+            const parts = [];
+            if (p.replyBias) parts.push(`Reply Bias: ${p.replyBias}`);
+            if (p.vibeIntensity) parts.push(`Vibe Intensity: ${p.vibeIntensity}/5`);
+            if (p.focusTopic) parts.push(`Current Focus: ${p.focusTopic}`);
+            if (p.instruction) parts.push(`Instruction: ${p.instruction}`);
+            return `- ${parts.join(" | ")}`;
+          })
+          .join("\n")}`
       : "";
 
     try {
@@ -89,36 +107,42 @@ export class DiscordRouter {
           "5. Use silent for 60-600s when observing without replying; use deactivate for 600-10800s and clear_context=true when leaving the channel context.",
           `Context: mentioned=${isMentioned}`,
           `Recent context:\n${recentHistory || "(none)"}`,
-          `LATEST OBSERVED BATCH:\n${batchContent}`
+          `LATEST OBSERVED BATCH:\n${batchContent}`,
         ].join("\n"),
         "discord_reply_policy",
         (raw) => {
           const v = asRecord(raw);
           const tp = asRecord(v.tool_plan || v.toolPlan);
-          
+
           let toolPlan: DiscordToolPlan | undefined;
           if (Array.isArray(tp.calls)) {
             toolPlan = {
-              calls: tp.calls.map((c: any) => ({
-                tool: String(asRecord(c).tool),
-                parameters: asRecord(asRecord(c).parameters)
-              })).filter(c => ALLOWED_POLICY_TOOLS.has(c.tool)),
-              parallel: Boolean(tp.parallel ?? true)
+              calls: tp.calls
+                .map((c: any) => ({
+                  tool: String(asRecord(c).tool),
+                  parameters: asRecord(asRecord(c).parameters),
+                }))
+                .filter((c) => ALLOWED_POLICY_TOOLS.has(c.tool)),
+              parallel: Boolean(tp.parallel ?? true),
             };
           }
 
           return {
             mode: enumValue(v.mode, ["reply", "wait_intent", "silent", "deactivate"] as const, "reply"),
-            intent: enumValue(v.intent, ["local_chat", "live_request", "memory_query", "memory_write", "factual_query", "system_status"] as const, "local_chat"),
+            intent: enumValue(
+              v.intent,
+              ["local_chat", "live_request", "memory_query", "memory_write", "factual_query", "system_status"] as const,
+              "local_chat",
+            ),
             reason: String(v.reason || "auto"),
             needsThinking: Boolean(v.needsThinking ?? v.needs_thinking),
             toolPlan,
             focus: String(v.focus || ""),
             waitSeconds: normalizeWaitSeconds(String(v.mode || "reply"), Number(v.waitSeconds ?? v.wait_seconds)),
-            clearContext: Boolean(v.clearContext ?? v.clear_context ?? String(v.mode) === "deactivate")
+            clearContext: Boolean(v.clearContext ?? v.clear_context ?? String(v.mode) === "deactivate"),
           };
         },
-        { role: isMentioned ? "primary" : "secondary", temperature: 0.1, maxOutputTokens: 400, safeDefault: fallback }
+        { role: isMentioned ? "primary" : "secondary", temperature: 0.1, maxOutputTokens: 400, safeDefault: fallback },
       );
     } catch (error) {
       return fallback;
@@ -126,6 +150,7 @@ export class DiscordRouter {
   }
 }
 
+// === Utilities ===
 function normalizeWaitSeconds(mode: string, value: number): number | undefined {
   if (mode === "wait_intent") return clampSeconds(value, 30, 120, 60);
   if (mode === "silent") return clampSeconds(value, 60, 600, 300);

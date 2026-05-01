@@ -8,37 +8,49 @@ describe("ObsWebSocketController", () => {
 
   it("reads OBS status through WebSocket v5", async () => {
     const sent: any[] = [];
-    vi.stubGlobal("WebSocket", makeObsWebSocket(sent, {
-      GetStreamStatus: { outputActive: true },
-      GetCurrentProgramScene: { currentProgramSceneName: "Live" },
-    }));
+    vi.stubGlobal(
+      "WebSocket",
+      makeObsWebSocket(sent, {
+        GetStreamStatus: { outputActive: true },
+        GetCurrentProgramScene: { currentProgramSceneName: "Live" },
+      }),
+    );
 
     const status = await new ObsWebSocketController({ enabled: true, url: "ws://obs", timeoutMs: 1000 }).getStatus();
 
     expect(status.connected).toBe(true);
     expect(status.streaming).toBe(true);
     expect(status.currentScene).toBe("Live");
-    expect(sent.map(message => message.op)).toEqual(expect.arrayContaining([1, 6]));
+    expect(sent.map((message) => message.op)).toEqual(expect.arrayContaining([1, 6]));
   });
 
   it("sends OBS scene switch requests", async () => {
     const sent: any[] = [];
-    vi.stubGlobal("WebSocket", makeObsWebSocket(sent, {
-      SetCurrentProgramScene: {},
-      GetStreamStatus: { outputActive: false },
-      GetCurrentProgramScene: { currentProgramSceneName: "BRB" },
-    }));
+    vi.stubGlobal(
+      "WebSocket",
+      makeObsWebSocket(sent, {
+        SetCurrentProgramScene: {},
+        GetStreamStatus: { outputActive: false },
+        GetCurrentProgramScene: { currentProgramSceneName: "BRB" },
+      }),
+    );
 
-    const result = await new ObsWebSocketController({ enabled: true, url: "ws://obs", timeoutMs: 1000 }).setCurrentScene("BRB");
+    const result = await new ObsWebSocketController({
+      enabled: true,
+      url: "ws://obs",
+      timeoutMs: 1000,
+    }).setCurrentScene("BRB");
 
     expect(result.ok).toBe(true);
-    expect(sent).toContainEqual(expect.objectContaining({
-      op: 6,
-      d: expect.objectContaining({
-        requestType: "SetCurrentProgramScene",
-        requestData: { sceneName: "BRB" },
+    expect(sent).toContainEqual(
+      expect.objectContaining({
+        op: 6,
+        d: expect.objectContaining({
+          requestType: "SetCurrentProgramScene",
+          requestData: { sceneName: "BRB" },
+        }),
       }),
-    }));
+    );
   });
 
   it("fails closed when OBS control is disabled", async () => {
@@ -72,17 +84,21 @@ function makeObsWebSocket(sent: any[], responses: Record<string, Record<string, 
       }
       if (message.op === 6) {
         const requestType = String(message.d.requestType);
-        setTimeout(() => this.onmessage?.({
-          data: JSON.stringify({
-            op: 7,
-            d: {
-              requestId: message.d.requestId,
-              requestType,
-              requestStatus: { result: true, code: 100 },
-              responseData: responses[requestType] ?? {},
-            },
-          }),
-        }), 0);
+        setTimeout(
+          () =>
+            this.onmessage?.({
+              data: JSON.stringify({
+                op: 7,
+                d: {
+                  requestId: message.d.requestId,
+                  requestType,
+                  requestStatus: { result: true, code: 100 },
+                  responseData: responses[requestType] ?? {},
+                },
+              }),
+            }),
+          0,
+        );
       }
     }
 

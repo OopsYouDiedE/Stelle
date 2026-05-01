@@ -1,3 +1,4 @@
+// === Imports ===
 import type { RuntimeConfig } from "../../config/index.js";
 import type { StelleEventBus } from "../../utils/event_bus.js";
 import type { NormalizedLiveEvent } from "../../utils/live_event.js";
@@ -10,12 +11,16 @@ import { YoutubePlatformBridge } from "./youtube.js";
 import { LivePlatformSupervisor } from "./supervisor.js";
 import type { LivePlatformBridge, LivePlatformStatus } from "./types.js";
 
+// === Main Class ===
 export class LivePlatformManager {
   private readonly bridges: LivePlatformBridge[];
   private readonly supervisors: LivePlatformSupervisor[];
   private readonly deduper = new LiveEventDeduper(2 * 60_000, () => Date.now());
 
-  constructor(config: RuntimeConfig, private readonly eventBus: StelleEventBus) {
+  constructor(
+    config: RuntimeConfig,
+    private readonly eventBus: StelleEventBus,
+  ) {
     const platforms = config.live.platforms;
     const onEvent = (event: NormalizedLiveEvent) => this.publish(event);
     this.bridges = [
@@ -27,6 +32,7 @@ export class LivePlatformManager {
     this.supervisors = this.bridges.map((bridge) => new LivePlatformSupervisor(bridge, this.eventBus));
   }
 
+  // --- Lifecycle ---
   async start(): Promise<void> {
     for (const supervisor of this.supervisors) supervisor.start();
   }
@@ -39,6 +45,7 @@ export class LivePlatformManager {
     return this.bridges.map((bridge) => bridge.status());
   }
 
+  // --- Event Handling ---
   private publish(event: NormalizedLiveEvent): void {
     const normalized = applyLiveEventIdentity(event, event.platformEventId ?? inferredPlatformEventId(event));
     if (!this.deduper.accept(normalized)) {
@@ -98,6 +105,7 @@ export class LivePlatformManager {
   }
 }
 
+// === Helpers ===
 function inferredPlatformEventId(event: NormalizedLiveEvent): string | undefined {
   if (event.id.startsWith(`${event.source}-`) || event.id.startsWith("live-event-")) return undefined;
   return event.id;

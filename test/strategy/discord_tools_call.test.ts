@@ -11,36 +11,40 @@ describe("DiscordRouter Strategy", () => {
     generateJson = vi.fn();
     context = {
       now: () => Date.now(),
-      config: { 
-        models: { apiKey: "test-key" }
+      config: {
+        models: { apiKey: "test-key" },
       },
       llm: { generateJson },
-      eventBus: new StelleEventBus()
+      eventBus: new StelleEventBus(),
     };
     router = new DiscordRouter(context, "Test Persona");
   });
 
   it("should route to memory_query and structured ToolPlan when asked about history", async () => {
-    generateJson.mockImplementationOnce(async (_p, _s, normalize) => normalize({
-      mode: "reply",
-      intent: "memory_query",
-      reason: "user asks about remembered history",
-      needs_thinking: true,
-      tool_plan: {
-        calls: [
-          { tool: "memory.search", parameters: { text: "trash can" } },
-          { tool: "memory.read_recent", parameters: { limit: 5 } }
-        ],
-        parallel: true
-      }
-    }));
+    generateJson.mockImplementationOnce(async (_p, _s, normalize) =>
+      normalize({
+        mode: "reply",
+        intent: "memory_query",
+        reason: "user asks about remembered history",
+        needs_thinking: true,
+        tool_plan: {
+          calls: [
+            { tool: "memory.search", parameters: { text: "trash can" } },
+            { tool: "memory.read_recent", parameters: { limit: 5 } },
+          ],
+          parallel: true,
+        },
+      }),
+    );
 
     const session: any = { channelId: "c1", history: [], mode: "active" };
-    const batch: any[] = [{
-      author: { username: "Explorer" },
-      content: "Stelle，你还记得我们上次聊的那个垃圾桶吗？",
-      cleanContent: "Stelle，你还记得我们上次聊的那个垃圾桶吗？"
-    }];
+    const batch: any[] = [
+      {
+        author: { username: "Explorer" },
+        content: "Stelle，你还记得我们上次聊的那个垃圾桶吗？",
+        cleanContent: "Stelle，你还记得我们上次聊的那个垃圾桶吗？",
+      },
+    ];
 
     const policy = await router.designPolicy(session, batch, true);
 
@@ -50,23 +54,27 @@ describe("DiscordRouter Strategy", () => {
   });
 
   it("should route to system_status when asked about live stream state", async () => {
-    generateJson.mockImplementationOnce(async (_p, _s, normalize) => normalize({
-      mode: "reply",
-      intent: "system_status",
-      reason: "user asks for runtime status",
-      needs_thinking: false,
-      tool_plan: {
-        calls: [{ tool: "live.status", parameters: {} }],
-        parallel: true
-      }
-    }));
+    generateJson.mockImplementationOnce(async (_p, _s, normalize) =>
+      normalize({
+        mode: "reply",
+        intent: "system_status",
+        reason: "user asks for runtime status",
+        needs_thinking: false,
+        tool_plan: {
+          calls: [{ tool: "live.status", parameters: {} }],
+          parallel: true,
+        },
+      }),
+    );
 
     const session: any = { channelId: "c1", history: [], mode: "active" };
-    const batch: any[] = [{
-      author: { username: "Explorer" },
-      content: "现在直播间在线吗？",
-      cleanContent: "现在直播间在线吗？"
-    }];
+    const batch: any[] = [
+      {
+        author: { username: "Explorer" },
+        content: "现在直播间在线吗？",
+        cleanContent: "现在直播间在线吗？",
+      },
+    ];
 
     const policy = await router.designPolicy(session, batch, true);
 

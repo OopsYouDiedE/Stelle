@@ -1,10 +1,13 @@
+// === Imports ===
 import { asRecord } from "../../utils/json.js";
 import type { NormalizedLiveEvent } from "../../utils/live_event.js";
 import type { LivePlatformBridge, LivePlatformEventHandler, LivePlatformStatus } from "./types.js";
 import { liveEventId } from "./types.js";
 
+// === Constants ===
 const YOUTUBE_API_BASE = "https://www.googleapis.com/youtube/v3";
 
+// === Types ===
 export interface YoutubePlatformOptions {
   enabled: boolean;
   liveChatId?: string;
@@ -14,6 +17,7 @@ export interface YoutubePlatformOptions {
   forwardHistory?: boolean;
 }
 
+// === Main Class ===
 export class YoutubePlatformBridge implements LivePlatformBridge {
   readonly platform = "youtube" as const;
   private connected = false;
@@ -31,6 +35,7 @@ export class YoutubePlatformBridge implements LivePlatformBridge {
     private readonly onEvent: LivePlatformEventHandler,
   ) {}
 
+  // --- Lifecycle ---
   async start(): Promise<void> {
     if (!this.options.enabled) return;
     this.stopped = false;
@@ -67,6 +72,7 @@ export class YoutubePlatformBridge implements LivePlatformBridge {
     };
   }
 
+  // --- Poll Logic ---
   private async resolveLiveChatId(): Promise<string | undefined> {
     const direct = this.options.liveChatId ?? process.env.YOUTUBE_LIVE_CHAT_ID;
     if (direct) return direct;
@@ -93,7 +99,8 @@ export class YoutubePlatformBridge implements LivePlatformBridge {
       this.nextPageToken = typeof payload.nextPageToken === "string" ? payload.nextPageToken : this.nextPageToken;
 
       const items = Array.isArray(payload.items) ? payload.items : [];
-      const shouldForward = !this.firstPoll || this.options.forwardHistory === true || process.env.YOUTUBE_FORWARD_HISTORY === "true";
+      const shouldForward =
+        !this.firstPoll || this.options.forwardHistory === true || process.env.YOUTUBE_FORWARD_HISTORY === "true";
       if (shouldForward) {
         for (const item of items) {
           const event = normalizeYoutubeMessage(asRecord(item), this.liveChatId);
@@ -133,7 +140,11 @@ export class YoutubePlatformBridge implements LivePlatformBridge {
   }
 }
 
-export function normalizeYoutubeMessage(message: Record<string, unknown>, liveChatId?: string): NormalizedLiveEvent | undefined {
+// === Normalization ===
+export function normalizeYoutubeMessage(
+  message: Record<string, unknown>,
+  liveChatId?: string,
+): NormalizedLiveEvent | undefined {
   const snippet = asRecord(message.snippet);
   const author = asRecord(message.authorDetails);
   const type = String(snippet.type ?? "");
@@ -165,7 +176,12 @@ export function normalizeYoutubeMessage(message: Record<string, unknown>, liveCh
       },
     };
   }
-  if (type === "newSponsorEvent" || type === "memberMilestoneChatEvent" || type === "membershipGiftingEvent" || type === "giftMembershipReceivedEvent") {
+  if (
+    type === "newSponsorEvent" ||
+    type === "memberMilestoneChatEvent" ||
+    type === "membershipGiftingEvent" ||
+    type === "giftMembershipReceivedEvent"
+  ) {
     return {
       ...baseYoutubeEvent(message, liveChatId, "guard", "high", text || "会员事件"),
       trustedPayment: { rawType: "guard", giftName: type, currency: "membership" },
@@ -207,6 +223,7 @@ function baseYoutubeEvent(
   };
 }
 
+// === Helpers ===
 function microsToUnit(value: unknown): number | undefined {
   const number = Number(value);
   return Number.isFinite(number) ? number / 1_000_000 : undefined;
@@ -219,4 +236,3 @@ function stringOrUndefined(value: unknown): string | undefined {
 function clamp(value: number, min: number, max: number, fallback: number): number {
   return Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : fallback;
 }
-

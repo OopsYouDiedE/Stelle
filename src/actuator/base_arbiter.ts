@@ -1,5 +1,7 @@
+// === Imports ===
 import type { StelleEventBus } from "../utils/event_bus.js";
 
+// === Types ===
 /**
  * Base interface for all actuator intents.
  */
@@ -16,9 +18,10 @@ export interface ArbiterDeps {
   now: () => number;
 }
 
+// === Abstract Base Class ===
 /**
  * Abstract BaseArbiter that provides standard event publishing and structure.
- * 
+ *
  * @template TIntent The specific intent type.
  * @template TDecision The decision result type of propose().
  * @template TSnapshot The state snapshot type.
@@ -26,7 +29,7 @@ export interface ArbiterDeps {
 export abstract class BaseArbiter<TIntent extends ActuatorIntent, TDecision, TSnapshot> {
   protected constructor(
     protected readonly source: string,
-    protected readonly deps: ArbiterDeps
+    protected readonly deps: ArbiterDeps,
   ) {}
 
   /**

@@ -1,6 +1,6 @@
 # Stelle Codebase Guide
 
-这份文档面向要修改代码的人：先帮你判断该看哪里，再给出常见业务流的实际落点。更严格的架构规则见 [`ARCHITECTURE.md`](ARCHITECTURE.md)。
+这份文档面向要修改代码的人：先帮你判断该看哪里，再给出常见业务流的实际落点。目录职责总览见 [`STRUCTURE.md`](STRUCTURE.md)，更严格的架构规则见 [`ARCHITECTURE.md`](ARCHITECTURE.md)。
 
 ## First Files To Read
 
@@ -13,21 +13,21 @@
 
 ## Directory Responsibilities
 
-| Path | Responsibility |
-| --- | --- |
-| `src/core/` | 应用生命周期、依赖容器、调度器、debug/control glue code。 |
-| `src/cursor/` | 决策层。Cursor 读取事件和上下文，产出回复、舞台输出或设备动作意图。 |
-| `src/actuator/` | 仲裁层。统一处理输出/动作的接受、排队、拒绝、审计事件。 |
-| `src/stage/` | 直播舞台输出策略、预算、队列和最终 renderer/tool 调用。 |
-| `src/device/` | 设备动作类型、allowlist、策略、驱动和动作渲染。 |
-| `src/live/adapters/` | 平台接入和直播事件归一化，例如 Bilibili、Twitch、YouTube、TikTok。 |
-| `src/live/controller/` | 直播业务控制层：场控、健康检查、事件日志、观众关系、Topic Script。 |
-| `src/live/infra/` | 低层基础设施，目前主要是 renderer server。 |
-| `src/memory/` | LLM 客户端与本地记忆存储。 |
-| `src/tools/` | 工具注册、输入校验、安全策略和默认工具 provider。 |
-| `src/utils/` | EventBus、事件 Schema、Discord/Live 底层运行时、JSON/text/TTS helpers。 |
-| `test/` | 不依赖真实网络的确定性测试。 |
-| `evals/` | 依赖真实模型的能力评估。 |
+| Path                   | Responsibility                                                          |
+| ---------------------- | ----------------------------------------------------------------------- |
+| `src/core/`            | 应用生命周期、依赖容器、调度器、debug/control glue code。               |
+| `src/cursor/`          | 决策层。Cursor 读取事件和上下文，产出回复、舞台输出或设备动作意图。     |
+| `src/actuator/`        | 仲裁层。统一处理输出/动作的接受、排队、拒绝、审计事件。                 |
+| `src/stage/`           | 直播舞台输出策略、预算、队列和最终 renderer/tool 调用。                 |
+| `src/device/`          | 设备动作类型、allowlist、策略、驱动和动作渲染。                         |
+| `src/live/adapters/`   | 平台接入和直播事件归一化，例如 Bilibili、Twitch、YouTube、TikTok。      |
+| `src/live/controller/` | 直播业务控制层：场控、健康检查、事件日志、观众关系、Topic Script。      |
+| `src/live/infra/`      | 低层基础设施，目前主要是 renderer server。                              |
+| `src/memory/`          | LLM 客户端与本地记忆存储。                                              |
+| `src/tools/`           | 工具注册、输入校验、安全策略和默认工具 provider。                       |
+| `src/utils/`           | EventBus、事件 Schema、Discord/Live 底层运行时、JSON/text/TTS helpers。 |
+| `test/`                | 不依赖真实网络的确定性测试。                                            |
+| `evals/`               | 依赖真实模型的能力评估。                                                |
 
 ## Runtime Startup Flow
 

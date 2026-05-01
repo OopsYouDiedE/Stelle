@@ -32,12 +32,19 @@ export async function startRuntime(mode: "runtime" | "discord" | "live" = "runti
 
 // 模块：CLI 参数解析。
 function parseStartMode(input?: string): StartMode {
-  const value = String(input ?? "runtime").trim().toLowerCase();
+  const value = String(input ?? "runtime")
+    .trim()
+    .toLowerCase();
   if (value === "runtime" || value === "discord" || value === "live") return value;
   throw new Error(`Unsupported start mode: ${input ?? ""}`);
 }
 
 function isDirectStart(): boolean {
   const entry = process.argv[1]?.replace(/\\/g, "/");
-  return Boolean(entry === "src/start.ts" || entry === "dist/start.js" || entry?.endsWith("/start.ts") || entry?.endsWith("/start.js"));
+  return Boolean(
+    entry === "src/start.ts" ||
+    entry === "dist/start.js" ||
+    entry?.endsWith("/start.ts") ||
+    entry?.endsWith("/start.js"),
+  );
 }

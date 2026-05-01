@@ -1,7 +1,9 @@
+// === Imports ===
 import type { NormalizedLiveEvent } from "../../utils/live_event.js";
 import type { LivePlatformBridge, LivePlatformEventHandler, LivePlatformStatus } from "./types.js";
 import { liveEventId } from "./types.js";
 
+// === Types ===
 export interface TwitchPlatformOptions {
   enabled: boolean;
   channel?: string;
@@ -17,6 +19,7 @@ type WebSocketLike = WebSocket & {
   onclose: ((event: CloseEvent) => void) | null;
 };
 
+// === Main Class ===
 export class TwitchPlatformBridge implements LivePlatformBridge {
   readonly platform = "twitch" as const;
   private socket?: WebSocketLike;
@@ -30,6 +33,7 @@ export class TwitchPlatformBridge implements LivePlatformBridge {
     private readonly onEvent: LivePlatformEventHandler,
   ) {}
 
+  // --- Lifecycle ---
   async start(): Promise<void> {
     if (!this.options.enabled) return;
     const channel = normalizeChannel(this.options.channel ?? process.env.TWITCH_CHANNEL ?? process.env.TWITCH_ROOM);
@@ -102,6 +106,7 @@ export class TwitchPlatformBridge implements LivePlatformBridge {
     };
   }
 
+  // --- Line Handling ---
   private handleLine(line: string, channel: string): void {
     if (line.startsWith("PING")) {
       this.socket?.send("PONG :tmi.twitch.tv");
@@ -119,7 +124,12 @@ export class TwitchPlatformBridge implements LivePlatformBridge {
   }
 }
 
-export function normalizeTwitchIrcLine(line: string, channel: string, trackJoins = false): NormalizedLiveEvent | undefined {
+// === Normalization ===
+export function normalizeTwitchIrcLine(
+  line: string,
+  channel: string,
+  trackJoins = false,
+): NormalizedLiveEvent | undefined {
   const parsed = parseIrcLine(line);
   if (!parsed) return undefined;
 
@@ -157,7 +167,9 @@ export function normalizeTwitchIrcLine(line: string, channel: string, trackJoins
         name: parsed.tags["display-name"] || parsed.user || "viewer",
       },
       text: parsed.trailing || messageId,
-      trustedPayment: messageId.includes("sub") ? { rawType: "guard", giftName: messageId, currency: "subscription" } : undefined,
+      trustedPayment: messageId.includes("sub")
+        ? { rawType: "guard", giftName: messageId, currency: "subscription" }
+        : undefined,
       rawCommand: parsed.command,
       raw: { line, tags: parsed.tags },
     };
@@ -181,7 +193,10 @@ export function normalizeTwitchIrcLine(line: string, channel: string, trackJoins
   return undefined;
 }
 
-function parseIrcLine(line: string): { tags: Record<string, string>; user?: string; command: string; trailing: string } | undefined {
+// === IRC Parsing ===
+function parseIrcLine(
+  line: string,
+): { tags: Record<string, string>; user?: string; command: string; trailing: string } | undefined {
   let rest = line;
   const tags: Record<string, string> = {};
   if (rest.startsWith("@")) {
@@ -219,6 +234,7 @@ function unescapeIrcTag(value: string): string {
     .replace(/\\n/g, "\n");
 }
 
+// === Helpers ===
 function normalizeChannel(value: string | undefined): string {
   return (value ?? "").trim().replace(/^#/, "").toLowerCase();
 }
@@ -227,4 +243,3 @@ function numberOrUndefined(value: unknown): number | undefined {
   const number = Number(value);
   return Number.isFinite(number) ? number : undefined;
 }
-

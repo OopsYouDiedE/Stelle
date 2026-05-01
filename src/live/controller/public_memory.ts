@@ -16,8 +16,15 @@ export interface PublicRoomMemory {
 export class PublicRoomMemoryStore {
   constructor(private readonly filePath = path.resolve("memory/live/public_room_memory.jsonl")) {}
 
-  async append(input: Omit<PublicRoomMemory, "id" | "createdAt" | "sensitivity"> & { id?: string; createdAt?: number; sensitivity?: "public" }): Promise<PublicRoomMemory> {
-    if (input.sensitivity && input.sensitivity !== "public") throw new Error("PublicRoomMemory only accepts public sensitivity.");
+  async append(
+    input: Omit<PublicRoomMemory, "id" | "createdAt" | "sensitivity"> & {
+      id?: string;
+      createdAt?: number;
+      sensitivity?: "public";
+    },
+  ): Promise<PublicRoomMemory> {
+    if (input.sensitivity && input.sensitivity !== "public")
+      throw new Error("PublicRoomMemory only accepts public sensitivity.");
     const memory: PublicRoomMemory = {
       id: input.id ?? `public-memory-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       title: truncateText(sanitizeExternalText(input.title), 80),

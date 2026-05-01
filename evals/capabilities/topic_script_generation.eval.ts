@@ -15,7 +15,11 @@ describe.skipIf(!hasEvalLlmKeys())("Topic Script Generation LLM Eval", () => {
     for (const evalCase of cases) {
       const start = Date.now();
       const template = getProgramTemplate(String(evalCase.input.templateId));
-      const fallback = fallbackDraft(template.id, String(evalCase.input.title ?? template.title), String(evalCase.input.topic ?? template.title));
+      const fallback = fallbackDraft(
+        template.id,
+        String(evalCase.input.title ?? template.title),
+        String(evalCase.input.topic ?? template.title),
+      );
       const result = await llm.generateJson(
         [
           "Generate a Stelle topic script draft as JSON only.",
@@ -26,15 +30,24 @@ describe.skipIf(!hasEvalLlmKeys())("Topic Script Generation LLM Eval", () => {
           JSON.stringify(evalCase.input, null, 2),
         ].join("\n\n"),
         "topic_script_generation_eval",
-        raw => TopicScriptDraftSchema.parse({ ...fallback, ...(raw as Record<string, unknown>) }),
-        { role: "primary", temperature: 0.3, maxOutputTokens: 8192 }
+        (raw) => TopicScriptDraftSchema.parse({ ...fallback, ...(raw as Record<string, unknown>) }),
+        { role: "primary", temperature: 0.3, maxOutputTokens: 8192 },
       );
       const compiled = compileTopicScriptDraft(result);
       const expected = evalCase.expected as Record<string, unknown>;
       const score = summarizeChecks([
-        ...requiredFields(result as unknown as Record<string, unknown>, ["script_id", "template_id", "title", "sections"]),
+        ...requiredFields(result as unknown as Record<string, unknown>, [
+          "script_id",
+          "template_id",
+          "title",
+          "sections",
+        ]),
         { ok: result.template_id === expected.templateId, name: "template_id", note: `template=${result.template_id}` },
-        { ok: result.sections.length >= Number(expected.minSections ?? 3), name: "min_sections", note: `sections=${result.sections.length}` },
+        {
+          ok: result.sections.length >= Number(expected.minSections ?? 3),
+          name: "min_sections",
+          note: `sections=${result.sections.length}`,
+        },
         { ok: compiled.sections.length === result.sections.length, name: "compiler_round_trip" },
         forbiddenStrings(JSON.stringify(result), expected.forbiddenStrings, "topic_script_generation"),
       ]);
@@ -86,7 +99,7 @@ function fallbackDraft(templateId: string, title: string, topic: string): TopicS
       discussion_points: ["节目边界", "观众问题", "安全回退"],
       question_prompts: [topic],
       interaction_triggers: ["观众提问时先回应"],
-      fact_guardrails: template.excludedTopics.map(item => `避免${item}`),
+      fact_guardrails: template.excludedTopics.map((item) => `避免${item}`),
       fallback_lines: ["这部分先收束到低风险范围。"],
       handoff_rule: "收集观点后进入下一段",
       lock_level: "soft",

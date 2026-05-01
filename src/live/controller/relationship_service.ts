@@ -11,12 +11,14 @@ export class LiveRelationshipService {
   ) {}
 
   start(): void {
-    this.unsubscribes.push(this.eventBus.subscribe("live.event.received", (event) => {
-      const normalized = normalizeLiveEvent(event.payload);
-      this.profiles.updateFromEvent(normalized).catch((error) => {
-        console.warn("[LiveRelationshipService] profile update failed:", error);
-      });
-    }));
+    this.unsubscribes.push(
+      this.eventBus.subscribe("live.event.received", (event) => {
+        const normalized = normalizeLiveEvent(event.payload);
+        this.profiles.updateFromEvent(normalized).catch((error) => {
+          console.warn("[LiveRelationshipService] profile update failed:", error);
+        });
+      }),
+    );
   }
 
   stop(): void {

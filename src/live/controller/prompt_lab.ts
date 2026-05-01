@@ -2,6 +2,8 @@ import type { LlmClient } from "../../memory/llm.js";
 import { moderateLiveOutputText } from "../../utils/live_event.js";
 import { sanitizeExternalText, truncateText } from "../../utils/text.js";
 
+// === Types ===
+
 export interface PromptLabVariant {
   id: string;
   label: string;
@@ -17,12 +19,16 @@ export interface PromptLabExperiment {
   safetyNote: string;
 }
 
+// === Constants ===
+
 const DEFAULT_VARIANTS = [
   { label: "严厉老师", style: "像严格但负责的老师，短句指出问题。" },
   { label: "理性审稿人", style: "像理性审稿人，指出假设和改进方向。" },
   { label: "阴阳怪气客服", style: "像阴阳怪气但不攻击人的客服，保持安全边界。" },
   { label: "Stelle 本体", style: "像 Stelle 正常直播语气，亲切、简短、会接梗。" },
 ];
+
+// === Service ===
 
 export class PromptLabService {
   private recent: PromptLabExperiment[] = [];
@@ -34,16 +40,16 @@ export class PromptLabService {
     const moderation = moderateLiveOutputText(cleanQuestion);
     if (!moderation.allowed) throw new Error(`Prompt lab rejected unsafe input: ${moderation.reason}`);
 
-    const outputs: PromptLabVariant[] = [];
-    for (const variant of variants.slice(0, 4)) {
-      const output = await this.renderVariant(cleanQuestion, variant.style);
-      outputs.push({
-        id: `variant-${outputs.length + 1}`,
+    const selectedVariants = variants.slice(0, 4);
+    const outputs: PromptLabVariant[] = await Promise.all(
+      selectedVariants.map(async (variant, index) => ({
+        id: `variant-${index + 1}`,
         label: variant.label,
         style: variant.style,
-        output,
-      });
-    }
+        output: await this.renderVariant(cleanQuestion, variant.style),
+      })),
+    );
+
     const experiment: PromptLabExperiment = {
       id: `prompt-lab-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       question: cleanQuestion,
@@ -51,13 +57,13 @@ export class PromptLabService {
       createdAt: Date.now(),
       safetyNote: "Sandbox only; outputs are not written to core identity or LiveCursor persona.",
     };
-    this.recent.push(experiment);
-    this.recent = this.recent.slice(-6);
+
+    this.recent = [experiment, ...this.recent].slice(0, 6);
     return experiment;
   }
 
   list(): PromptLabExperiment[] {
-    return [...this.recent].reverse();
+    return [...this.recent];
   }
 
   private async renderVariant(question: string, style: string): Promise<string> {

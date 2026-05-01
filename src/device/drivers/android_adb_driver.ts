@@ -25,8 +25,12 @@ export class AndroidAdbDriver implements DeviceActionDriver {
     switch (intent.actionKind) {
       case "observe": {
         const [windowInfo, activityInfo] = await Promise.all([
-          this.adb(intent.resourceId, ["shell", "dumpsys", "window", "windows"]).catch(error => safeErrorMessage(error)),
-          this.adb(intent.resourceId, ["shell", "dumpsys", "activity", "top"]).catch(error => safeErrorMessage(error)),
+          this.adb(intent.resourceId, ["shell", "dumpsys", "window", "windows"]).catch((error) =>
+            safeErrorMessage(error),
+          ),
+          this.adb(intent.resourceId, ["shell", "dumpsys", "activity", "top"]).catch((error) =>
+            safeErrorMessage(error),
+          ),
         ]);
         return {
           resourceKind: this.resourceKind,
@@ -69,7 +73,7 @@ export class AndroidAdbDriver implements DeviceActionDriver {
             return;
           }
           resolve(stdout);
-        }
+        },
       );
     });
   }

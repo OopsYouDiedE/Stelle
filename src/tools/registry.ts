@@ -43,7 +43,10 @@ export class ToolRegistry {
       } else {
         const parseResult = tool.inputSchema.safeParse(input);
         if (!parseResult.success) {
-          result = fail("invalid_input", `Input validation failed: ${parseResult.error.errors.map(e => e.message).join("; ")}`);
+          result = fail(
+            "invalid_input",
+            `Input validation failed: ${parseResult.error.errors.map((e) => e.message).join("; ")}`,
+          );
         } else {
           result = await tool.execute(parseResult.data, context);
         }
@@ -80,7 +83,10 @@ export class ToolRegistry {
       if (context.caller === "debug" && context.debugBypassStageOutput) {
         // Allow debug bypass.
       } else {
-        return fail("stage_output_required", `Caller ${context.caller} must submit OutputIntent to StageOutputArbiter instead of calling ${tool.name} directly.`);
+        return fail(
+          "stage_output_required",
+          `Caller ${context.caller} must submit OutputIntent to StageOutputArbiter instead of calling ${tool.name} directly.`,
+        );
       }
     }
 

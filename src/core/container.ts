@@ -47,15 +47,15 @@ export class StelleContainer {
       llm: llm,
     });
     const discord = new DiscordRuntime();
-    
+
     const live = new LiveRuntime(
       new ObsWebSocketController({ enabled: config.live.obsControlEnabled }),
       renderer ? new LocalLiveRendererBridge(renderer) : undefined,
       eventBus,
     );
-    
+
     const tools = createDefaultToolRegistry({ discord, live, memory, cwd: process.cwd(), sceneObserver, eventBus });
-    
+
     const stageOutput = new StageOutputArbiter({
       renderer: new StageOutputRenderer({
         tools,

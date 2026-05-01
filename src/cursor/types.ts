@@ -20,6 +20,7 @@ import type { StageOutputArbiter } from "../actuator/output_arbiter.js";
 import type { DeviceActionArbiter } from "../actuator/action_arbiter.js";
 import type { ViewerProfileStore } from "../live/controller/viewer_profile.js";
 
+// === Types ===
 export type { StelleEvent };
 
 export type CursorStatus = "idle" | "active" | "waiting" | "cooldown" | "error";
@@ -30,8 +31,13 @@ export interface BehaviorPolicy {
   focusTopic?: string;
   forbiddenTopics?: string[];
   instruction?: string;
+  persona?: {
+    roleplayEnabled?: boolean;
+    activeBits?: string[];
+  };
 }
 
+// === Interfaces ===
 export interface CursorContext {
   llm: LlmClient;
   tools: ToolRegistry;

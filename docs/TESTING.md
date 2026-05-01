@@ -1,47 +1,105 @@
-# Stelle Testing
+# Stelle Testing Conventions
 
-## Main Checks
+这份文档说明测试分层、何时运行哪些检查，以及常见失败如何定位。
+
+## Required Checks
+
+普通代码改动提交前运行：
 
 ```powershell
-npm test
+npm run format:check
 npx tsc --noEmit
+npm test
 ```
 
-Run both before shipping runtime, cursor, tool, config, or docs-linked structural changes.
+`npm test` 运行确定性 Vitest 测试，不应该依赖真实 LLM、真实 Discord、真实直播平台或公网。
 
-For documentation-only changes, at minimum check Markdown links that point to local files and run `npx tsc --noEmit` only when the docs describe moved TypeScript paths or public import contracts.
+## Focused Tests
+
+可以先跑单个测试文件缩短反馈：
+
+```powershell
+npx vitest run test/infra/tools.test.ts
+npx vitest run test/brain/memory_rag.test.ts
+```
+
+常用目录：
+
+- `test/infra`：工具、安全、renderer、SSRF、OBS/controller glue。
+- `test/cursor`：Cursor 模块化、gateway、队列和工具执行。
+- `test/brain`：inner cursor、memory writer、self model、field sampler、memory RAG。
+- `test/live`：直播平台、节目控制、moderation、health、viewer profile。
+- `test/stage`：舞台输出策略、预算、队列和 arbiter。
+- `test/device`：设备动作策略、allowlist、arbiter、driver。
+- `test/core`：应用生命周期和模块装配。
+- `test/integration`：跨模块确定性集成流。
 
 ## Eval Checks
+
+真实模型评估使用：
 
 ```powershell
 npm run test:eval
 ```
 
-Use evals when changing prompts, routing policy, memory behavior, live moderation, or stage output planning.
+以下改动需要 eval：
 
-## Focused Tests
+- Prompt 或 LLM output schema。
+- 路由策略、intent 分类、工具规划。
+- 记忆生成、长期记忆策略、RAG 检索语义。
+- 直播 moderation、话题规划、舞台输出规划。
+- Topic Script 生成、审核、运行时决策。
 
-Vitest can run a single file:
+Eval 报告生成在 `evals/logs/`，属于运行产物，不参与格式化和源码提交规范。
+
+## Documentation Changes
+
+只改文档时：
+
+- 运行 `npm run format:check`。
+- 如果文档引用了 TypeScript 路径、公共入口或结构迁移，再运行 `npx tsc --noEmit`。
+- 如果文档描述测试或 eval 行为，确认命令仍存在于 `package.json`。
+
+## Refactor Changes
+
+结构重构时至少运行：
 
 ```powershell
-npx vitest run test/infra/tools.test.ts
+npm run format:check
+npx tsc --noEmit
+npm test
+npm run build
 ```
 
-Useful areas:
+重构公共入口时，注意这些兼容层：
 
-- `test/infra`: tool, SSRF, renderer, and infrastructure behavior.
-- `test/cursor`: cursor modularization and queue behavior.
-- `test/brain`: inner cursor, memory writer, self model, and field sampler.
-- `test/live`: live platform, program, moderation, health, and memory behavior.
-- `test/stage`: stage output policy and rendering behavior.
-- `test/device`: device action policy, arbiter behavior, and driver boundaries.
-- `test/core`: application lifecycle and module wiring.
+- `src/tool.ts`
+- `src/tools/index.ts`
+- `src/tools/providers/default_tools.ts`
+- `src/memory/memory.ts`
+
+## Memory Tests
+
+修改 `src/memory/` 时至少覆盖：
+
+- recent JSONL 读写和 corrupt line 忽略。
+- checkpoint 压缩和恢复。
+- long-term layer 读写。
+- proposal approve/reject。
+- relevance scoring，特别是多条件查询不能被单一重复关键词带偏。
+
+快速命令：
+
+```powershell
+npx vitest run test/brain/memory_rag.test.ts
+```
 
 ## Common Failures
 
-- Type failures after moving files usually mean a compatibility export is missing from `src/tool.ts` or `src/utils/config_loader.ts`.
-- Event failures usually mean the event payload does not match `src/utils/event_schema.ts`.
-- Tool failures usually mean the caller did not provide `allowedTools` or the requested authority tier is missing.
-- Live output failures usually mean code bypassed `StageOutputArbiter` or called a stage-owned tool directly.
-- Device action failures usually mean the action is missing from the allowlist, uses the wrong authority tier, or bypasses `DeviceActionArbiter`.
-- Live platform failures after refactors usually mean an old `src/live/platforms/*`, `src/live/ops/*`, or `src/live/program/*` import should now point at `src/live/adapters/*` or `src/live/controller/*`.
+- Type failures after moving files usually mean a compatibility export is missing.
+- Event failures usually mean payload does not match `src/utils/event_schema.ts`.
+- Tool failures usually mean missing `allowedTools`, wrong authority tier, or bypassed ToolRegistry.
+- Live output failures usually mean code bypassed `StageOutputArbiter`.
+- Device action failures usually mean action allowlist or `DeviceActionArbiter` was bypassed.
+- Memory search failures usually mean scoring became too keyword-heavy or filtered valid single-keyword queries completely.
+- Live platform failures after refactors usually mean an old path should now point to `src/live/adapters/*` or `src/live/controller/*`.

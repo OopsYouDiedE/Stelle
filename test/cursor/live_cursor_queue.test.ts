@@ -11,8 +11,11 @@ describe("LiveDanmakuCursor pending batch queue", () => {
 
     (cursor as any).router = {
       decide: vi.fn(async (events: NormalizedLiveEvent[]) => {
-        seen.push(events.map(event => event.id));
-        if (seen.length === 1) await new Promise<void>((resolve) => { releaseFirst = resolve; });
+        seen.push(events.map((event) => event.id));
+        if (seen.length === 1)
+          await new Promise<void>((resolve) => {
+            releaseFirst = resolve;
+          });
         return { action: "drop_noise", reason: "test", script: "", emotion: "neutral" };
       }),
       compose: vi.fn(),
@@ -43,7 +46,7 @@ describe("LiveDanmakuCursor pending batch queue", () => {
 
     (cursor as any).router = {
       decide: vi.fn(async (events: NormalizedLiveEvent[]) => {
-        seen.push(events.map(event => event.id));
+        seen.push(events.map((event) => event.id));
         if (seen.length === 1) throw new Error("boom");
         return { action: "drop_noise", reason: "test", script: "", emotion: "neutral" };
       }),
@@ -74,22 +77,24 @@ describe("LiveDanmakuCursor pending batch queue", () => {
     (cursor as any).enqueueBatch([event("ordinary-3")]);
 
     const pending = (cursor as any).pendingBatches as NormalizedLiveEvent[][];
-    expect(pending.some(batch => batch.some(item => item.id === "urgent"))).toBe(true);
-    expect(pending.flat().map(item => item.id)).toEqual(["ordinary-1", "ordinary-2", "urgent", "ordinary-3"]);
+    expect(pending.some((batch) => batch.some((item) => item.id === "urgent"))).toBe(true);
+    expect(pending.flat().map((item) => item.id)).toEqual(["ordinary-1", "ordinary-2", "urgent", "ordinary-3"]);
   });
 
   it("reports stage queue state from StageOutputArbiter snapshot", () => {
-    const cursor = new LiveDanmakuCursor(fakeContext({
-      stageOutput: {
-        propose: vi.fn(),
-        snapshot: () => ({
-          status: "queued",
-          queueLength: 2,
-          currentOutputId: "out-1",
-          currentLane: "direct_response",
-        }),
-      },
-    }));
+    const cursor = new LiveDanmakuCursor(
+      fakeContext({
+        stageOutput: {
+          propose: vi.fn(),
+          snapshot: () => ({
+            status: "queued",
+            queueLength: 2,
+            currentOutputId: "out-1",
+            currentLane: "direct_response",
+          }),
+        },
+      }),
+    );
 
     expect(cursor.snapshot().state).toMatchObject({
       stageStatus: "queued",
@@ -100,35 +105,45 @@ describe("LiveDanmakuCursor pending batch queue", () => {
   });
 
   it("routes addressable danmaku responses through StageOutput as direct_response", async () => {
-    const generateJson = vi.fn().mockImplementation(async (_prompt, _schema, normalize) => normalize({
-      action: "respond_to_specific",
-      emotion: "happy",
-      intensity: 3,
-      script: "小星，能看到，你这条弹幕进来了。",
-      reason: "viewer question",
-    }));
+    const generateJson = vi.fn().mockImplementation(async (_prompt, _schema, normalize) =>
+      normalize({
+        action: "respond_to_specific",
+        emotion: "happy",
+        intensity: 3,
+        script: "小星，能看到，你这条弹幕进来了。",
+        reason: "viewer question",
+      }),
+    );
     const stageOutput = {
-      propose: vi.fn().mockImplementation(async intent => ({ status: "accepted", outputId: intent.id, reason: "ok", intent })),
+      propose: vi
+        .fn()
+        .mockImplementation(async (intent) => ({ status: "accepted", outputId: intent.id, reason: "ok", intent })),
       snapshot: () => ({ status: "idle", queueLength: 0 }),
     };
-    const cursor = new LiveDanmakuCursor(fakeContext({
-      llm: { generateJson, generateText: vi.fn() },
-      stageOutput,
-    }));
+    const cursor = new LiveDanmakuCursor(
+      fakeContext({
+        llm: { generateJson, generateText: vi.fn() },
+        stageOutput,
+      }),
+    );
 
-    await (cursor as any).processBatch([{
-      ...event("q-1"),
-      text: "能看到我的弹幕吗？",
-      user: { id: "u1", name: "小星" },
-    }]);
+    await (cursor as any).processBatch([
+      {
+        ...event("q-1"),
+        text: "能看到我的弹幕吗？",
+        user: { id: "u1", name: "小星" },
+      },
+    ]);
 
-    expect(stageOutput.propose).toHaveBeenCalledWith(expect.objectContaining({
-      cursorId: "live_danmaku",
-      lane: "direct_response",
-      priority: 60,
-      text: "小星，能看到，你这条弹幕进来了。",
-      output: expect.objectContaining({ caption: true, tts: false }),
-    }));
+    expect(stageOutput.propose).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cursorId: "live_danmaku",
+        lane: "direct_response",
+        priority: 60,
+        text: "小星，能看到，你这条弹幕进来了。",
+        output: expect.objectContaining({ caption: true, tts: false }),
+      }),
+    );
   });
 });
 
@@ -165,7 +180,7 @@ function event(
 async function waitFor(condition: () => boolean): Promise<void> {
   for (let i = 0; i < 50; i += 1) {
     if (condition()) return;
-    await new Promise(resolve => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
   }
   throw new Error("condition not met");
 }

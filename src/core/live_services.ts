@@ -24,9 +24,15 @@ export class LiveRuntimeServices {
     private readonly renderer: LiveRendererServer | undefined,
   ) {}
 
-  get health(): LiveHealthService | undefined { return this.liveHealth; }
-  get journal(): LiveEventJournal | undefined { return this.liveJournal; }
-  get topicScripts(): TopicScriptRuntimeService | undefined { return this.topicScriptRuntime; }
+  get health(): LiveHealthService | undefined {
+    return this.liveHealth;
+  }
+  get journal(): LiveEventJournal | undefined {
+    return this.liveJournal;
+  }
+  get topicScripts(): TopicScriptRuntimeService | undefined {
+    return this.topicScriptRuntime;
+  }
 
   async start(): Promise<void> {
     this.liveStageDirector = new LiveStageDirector({
@@ -64,9 +70,10 @@ export class LiveRuntimeServices {
     });
     await this.topicScriptRuntime.start();
 
-    const enabled = this.livePlatforms.status()
-      .filter(status => status.enabled)
-      .map(status => `${status.platform}:${status.connected ? "connected" : status.lastError ?? "idle"}`);
+    const enabled = this.livePlatforms
+      .status()
+      .filter((status) => status.enabled)
+      .map((status) => `${status.platform}:${status.connected ? "connected" : (status.lastError ?? "idle")}`);
     if (enabled.length) console.log(`[Stelle] Live platform bridges: ${enabled.join(", ")}`);
   }
 
@@ -84,12 +91,23 @@ export class LiveRuntimeServices {
   async runTopicScriptCommand(input: Record<string, unknown>): Promise<unknown> {
     const action = String(input.action ?? input.type ?? "");
     if (!this.topicScriptRuntime || !this.topicScriptReview) return { ok: false, reason: "topic_script_unavailable" };
-    if (action === "topic_script.snapshot") return { ok: true, runtime: this.topicScriptRuntime.snapshot(), revisions: await this.topicScriptReview.repository.list() };
+    if (action === "topic_script.snapshot")
+      return {
+        ok: true,
+        runtime: this.topicScriptRuntime.snapshot(),
+        revisions: await this.topicScriptReview.repository.list(),
+      };
     if (action === "topic_script.pause") return { ok: true, runtime: this.topicScriptRuntime.pause() };
     if (action === "topic_script.resume") return { ok: true, runtime: this.topicScriptRuntime.resume() };
-    if (action === "topic_script.skip_section") return { ok: true, runtime: await this.topicScriptRuntime.skipSection(String(input.reason ?? "operator_skip")) };
-    if (action === "topic_script.force_fallback") return { ok: true, runtime: await this.topicScriptRuntime.forceFallback(String(input.reason ?? "operator_fallback")) };
-    if (action === "topic_script.load_latest") return { ok: await this.topicScriptRuntime.loadLatestApproved(), runtime: this.topicScriptRuntime.snapshot() };
+    if (action === "topic_script.skip_section")
+      return { ok: true, runtime: await this.topicScriptRuntime.skipSection(String(input.reason ?? "operator_skip")) };
+    if (action === "topic_script.force_fallback")
+      return {
+        ok: true,
+        runtime: await this.topicScriptRuntime.forceFallback(String(input.reason ?? "operator_fallback")),
+      };
+    if (action === "topic_script.load_latest")
+      return { ok: await this.topicScriptRuntime.loadLatestApproved(), runtime: this.topicScriptRuntime.snapshot() };
     if (action === "topic_script.approve") {
       const record = await this.topicScriptReview.approve(readRevisionInput(input));
       this.services.eventBus.publish({
@@ -99,7 +117,8 @@ export class LiveRuntimeServices {
       });
       return { ok: true, record };
     }
-    if (action === "topic_script.archive") return { ok: true, record: await this.topicScriptReview.archive(readRevisionInput(input)) };
+    if (action === "topic_script.archive")
+      return { ok: true, record: await this.topicScriptReview.archive(readRevisionInput(input)) };
     if (action === "topic_script.lock_section") {
       const record = await this.topicScriptReview.lockSection({
         ...readRevisionInput(input),
@@ -111,7 +130,12 @@ export class LiveRuntimeServices {
   }
 }
 
-function readRevisionInput(input: Record<string, unknown>): { scriptId: string; revision: number; actor?: string; note?: string } {
+function readRevisionInput(input: Record<string, unknown>): {
+  scriptId: string;
+  revision: number;
+  actor?: string;
+  note?: string;
+} {
   const scriptId = String(input.scriptId ?? input.script_id ?? "");
   const revision = Number(input.revision);
   if (!scriptId || !Number.isFinite(revision)) throw new Error("scriptId and revision are required");

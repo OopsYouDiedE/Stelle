@@ -24,4 +24,3 @@ export type LivePlatformEventHandler = (event: NormalizedLiveEvent) => void;
 export function liveEventId(platform: LivePlatformName, suffix?: string): string {
   return `${platform}-${Date.now()}-${suffix ?? Math.random().toString(36).slice(2, 8)}`;
 }
-

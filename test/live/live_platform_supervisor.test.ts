@@ -15,7 +15,8 @@ describe("LivePlatformSupervisor", () => {
   it("retries bridge start failures with backoff", async () => {
     const eventBus = new StelleEventBus();
     const bridge = fakeBridge();
-    bridge.start = vi.fn()
+    bridge.start = vi
+      .fn()
       .mockRejectedValueOnce(new Error("first fail"))
       .mockImplementationOnce(async () => {
         bridge.setConnected(true);
@@ -36,7 +37,7 @@ describe("LivePlatformSupervisor", () => {
     await flushPromises();
 
     expect(bridge.start).toHaveBeenCalledTimes(2);
-    expect(eventBus.getHistory().map(event => event.type)).toContain("live.platform.error");
+    expect(eventBus.getHistory().map((event) => event.type)).toContain("live.platform.error");
     await supervisor.stop();
   });
 

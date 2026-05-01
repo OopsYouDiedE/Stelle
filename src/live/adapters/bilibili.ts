@@ -1,14 +1,17 @@
+// === Imports ===
 import { BilibiliDanmakuClient, type BilibiliCommand } from "../../utils/bilibili_danmaku.js";
 import { asRecord } from "../../utils/json.js";
 import type { NormalizedLiveEvent } from "../../utils/live_event.js";
 import type { LivePlatformBridge, LivePlatformEventHandler, LivePlatformStatus } from "./types.js";
 import { liveEventId } from "./types.js";
 
+// === Types ===
 export interface BilibiliPlatformOptions {
   enabled: boolean;
   roomId?: string;
 }
 
+// === Main Class ===
 export class BilibiliPlatformBridge implements LivePlatformBridge {
   readonly platform = "bilibili" as const;
   private client?: BilibiliDanmakuClient;
@@ -22,6 +25,7 @@ export class BilibiliPlatformBridge implements LivePlatformBridge {
     private readonly onEvent: LivePlatformEventHandler,
   ) {}
 
+  // --- Lifecycle ---
   async start(): Promise<void> {
     if (!this.options.enabled) return;
     const roomId = Number(this.options.roomId ?? process.env.BILIBILI_ROOM_ID);
@@ -79,6 +83,7 @@ export class BilibiliPlatformBridge implements LivePlatformBridge {
   }
 }
 
+// === Normalization ===
 export function normalizeBilibiliCommand(command: BilibiliCommand, roomId?: string): NormalizedLiveEvent | undefined {
   const cmd = String(command.cmd ?? "UNKNOWN");
   const raw = command as Record<string, unknown>;
@@ -149,7 +154,12 @@ export function normalizeBilibiliCommand(command: BilibiliCommand, roomId?: stri
       roomId,
       user: { id: String(data.uid ?? ""), name: String(data.username ?? data.uname ?? "观众") },
       text: String(data.gift_name ?? data.guard_level ?? "上舰"),
-      trustedPayment: { rawType: "guard", amount: numberOrUndefined(data.price), currency: "CNY", giftName: String(data.gift_name ?? "舰长") },
+      trustedPayment: {
+        rawType: "guard",
+        amount: numberOrUndefined(data.price),
+        currency: "CNY",
+        giftName: String(data.gift_name ?? "舰长"),
+      },
       rawCommand: cmd,
       raw: command,
     };
@@ -173,8 +183,8 @@ export function normalizeBilibiliCommand(command: BilibiliCommand, roomId?: stri
   return undefined;
 }
 
+// === Helpers ===
 function numberOrUndefined(value: unknown): number | undefined {
   const number = Number(value);
   return Number.isFinite(number) ? number : undefined;
 }
-

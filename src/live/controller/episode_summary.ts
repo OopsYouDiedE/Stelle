@@ -5,6 +5,8 @@ import { normalizeLiveEvent } from "../../utils/live_event.js";
 import { classifyText } from "./orchestrator.js";
 import { PublicRoomMemoryStore } from "./public_memory.js";
 
+// === Types ===
+
 export interface EpisodeSummary {
   sessionId: string;
   generatedAt: number;
@@ -15,6 +17,8 @@ export interface EpisodeSummary {
   conclusions: string[];
   nextHook: string;
 }
+
+// === Public API ===
 
 export async function generateEpisodeSummary(options: {
   journalPath: string;
@@ -39,12 +43,14 @@ export async function generateEpisodeSummary(options: {
   return summary;
 }
 
+// === Logic ===
+
 export function summarizeRecords(records: LiveJournalRecord[], sessionId: string): EpisodeSummary {
   const clusterCounts: Record<string, number> = {};
   let danmakuCount = 0;
-  for (const record of records) {
-    if (record.event.type !== "live.event.received" && record.event.type !== "live.event.danmaku") continue;
-    const liveEvent = normalizeLiveEvent(record.event.payload);
+  for (const { event } of records) {
+    if (event.type !== "live.event.received" && event.type !== "live.event.danmaku") continue;
+    const liveEvent = normalizeLiveEvent(event.payload);
     if (liveEvent.kind !== "danmaku" && liveEvent.kind !== "super_chat") continue;
     const label = classifyText(liveEvent.text);
     clusterCounts[label] = (clusterCounts[label] ?? 0) + 1;
@@ -66,6 +72,8 @@ export function summarizeRecords(records: LiveJournalRecord[], sessionId: string
     nextHook: top ? `下次可以继续追问“${top[0]}”背后的边界。` : "下次可以从一个更明确的问题开始。",
   };
 }
+
+// === Helpers ===
 
 function inferSessionId(journalPath: string): string {
   return path.basename(path.dirname(path.resolve(journalPath)));

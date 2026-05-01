@@ -1,5 +1,7 @@
 # Stelle Operations
 
+快速配置和启动入口见 [`../README.md`](../README.md)。本文件保留更细的运行模式、控制页和 debug 路由说明。
+
 ## Install
 
 ```powershell

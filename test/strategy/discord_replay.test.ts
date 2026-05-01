@@ -10,14 +10,14 @@ describe("DiscordGateway Strategy", () => {
     vi.useFakeTimers();
     context = {
       now: () => Date.now(),
-      config: { 
+      config: {
         discord: { ambientEnabled: true },
-        rawYaml: { channels: { "c1": { activated: true } } }
+        rawYaml: { channels: { c1: { activated: true } } },
       },
-      tools: { 
-        execute: vi.fn().mockResolvedValue({ ok: true, data: { status: { botUserId: "bot123" } } }) 
+      tools: {
+        execute: vi.fn().mockResolvedValue({ ok: true, data: { status: { botUserId: "bot123" } } }),
       },
-      eventBus: new StelleEventBus()
+      eventBus: new StelleEventBus(),
     };
     gateway = new DiscordGateway(context);
   });
@@ -31,14 +31,14 @@ describe("DiscordGateway Strategy", () => {
       content: "Stelle Hello",
       cleanContent: "Stelle Hello",
       author: { username: "User", trustLevel: "external" },
-      mentionedUserIds: [] // No mention -> use default delay
+      mentionedUserIds: [], // No mention -> use default delay
     };
 
     // Pre-cache bot ID to avoid async jitter in timers
     (gateway as any).cachedBotUserId = "bot123";
 
     await gateway.filterAndBuffer(msg as any, onReady);
-    
+
     // In active mode, delay is 3000ms
     vi.advanceTimersByTime(3100);
     expect(onReady).toHaveBeenCalled();
@@ -53,7 +53,7 @@ describe("DiscordGateway Strategy", () => {
       content: "Short",
       cleanContent: "Short",
       author: { username: "User", trustLevel: "external" },
-      mentionedUserIds: []
+      mentionedUserIds: [],
     };
 
     (gateway as any).cachedBotUserId = "bot123";
@@ -62,7 +62,7 @@ describe("DiscordGateway Strategy", () => {
     session.modeExpiresAt = Date.now() + 3600000;
 
     await gateway.filterAndBuffer(msg as any, onReady);
-    
+
     // Silent mode delay is 8000ms
     vi.advanceTimersByTime(8100);
     // Should be dropped because batch.length < 3 and text is short

@@ -34,7 +34,7 @@ describe.skipIf(!hasEvalLlmKeys())("Inner Synthesis Capability Eval", () => {
 
       await inner.triggerCognitiveSynthesis();
       const snapshot = inner.snapshot();
-      const directives = harness.eventBus.getHistory().filter(event => event.type === "cursor.directive");
+      const directives = harness.eventBus.getHistory().filter((event) => event.type === "cursor.directive");
       const writes = harness.toolWrites;
       const output = { snapshot, directives, writes };
 
@@ -46,18 +46,20 @@ describe.skipIf(!hasEvalLlmKeys())("Inner Synthesis Capability Eval", () => {
           note: `topicCount=${topicCount}`,
         },
         {
-          ok: !evalCase.expected.shouldEmitDirective || directives.some(event => Number(event.payload.expiresAt || 0) > harness.now),
+          ok:
+            !evalCase.expected.shouldEmitDirective ||
+            directives.some((event) => Number(event.payload.expiresAt || 0) > harness.now),
           name: "directive_with_expiry",
           note: `directives=${directives.length}`,
         },
         {
-          ok: !writes.some(write => write.layer === "core_identity"),
+          ok: !writes.some((write) => write.layer === "core_identity"),
           name: "no_core_identity_overwrite",
         },
         {
-          ok: writes.every(write => ["self_state", "research_logs", undefined].includes(write.layer)),
+          ok: writes.every((write) => ["self_state", "research_logs", undefined].includes(write.layer)),
           name: "allowed_memory_layers",
-          note: `layers=${writes.map(write => write.layer).join(",")}`,
+          note: `layers=${writes.map((write) => write.layer).join(",")}`,
         },
         forbiddenStrings(JSON.stringify(output), evalCase.expected.forbiddenStrings, "inner_output"),
       ]);
@@ -126,7 +128,13 @@ function createInnerHarness() {
     config: {
       models: makeEvalModelConfig(),
       discord: { ambientEnabled: true, maxReplyChars: 900, cooldownSeconds: 0 },
-      live: { rendererHost: "127.0.0.1", rendererPort: 8787, ttsEnabled: false, obsControlEnabled: false, speechQueueLimit: 5 },
+      live: {
+        rendererHost: "127.0.0.1",
+        rendererPort: 8787,
+        ttsEnabled: false,
+        obsControlEnabled: false,
+        speechQueueLimit: 5,
+      },
       browser: { enabled: false },
       core: { reflectionIntervalHours: 6, reflectionAccumulationThreshold: 2 },
       debug: { enabled: false, requireToken: true, allowExternalWrite: false },
@@ -144,9 +152,9 @@ function createInnerHarness() {
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" ? value as Record<string, unknown> : {};
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 }
 
 function enumString<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
-  return typeof value === "string" && allowed.includes(value as T) ? value as T : fallback;
+  return typeof value === "string" && allowed.includes(value as T) ? (value as T) : fallback;
 }

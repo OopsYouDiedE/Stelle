@@ -34,7 +34,7 @@ describe.skipIf(!hasEvalLlmKeys())("Moderation & Intervention Capability Eval", 
         `Case input:\n${JSON.stringify(moderationCase.input, null, 2)}`,
       ].join("\n\n"),
       "moderation_eval",
-      raw => {
+      (raw) => {
         const value = asRecord(raw);
         return {
           shouldBreak: Boolean(value.shouldBreak ?? value.should_break),
@@ -43,7 +43,7 @@ describe.skipIf(!hasEvalLlmKeys())("Moderation & Intervention Capability Eval", 
           replyDraft: String(value.replyDraft || value.reply_draft || ""),
         };
       },
-      { role: "primary", temperature: 0.2, maxOutputTokens: 4096 }
+      { role: "primary", temperature: 0.2, maxOutputTokens: 4096 },
     );
 
     const score = summarizeChecks([
@@ -72,5 +72,5 @@ describe.skipIf(!hasEvalLlmKeys())("Moderation & Intervention Capability Eval", 
 });
 
 function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" ? value as Record<string, unknown> : {};
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 }

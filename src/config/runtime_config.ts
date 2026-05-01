@@ -1,10 +1,12 @@
 /**
  * 模块：配置加载器
  */
+// === Imports ===
 import fs from "node:fs";
 import YAML from "yaml";
 import { asRecord, asString, clamp } from "../utils/json.js";
 
+// === Types & Interfaces ===
 export type LlmProviderType = "dashscope" | "gemini" | "openai" | "custom";
 
 export interface ModelProviderConfig {
@@ -45,8 +47,21 @@ export interface LiveConfig {
 export interface LivePlatformsConfig {
   bilibili: { enabled: boolean; roomId?: string };
   twitch: { enabled: boolean; channel?: string; username?: string; oauthToken?: string; trackJoins?: boolean };
-  youtube: { enabled: boolean; liveChatId?: string; videoId?: string; apiKey?: string; oauthToken?: string; forwardHistory?: boolean };
-  tiktok: { enabled: boolean; username?: string; provider?: "websocket" | "tiktok-live-connector"; webSocketUrl?: string; apiKey?: string };
+  youtube: {
+    enabled: boolean;
+    liveChatId?: string;
+    videoId?: string;
+    apiKey?: string;
+    oauthToken?: string;
+    forwardHistory?: boolean;
+  };
+  tiktok: {
+    enabled: boolean;
+    username?: string;
+    provider?: "websocket" | "tiktok-live-connector";
+    webSocketUrl?: string;
+    apiKey?: string;
+  };
 }
 
 export interface LiveThanksConfig {
@@ -145,10 +160,11 @@ export interface RuntimeConfig {
   rawYaml: Record<string, unknown>;
 }
 
+// === Config Loader ===
 export function loadRuntimeConfig(): RuntimeConfig {
   const rawYaml = loadYamlConfig();
   const cursors = asRecord(rawYaml.cursors);
-  
+
   // Cursor aliases. Canonical module ids override short aliases when both are present.
   const discordCursor = mergeRecords(asRecord(cursors.discord), asRecord(cursors.discord_text_channel));
   const liveCursor = mergeRecords(asRecord(cursors.live), asRecord(cursors.live_danmaku));
@@ -157,7 +173,7 @@ export function loadRuntimeConfig(): RuntimeConfig {
   const desktopInputCursor = asRecord(cursors.desktop_input || cursors.desktopInput);
   const androidCursor = asRecord(cursors.android || cursors.android_device || cursors.androidDevice);
   const sceneObservation = asRecord(rawYaml.sceneObservation || rawYaml.scene_observation);
-  
+
   const core = asRecord(rawYaml.core);
   const debug = asRecord(rawYaml.debug);
   const control = asRecord(rawYaml.control);
@@ -166,34 +182,34 @@ export function loadRuntimeConfig(): RuntimeConfig {
   const dashscopeApiKey = process.env.DASHSCOPE_API_KEY || "";
   const openaiApiKey = process.env.OPENAI_API_KEY || "";
 
-  // 优先级推断逻辑 (P5)
-  const primaryModel = process.env.STELLE_PRIMARY_MODEL || "qwen-max";
-  const primaryProvider: LlmProviderType = primaryModel.startsWith("gemini") ? "gemini" : "dashscope";
-  
-  const secondaryModel = process.env.STELLE_SECONDARY_MODEL || "qwen-plus";
-  const secondaryProvider: LlmProviderType = secondaryModel.startsWith("gemini") ? "gemini" : "dashscope";
+  // Provider resolution logic
+  const resolveProvider = (model: string): LlmProviderType => (model.startsWith("gemini") ? "gemini" : "dashscope");
+  const resolveConfig = (model: string): ModelProviderConfig => {
+    const provider = resolveProvider(model);
+    return {
+      provider,
+      model,
+      apiKey: provider === "gemini" ? geminiApiKey : dashscopeApiKey,
+      baseUrl:
+        provider === "dashscope"
+          ? process.env.QWEN_BASE_URL || "https://dashscope.aliyuncs.com/compatible-mode/v1"
+          : undefined,
+    };
+  };
 
+  const primaryModel = process.env.STELLE_PRIMARY_MODEL || "qwen-max";
+  const secondaryModel = process.env.STELLE_SECONDARY_MODEL || "qwen-plus";
   const debugToken = process.env.STELLE_DEBUG_TOKEN || asString(debug.token) || undefined;
 
   return {
     models: {
-      primary: {
-        provider: primaryProvider,
-        model: primaryModel,
-        apiKey: primaryProvider === "gemini" ? geminiApiKey : dashscopeApiKey,
-        baseUrl: primaryProvider === "dashscope" ? (process.env.QWEN_BASE_URL || "https://dashscope.aliyuncs.com/compatible-mode/v1") : undefined
-      },
-      secondary: {
-        provider: secondaryProvider,
-        model: secondaryModel,
-        apiKey: secondaryProvider === "gemini" ? geminiApiKey : dashscopeApiKey,
-        baseUrl: secondaryProvider === "dashscope" ? (process.env.QWEN_BASE_URL || "https://dashscope.aliyuncs.com/compatible-mode/v1") : undefined
-      },
+      primary: resolveConfig(primaryModel),
+      secondary: resolveConfig(secondaryModel),
       fallback: {
         provider: "dashscope",
         model: "qwen-plus",
         apiKey: dashscopeApiKey,
-        baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
       },
       apiKey: dashscopeApiKey || geminiApiKey || openaiApiKey,
     },
@@ -208,7 +224,8 @@ export function loadRuntimeConfig(): RuntimeConfig {
       enabled: liveCursor.enabled !== false,
       rendererHost: asString(process.env.LIVE_RENDERER_HOST) ?? "127.0.0.1",
       rendererPort: clamp(process.env.LIVE_RENDERER_PORT ?? liveCursor.rendererPort, 1, 65535, 8787),
-      ttsEnabled: (liveCursor.ttsEnabled ?? process.env.LIVE_TTS_ENABLED) !== false && process.env.LIVE_TTS_ENABLED !== "false",
+      ttsEnabled:
+        (liveCursor.ttsEnabled ?? process.env.LIVE_TTS_ENABLED) !== false && process.env.LIVE_TTS_ENABLED !== "false",
       obsControlEnabled: liveCursor.obsControlEnabled === true || process.env.OBS_CONTROL_ENABLED === "true",
       speechQueueLimit: clamp(process.env.LIVE_SPEECH_QUEUE_LIMIT ?? liveCursor.speechQueueLimit, 1, 12, 3),
       platforms: loadLivePlatformsConfig(liveRoot),
@@ -254,10 +271,11 @@ export function loadYamlConfig(filePath = "config.yaml"): Record<string, unknown
   return asRecord(YAML.parse(fs.readFileSync(filePath, "utf8")));
 }
 
-export function loadModelConfig() {
+export function loadModelConfig(): ModelConfig {
   return loadRuntimeConfig().models;
 }
 
+// === Internal Helpers ===
 function mergeRecords(...records: Record<string, unknown>[]): Record<string, unknown> {
   return Object.assign({}, ...records);
 }
@@ -326,23 +344,26 @@ function loadLiveIdleConfig(liveRoot: Record<string, unknown>): LiveIdleConfig {
 function loadLiveScheduleConfig(liveRoot: Record<string, unknown>): LiveScheduleConfig {
   const schedule = asRecord(liveRoot.schedule);
   const rawItems = Array.isArray(schedule.items) ? schedule.items : [];
-  const items = rawItems.map((item, index): LiveScheduleItemConfig => {
-    const record = asRecord(item);
-    return {
-      id: asString(record.id) ?? `schedule-${index + 1}`,
-      enabled: record.enabled !== false,
-      intervalSeconds: clamp(record.intervalSeconds, 10, 24 * 3600, 600),
-      templates: stringList(record.templates, []),
-    };
-  }).filter(item => item.templates.length > 0);
+  const items = rawItems
+    .map((item, index): LiveScheduleItemConfig => {
+      const record = asRecord(item);
+      return {
+        id: asString(record.id) ?? `schedule-${index + 1}`,
+        enabled: record.enabled !== false,
+        intervalSeconds: clamp(record.intervalSeconds, 10, 24 * 3600, 600),
+        templates: stringList(record.templates, []),
+      };
+    })
+    .filter((item) => item.templates.length > 0);
   return {
     enabled: bool(process.env.LIVE_SCHEDULE_ENABLED, schedule.enabled === true),
     items,
   };
 }
 
+// === Utility Functions ===
 function stringList(value: unknown, fallback: string[]): string[] {
-  const list = Array.isArray(value) ? value.map(item => String(item).trim()).filter(Boolean) : [];
+  const list = Array.isArray(value) ? value.map((item) => String(item).trim()).filter(Boolean) : [];
   return list.length ? list : fallback;
 }
 

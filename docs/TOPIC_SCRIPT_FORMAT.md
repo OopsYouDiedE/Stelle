@@ -79,6 +79,7 @@ metadata:
 ---
 
 # opening_hook
+
 - section_id: opening_hook
 - phase: opening
 - timestamp: 00:00

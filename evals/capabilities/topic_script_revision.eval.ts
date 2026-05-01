@@ -24,7 +24,7 @@ describe.skipIf(!hasEvalLlmKeys())("Topic Script Revision LLM Eval", () => {
         factCorrection: typeof input.factCorrection === "string" ? input.factCorrection : undefined,
       });
       const compiled = compileTopicScriptDraft(revised);
-      const revisedSection = revised.sections.find(section => section.section_id === expected.sectionId);
+      const revisedSection = revised.sections.find((section) => section.section_id === expected.sectionId);
       const speakableText = JSON.stringify({
         host_script: revisedSection?.host_script,
         discussion_points: revisedSection?.discussion_points,
@@ -34,7 +34,11 @@ describe.skipIf(!hasEvalLlmKeys())("Topic Script Revision LLM Eval", () => {
       });
       const score = summarizeChecks([
         { ok: revised.sections[0]?.host_script === expected.lockedText, name: "locked_line_preserved" },
-        { ok: revised.revision === draft.revision + 1, name: "revision_incremented", note: `revision=${revised.revision}` },
+        {
+          ok: revised.revision === draft.revision + 1,
+          name: "revision_incremented",
+          note: `revision=${revised.revision}`,
+        },
         { ok: compiled.sections.length === revised.sections.length, name: "compiler_round_trip" },
         forbiddenStrings(speakableText, expected.forbiddenStrings, "topic_script_revision_speakable"),
       ]);

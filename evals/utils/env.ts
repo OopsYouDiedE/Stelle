@@ -6,13 +6,11 @@ const DASH_SCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1";
 
 export function hasEvalLlmKeys(): boolean {
   if (process.env.STELLE_EVAL_DISABLE === "1") return false;
-  return Boolean(validKey(process.env.GEMINI_API_KEY) || validKey(process.env.DASHSCOPE_API_KEY));
+  // Exclusively check for Dashscope key as requested
+  return Boolean(validKey(process.env.DASHSCOPE_API_KEY));
 }
 
 export function evalModelLabel(): string {
-  if (validKey(process.env.GEMINI_API_KEY)) {
-    return process.env.STELLE_EVAL_MODEL || "gemini-2.5-flash";
-  }
   if (validKey(process.env.DASHSCOPE_API_KEY)) {
     return process.env.STELLE_EVAL_MODEL || "qwen-plus";
   }
@@ -20,20 +18,11 @@ export function evalModelLabel(): string {
 }
 
 export function makeEvalModelConfig(): ModelConfig {
-  const geminiApiKey = process.env.GEMINI_API_KEY || "";
   const dashscopeApiKey = process.env.DASHSCOPE_API_KEY || "";
 
-  const primary = validKey(geminiApiKey)
-    ? provider("gemini", process.env.STELLE_EVAL_MODEL || "gemini-2.5-flash", geminiApiKey)
-    : provider("dashscope", process.env.STELLE_EVAL_MODEL || "qwen-plus", dashscopeApiKey);
-
-  const secondary = validKey(geminiApiKey)
-    ? provider("gemini", process.env.STELLE_EVAL_SECONDARY_MODEL || primary.model, geminiApiKey)
-    : provider("dashscope", process.env.STELLE_EVAL_SECONDARY_MODEL || primary.model, dashscopeApiKey);
-
-  const fallback = validKey(dashscopeApiKey)
-    ? provider("dashscope", process.env.STELLE_EVAL_FALLBACK_MODEL || "qwen-plus", dashscopeApiKey)
-    : primary;
+  const primary = provider("dashscope", process.env.STELLE_EVAL_MODEL || "qwen-plus", dashscopeApiKey);
+  const secondary = provider("dashscope", process.env.STELLE_EVAL_SECONDARY_MODEL || primary.model, dashscopeApiKey);
+  const fallback = provider("dashscope", process.env.STELLE_EVAL_FALLBACK_MODEL || "qwen-plus", dashscopeApiKey);
 
   return {
     primary,
@@ -52,7 +41,7 @@ function provider(providerName: "gemini" | "dashscope", model: string, apiKey: s
     provider: providerName,
     model,
     apiKey,
-    baseUrl: providerName === "dashscope" ? (process.env.QWEN_BASE_URL || DASH_SCOPE_BASE_URL) : undefined,
+    baseUrl: providerName === "dashscope" ? process.env.QWEN_BASE_URL || DASH_SCOPE_BASE_URL : undefined,
   };
 }
 

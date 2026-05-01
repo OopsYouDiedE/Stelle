@@ -1,9 +1,4 @@
-import type {
-  DeviceActionAllowlist,
-  DeviceActionIntent,
-  DeviceActionKind,
-  DeviceActionRisk,
-} from "./action_types.js";
+import type { DeviceActionAllowlist, DeviceActionIntent, DeviceActionKind, DeviceActionRisk } from "./action_types.js";
 
 export interface DeviceActionPolicyDecision {
   allowed: boolean;
@@ -32,7 +27,19 @@ const KIND_RISK_MAP: Record<DeviceActionKind, DeviceActionRisk[]> = {
 
 const RESOURCE_ACTIONS: Record<string, DeviceActionKind[]> = {
   browser: ["observe", "navigate", "click", "type", "hotkey", "scroll"],
-  desktop_input: ["observe", "move_mouse", "click", "mouse_down", "mouse_up", "drag", "type", "hotkey", "key_down", "key_up", "scroll"],
+  desktop_input: [
+    "observe",
+    "move_mouse",
+    "click",
+    "mouse_down",
+    "mouse_up",
+    "drag",
+    "type",
+    "hotkey",
+    "key_down",
+    "key_up",
+    "scroll",
+  ],
   android_device: ["observe", "android_tap", "android_text", "android_back"],
 };
 
@@ -127,9 +134,13 @@ function validatePayload(intent: DeviceActionIntent): DeviceActionPolicyDecision
   const hasString = (key: string) => typeof payload[key] === "string" && String(payload[key]).trim().length > 0;
   const hasPoint = (key: string) => {
     const value = payload[key];
-    return value && typeof value === "object" && !Array.isArray(value)
-      && typeof (value as Record<string, unknown>).x === "number"
-      && typeof (value as Record<string, unknown>).y === "number";
+    return (
+      value &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      typeof (value as Record<string, unknown>).x === "number" &&
+      typeof (value as Record<string, unknown>).y === "number"
+    );
   };
 
   if (intent.actionKind === "observe" || intent.actionKind === "android_back") {
@@ -167,7 +178,10 @@ function validatePayload(intent: DeviceActionIntent): DeviceActionPolicyDecision
   }
   if (intent.actionKind === "hotkey") {
     const keys = payload.keys;
-    if (!hasString("key") && !(Array.isArray(keys) && keys.every(key => typeof key === "string" && key.trim().length > 0))) {
+    if (
+      !hasString("key") &&
+      !(Array.isArray(keys) && keys.every((key) => typeof key === "string" && key.trim().length > 0))
+    ) {
       return { allowed: false, reason: "hotkey requires payload.key or payload.keys." };
     }
   }

@@ -30,7 +30,7 @@ describe("StelleApplication Isolation", () => {
     const app1MemoryBefore = app1.memory;
     const app1ToolsBefore = app1.tools;
     const app1DiscordBefore = app1.discord;
-    
+
     vi.spyOn(app1.memory, "start").mockResolvedValue(undefined);
 
     await app1.start();
@@ -39,7 +39,7 @@ describe("StelleApplication Isolation", () => {
     expect(app1.memory).toBe(app1MemoryBefore);
     expect(app1.tools).toBe(app1ToolsBefore);
     expect(app1.discord).toBe(app1DiscordBefore);
-    
+
     expect(app1.cursors.length).toBeGreaterThan(0);
 
     // Start Application 2
@@ -48,7 +48,7 @@ describe("StelleApplication Isolation", () => {
     (app2 as any).config.models.apiKey = "test-key-2";
     vi.spyOn(app2.memory, "start").mockResolvedValue(undefined);
     vi.spyOn(app2.discord, "login").mockResolvedValue(undefined);
-    
+
     await app2.start();
     const eventBus2 = app2.eventBus;
 

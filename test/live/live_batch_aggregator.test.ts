@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { LiveBatchAggregator, type DropReason, type FlushReason } from "../../src/live/adapters/live_batch_aggregator.js";
+import {
+  LiveBatchAggregator,
+  type DropReason,
+  type FlushReason,
+} from "../../src/live/adapters/live_batch_aggregator.js";
 import type { NormalizedLiveEvent } from "../../src/utils/live_event.js";
 
 describe("LiveBatchAggregator", () => {
@@ -76,7 +80,7 @@ describe("LiveBatchAggregator", () => {
     aggregator.push(event("c", now));
 
     expect(flushed).toHaveLength(1);
-    expect(flushed[0].map(item => item.id)).toEqual(["a", "b", "c"]);
+    expect(flushed[0].map((item) => item.id)).toEqual(["a", "b", "c"]);
   });
 
   it("drops the lowest priority event with an explicit reason when the buffer is full", () => {

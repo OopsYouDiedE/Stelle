@@ -1,10 +1,24 @@
+// === Imports ===
 import type { NormalizedLiveEvent } from "../../utils/live_event.js";
 import type { BehaviorPolicyOverlay } from "../policy_overlay_store.js";
 import type { OutputIntent } from "../../stage/output_types.js";
 
+// === Core Types & Enums ===
 export type LiveAction = "respond_to_crowd" | "respond_to_specific" | "drop_noise" | "generate_topic";
 export type LiveEmotion = "neutral" | "happy" | "laughing" | "sad" | "surprised" | "thinking" | "teasing";
 
+/**
+ * 提议优先级枚举
+ * 取代硬编码的 Magic Number (100, 80, 60, 40)
+ */
+export enum ProposalPriority {
+  URGENT = 100, // 紧急：SC, 舰长, 必须处理且可打断
+  HIGH = 80, // 高：礼物感谢, 关注
+  STRATEGIC = 60, // 战略：话题转场, 节目单提醒
+  NORMAL = 40, // 普通：一般互动建议
+}
+
+// === Proposal & Decision Interfaces ===
 /**
  * Interface: Strategic Proposal from StageDirector
  */
@@ -13,7 +27,7 @@ export interface LiveOutputProposal {
   cursorId: string;
   intent: OutputIntent;
   receivedAt: number;
-  priority: number; // Inherited from intent or calculated
+  priority: number | ProposalPriority; // Inherited from intent or calculated
 }
 
 /**
@@ -41,6 +55,7 @@ export interface LiveComposeInput {
   proposals?: LiveOutputProposal[];
 }
 
+// === Tool & UI Views ===
 /**
  * 接口：直播工具执行结果视图
  */
@@ -62,6 +77,7 @@ export interface LiveSpeechQueueItem {
   emotion: string;
 }
 
+// === Configuration Interfaces ===
 /**
  * 配置：LiveCursor 专用
  */

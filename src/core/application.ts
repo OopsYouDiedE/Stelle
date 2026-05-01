@@ -49,16 +49,36 @@ export class StelleApplication {
   }
 
   // Getters for compatibility
-  public get config(): RuntimeConfig { return this.services.config; }
-  public get state(): RuntimeState { return this.services.state; }
-  public get llm(): LlmClient { return this.services.llm; }
-  public get memory(): MemoryStore { return this.services.memory; }
-  public get discord(): DiscordRuntime { return this.services.discord; }
-  public get eventBus(): StelleEventBus { return this.services.eventBus; }
-  public get tools(): ToolRegistry { return this.services.tools; }
-  public get stageOutput(): StageOutputArbiter { return this.services.stageOutput; }
-  public get deviceAction(): DeviceActionArbiter { return this.services.deviceAction; }
-  public get live(): LiveRuntime | undefined { return this.services.live; }
+  public get config(): RuntimeConfig {
+    return this.services.config;
+  }
+  public get state(): RuntimeState {
+    return this.services.state;
+  }
+  public get llm(): LlmClient {
+    return this.services.llm;
+  }
+  public get memory(): MemoryStore {
+    return this.services.memory;
+  }
+  public get discord(): DiscordRuntime {
+    return this.services.discord;
+  }
+  public get eventBus(): StelleEventBus {
+    return this.services.eventBus;
+  }
+  public get tools(): ToolRegistry {
+    return this.services.tools;
+  }
+  public get stageOutput(): StageOutputArbiter {
+    return this.services.stageOutput;
+  }
+  public get deviceAction(): DeviceActionArbiter {
+    return this.services.deviceAction;
+  }
+  public get live(): LiveRuntime | undefined {
+    return this.services.live;
+  }
 
   public async start(): Promise<void> {
     if (this.mode === "discord" && !this.config.discord.token) {
@@ -84,7 +104,7 @@ export class StelleApplication {
     }
 
     this.scheduler.start();
-    this.state.updateCursors(this.cursors.map(c => c.snapshot()));
+    this.state.updateCursors(this.cursors.map((c) => c.snapshot()));
     this.state.record("runtime_started", `Runtime started in ${this.mode} mode.`);
     console.log(`[Stelle] Runtime started in ${this.mode} mode.`);
   }
@@ -131,19 +151,24 @@ export class StelleApplication {
   private async connectDiscord(): Promise<void> {
     if (!this.config.discord.token) return;
     await this.discord.login(this.config.discord.token);
-    const discordCursor = this.cursors.find(c => c.id === "discord_text_channel" || c.id === "discord");
-    await this.discord.setBotPresence({ window: discordCursor?.id ?? "unknown", detail: "runtime" }).catch(() => undefined);
+    const discordCursor = this.cursors.find((c) => c.id === "discord_text_channel" || c.id === "discord");
+    await this.discord
+      .setBotPresence({ window: discordCursor?.id ?? "unknown", detail: "runtime" })
+      .catch(() => undefined);
     const status = await this.discord.getStatus();
     this.state.updateDiscord({ connected: status.connected });
-    this.state.record("discord_connected", `Discord connected=${status.connected} botUserId=${status.botUserId ?? "unknown"}`);
+    this.state.record(
+      "discord_connected",
+      `Discord connected=${status.connected} botUserId=${status.botUserId ?? "unknown"}`,
+    );
     console.log(`[Stelle] Discord connected=${status.connected} botUserId=${status.botUserId ?? "unknown"}`);
   }
 
   public async stop(): Promise<void> {
     this.scheduler.stop();
     await Promise.allSettled([
-      ...this.cursors.map(c => c.stop?.()),
-      ...this.modules.map(m => m.stop?.()),
+      ...this.cursors.map((c) => c.stop?.()),
+      ...this.modules.map((m) => m.stop?.()),
       this.discord.destroy(),
       this.renderer?.stop(),
     ]);
@@ -154,10 +179,11 @@ export class StelleApplication {
 
   private async setupCursors(): Promise<void> {
     const context = StelleContainer.createCursorContext(this.services);
-    this.cursors = selectCursorModules({ mode: this.mode, config: this.config, liveAvailable: Boolean(this.live) })
-      .map(module => module.create(context));
+    this.cursors = selectCursorModules({ mode: this.mode, config: this.config, liveAvailable: Boolean(this.live) }).map(
+      (module) => module.create(context),
+    );
 
-    await Promise.all(this.cursors.map(c => c.initialize?.()));
+    await Promise.all(this.cursors.map((c) => c.initialize?.()));
   }
 
   private setupDebugController(): void {
@@ -192,4 +218,3 @@ export class StelleApplication {
     return this.liveControl.runCommand(input);
   }
 }
-

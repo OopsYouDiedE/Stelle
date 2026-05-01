@@ -7,7 +7,7 @@ describe("ToolRegistry & Single Call Test", () => {
     const mockTool = {
       name: "test_tool",
       description: "A test tool",
-      execute: vi.fn().mockResolvedValue({ ok: true, summary: "done" })
+      execute: vi.fn().mockResolvedValue({ ok: true, summary: "done" }),
     };
     (registry as any).register(mockTool as any);
     expect(registry.get("test_tool")).toBeDefined();
@@ -19,13 +19,13 @@ describe("ToolRegistry & Single Call Test", () => {
       name: "restricted_tool",
       authority: "external_write",
       description: "...",
-      execute: vi.fn().mockResolvedValue({ ok: true, summary: "done" })
+      execute: vi.fn().mockResolvedValue({ ok: true, summary: "done" }),
     };
     (registry as any).register(mockTool as any);
 
     // 仅允许 readonly 权限，尝试执行 external_write 工具
     const context = { caller: "test", allowedAuthority: ["readonly"], allowedTools: ["restricted_tool"] };
-    
+
     const result = await registry.execute("restricted_tool", {}, context as any);
     expect(result.ok).toBe(false);
     expect(result.summary).toContain("cannot use");
@@ -51,19 +51,27 @@ describe("ToolRegistry & Single Call Test", () => {
   it("requires cursor/core callers to whitelist system.run_command", async () => {
     const registry = createDefaultToolRegistry();
 
-    const cursorResult = await registry.execute("system.run_command", { command: "echo nope" }, {
-      caller: "cursor",
-      cwd: process.cwd(),
-      allowedAuthority: ["system"],
-    });
+    const cursorResult = await registry.execute(
+      "system.run_command",
+      { command: "echo nope" },
+      {
+        caller: "cursor",
+        cwd: process.cwd(),
+        allowedAuthority: ["system"],
+      },
+    );
     expect(cursorResult.ok).toBe(false);
     expect(cursorResult.error?.code).toBe("tool_not_whitelisted");
 
-    const coreResult = await registry.execute("system.run_command", { command: "echo nope" }, {
-      caller: "core",
-      cwd: process.cwd(),
-      allowedAuthority: ["system"],
-    });
+    const coreResult = await registry.execute(
+      "system.run_command",
+      { command: "echo nope" },
+      {
+        caller: "core",
+        cwd: process.cwd(),
+        allowedAuthority: ["system"],
+      },
+    );
     expect(coreResult.ok).toBe(false);
     expect(coreResult.error?.code).toBe("tool_not_whitelisted");
   });
