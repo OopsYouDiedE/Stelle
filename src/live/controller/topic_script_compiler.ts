@@ -61,6 +61,7 @@ export function compileTopicScriptDraft(draft: TopicScriptDraft): CompiledTopicS
       handoffRule: section.handoff_rule,
       operatorNotes: section.operator_notes,
       lockLevel: section.lock_level,
+      cues: section.cues,
     };
   });
 
@@ -140,7 +141,7 @@ function parseSectionFields(lines: string[]): Record<string, unknown> {
       continue;
     }
   }
-  for (const key of ["discussion_points", "question_prompts", "interaction_triggers", "fact_guardrails", "fallback_lines"]) {
+  for (const key of ["discussion_points", "question_prompts", "interaction_triggers", "fact_guardrails", "fallback_lines", "cues"]) {
     if (out[key] === undefined) out[key] = [];
     if (!Array.isArray(out[key])) out[key] = [String(out[key])];
   }
@@ -179,7 +180,7 @@ function renderSection(section: TopicScriptSection): string {
     "question_prompts",
     "interaction_triggers",
     "fact_guardrails",
-    "fallback_lines",
+    "fallback_lines", "cues",
     "handoff_rule",
     "operator_notes",
     "lock_level",

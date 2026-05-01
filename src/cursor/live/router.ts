@@ -2,7 +2,7 @@ import { asRecord, enumValue } from "../../utils/json.js";
 import { sanitizeExternalText, truncateText } from "../../utils/text.js";
 import type { NormalizedLiveEvent } from "../../utils/live_event.js";
 import type { CursorContext } from "../types.js";
-import type { LiveBatchDecision, LiveComposeInput, LiveEmotion } from "./types.js";
+import type { LiveBatchDecision, LiveComposeInput, LiveEmotion, LiveOutputProposal } from "./types.js";
 import type { BehaviorPolicyOverlay } from "../policy_overlay_store.js";
 import type { ViewerProfileSummary } from "../../live/controller/viewer_profile.js";
 
@@ -15,8 +15,18 @@ export class LiveRouter {
   /**
    * 决策：分析弹幕批次并生成回复策略
    */
-  public async decide(batch: NormalizedLiveEvent[], recentSpeech: string[], currentEmotion: string, activePolicies: BehaviorPolicyOverlay[]): Promise<LiveBatchDecision> {
+  public async decide(
+    batch: NormalizedLiveEvent[], 
+    recentSpeech: string[], 
+    currentEmotion: string, 
+    activePolicies: BehaviorPolicyOverlay[],
+    proposals: LiveOutputProposal[] = []
+  ): Promise<LiveBatchDecision> {
     const batchLog = batch.map(e => `[${e.priority}] ${e.user?.name ?? "观众"}: ${e.text}`).join("\n");
+    const proposalLog = proposals.length
+      ? `\nSTRATEGIC PROPOSALS (From Director):\n${proposals.map(p => `- [ID: ${p.id}] Priority: ${p.priority} | Source: ${p.intent.metadata?.source || "unknown"} | Suggested: ${p.intent.text}`).join("\n")}`
+      : "";
+
     const focus = await this.context.memory?.readLongTerm("current_focus", "self_state").catch(() => null);
     const subconscious = await this.context.memory?.readLongTerm("global_subconscious", "self_state").catch(() => null);
     const safePolicies = filterLivePolicies(activePolicies, batch);
@@ -36,11 +46,13 @@ export class LiveRouter {
     const prompt = [
       this.persona,
       "You are the Live Strategic Router. Decision Layer.",
+      "GOAL: Respond to viewers while maintaining stream flow. Weave strategic proposals (like thanks or topic summaries) into your responses naturally.",
       cleanLiveMemoryBlock(subconscious, batch) ? `Internal subconscious guidance:\n${cleanLiveMemoryBlock(subconscious, batch)}` : undefined,
       directiveBlock,
       `Current Focus:\n${cleanLiveMemoryBlock(focus, batch) ?? "Relaxed chatting"}`,
       `What you just said (DO NOT REPEAT):\n${recentSpeech.join("\n") || "(Silent)"}`,
       `Current Emotion: ${currentEmotion}`,
+      proposalLog,
       "\nAvailable Tools for Live Planning:",
       "- memory.search: { text: 'query' } (Deep search history)",
       "- memory.read_recent: { limit: 10 } (Quick glance)",
@@ -50,11 +62,11 @@ export class LiveRouter {
       "- search.web_search: { query: '...' } (Web search)",
       relationshipSummaries?.length ? `Viewer relationship summaries:\n${relationshipSummaries.map(formatRelationshipSummary).join("\n")}` : undefined,
       "\nReturn JSON with exactly this shape:",
-      '{"action":"respond_to_crowd|respond_to_specific|drop_noise|generate_topic","emotion":"neutral|happy|laughing|sad|surprised|thinking|teasing","intensity":1-5,"script":"spoken reply in Simplified Chinese","reason":"short reason","tool_plan":{"calls":[{"tool":"memory.search","parameters":{"text":"..."}}]}}',
+      '{"action":"respond_to_crowd|respond_to_specific|drop_noise|generate_topic","emotion":"neutral|happy|laughing|sad|surprised|thinking|teasing","intensity":1-5,"script":"spoken reply in Simplified Chinese","consumedProposalIds":["prop-id-1"],"reason":"short reason","tool_plan":{"calls":[{"tool":"memory.search","parameters":{"text":"..."}}]}}',
       "Language: reply in concise Simplified Chinese by default.",
-      "Hard rule: answer the latest chat batch directly when it contains a real viewer question or greeting.",
-      "Hard rule: ordinary low-priority danmaku is not noise by itself. Drop only empty text, repeated numbers, pure check-ins, spam, or unsafe topics.",
-      "Hard rule: do not use cat/meow/喵 or snack/猫粮 topics unless the latest chat batch explicitly asks for that exact bit.",
+      "Hard rule: If you weave a Strategic Proposal's content into your script, include its ID in 'consumedProposalIds'.",
+      "Hard rule: Answer the latest chat batch directly when it contains a real viewer question or greeting.",
+      "Hard rule: Ordinary low-priority danmaku is not noise by itself. Drop only empty text, repeated numbers, pure check-ins, spam, or unsafe topics.",
       `\nLATEST CHAT BATCH:\n${batchLog}`
     ].filter(Boolean).join("\n\n");
 
@@ -81,7 +93,8 @@ export class LiveRouter {
           intensity: typeof v.intensity === "number" ? v.intensity : 3,
           script: sanitizeExternalText(String(v.script || "")),
           reason: String(v.reason || "auto"),
-          toolPlan
+          toolPlan,
+          consumedProposalIds: Array.isArray(v.consumedProposalIds) ? v.consumedProposalIds.map(String) : undefined
         };
       },
       {
@@ -146,6 +159,9 @@ export class LiveRouter {
     const directiveBlock = safePolicies.length
       ? `\nCURRENT ACTIVE BEHAVIOR POLICIES:\n${safePolicies.map(formatPolicy).join("\n")}`
       : "";
+    const proposalLog = input.proposals?.length
+      ? `\nSTRATEGIC PROPOSALS (From Director):\n${input.proposals.map(p => `- [ID: ${p.id}] Priority: ${p.priority} | Source: ${p.intent.metadata?.source || "unknown"} | Suggested: ${p.intent.text}`).join("\n")}`
+      : "";
 
     const prompt = [
       this.persona,
@@ -156,8 +172,10 @@ export class LiveRouter {
       `Tool results:\n${toolBlock}`,
       `What you just said (DO NOT REPEAT):\n${input.recentSpeech.join("\n") || "(Silent)"}`,
       `Current Emotion: ${input.currentEmotion}`,
+      proposalLog,
       `LATEST CHAT BATCH:\n${batchLog}`,
-      "Hard rule: final script must be grounded in the latest chat batch. Avoid stale cat/meow/snack themes unless explicitly requested in that batch.",
+      "Hard rule: final script must be grounded in the latest chat batch and any consumed proposals.",
+      "Hard rule: If you weave a Strategic Proposal's content into your script, include its ID in 'consumedProposalIds'.",
       "Return a short natural Simplified Chinese script. If the tools prove there is nothing useful to say, choose drop_noise."
     ].filter(Boolean).join("\n\n");
 
@@ -172,7 +190,8 @@ export class LiveRouter {
           intensity: typeof v.intensity === "number" ? v.intensity : input.initialDecision.intensity,
           script: sanitizeExternalText(String(v.script || input.initialDecision.script || "")),
           reason: String(v.reason || "tool_composed"),
-          toolPlan: undefined
+          toolPlan: undefined,
+          consumedProposalIds: Array.isArray(v.consumedProposalIds) ? v.consumedProposalIds.map(String) : (input.initialDecision.consumedProposalIds)
         };
       },
       {

@@ -6,6 +6,7 @@ export interface LiveEnqueueOptions {
   groupId?: string;
   sequenceStart?: number;
   sourceEventId?: string;
+  metadata?: Record<string, any>;
 }
 
 /**
@@ -30,6 +31,7 @@ export class LiveResponder {
         groupId,
         sequence: (options.sequenceStart ?? 0) + index,
         sourceEventId: options.sourceEventId,
+        metadata: options.metadata,
       }));
     }
     return decisions;
@@ -39,7 +41,7 @@ export class LiveResponder {
     target: "topic" | "response",
     text: string,
     emotion: string,
-    options: { groupId: string; sequence: number; sourceEventId?: string }
+    options: { groupId: string; sequence: number; sourceEventId?: string; metadata?: Record<string, any> }
   ): Promise<StageOutputDecision> {
     // 响应弹幕使用 direct_response，以便在舞台繁忙时能排在话题托管前面
     const lane: OutputLane = target === "response" ? "direct_response" : "topic_hosting";
@@ -68,6 +70,7 @@ export class LiveResponder {
         source: target,
         groupId: options.groupId,
         sequence: options.sequence,
+        ...options.metadata,
       },
     });
   }

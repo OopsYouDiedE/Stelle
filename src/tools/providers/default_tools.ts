@@ -525,6 +525,32 @@ export function createLiveTools(deps: ToolRegistryDeps): ToolDefinition[] {
         return { ok: result.ok, summary: result.summary, data: { result }, error: result.error };
       },
     },
+    {
+      name: "live.update_topic",
+      title: "Update Live Topic",
+      description: "Update the current live stream topic and engagement question. Use this when the conversation naturally shifts or you want to introduce a better interactive topic.",
+      authority: "external_write",
+      inputSchema: z.object({
+        title: z.string().describe("The new topic title"),
+        current_question: z.string().describe("A provocative question to engage the audience with this new topic"),
+        reason: z.string().describe("Internal reason for the shift"),
+      }),
+      sideEffects: sideEffects({ externalVisible: true, affectsUserState: true }),
+      async execute(input) {
+        deps.eventBus?.publish({
+          type: "live.control.command",
+          source: "tool_executor",
+          id: `tool-topic-${Date.now()}`,
+          timestamp: Date.now(),
+          payload: {
+            action: "topic_orchestrator.update",
+            parameters: { title: input.title, currentQuestion: input.current_question, reason: input.reason }
+          }
+        } as any);
+
+        return ok(`Stream topic updated to: ${input.title}`, { title: input.title, current_question: input.current_question });
+      },
+    },
   ];
 
   function liveActionTool<TSchema extends z.AnyZodObject>(name: string, title: string, inputSchema: TSchema, action: (live: LiveRuntime, input: z.infer<TSchema>) => Promise<{ ok: boolean; summary: string }>): ToolDefinition<TSchema> {

@@ -2,6 +2,7 @@
  * Module: Live Cursor (V2 - Modular Refactored Architecture)
  */
 
+import { BridgeGenerator } from "../../live/controller/bridge_generator.js";
 import { truncateText } from "../../utils/text.js";
 import type { CursorContext, CursorSnapshot, StelleEvent, StelleCursor } from "../types.js";
 import { BaseStatefulCursor } from "../base_stateful_cursor.js";
@@ -10,7 +11,7 @@ import { LiveRouter } from "./router.js";
 import { LiveExecutor } from "./executor.js";
 import { LiveResponder } from "./responder.js";
 import { PolicyOverlayStore } from "../policy_overlay_store.js";
-import type { LiveEmotion, LiveToolResultView } from "./types.js";
+import type { LiveEmotion, LiveToolResultView, LiveOutputProposal } from "./types.js";
 import type { NormalizedLiveEvent } from "../../utils/live_event.js";
 import type { StageOutputDecision } from "../../stage/output_types.js";
 
@@ -34,11 +35,14 @@ export class LiveDanmakuCursor extends BaseStatefulCursor {
   private readonly responder: LiveResponder;
 
   private pendingBatches: NormalizedLiveEvent[][] = [];
+  private proposalBuffer: LiveOutputProposal[] = [];
   private draining = false;
   private drainPromise?: Promise<void>;
   private batchSequence = 0;
   private readonly maxPendingBatches = 8;
   private readonly maxEventsPerMergedBatch = 30;
+  private readonly maxProposalsInBuffer = 5;
+  private readonly proposalTtlMs = 45_000;
   private currentEmotion: LiveEmotion = "neutral";
 
   constructor(context: CursorContext) {
@@ -81,7 +85,11 @@ export class LiveDanmakuCursor extends BaseStatefulCursor {
     }));
 
     this.unsubscribes.push(this.context.eventBus.subscribe("live.output.proposal", (event) => {
-      void this.receiveProposal(event.payload).catch(e => console.error("[LiveCursor] Proposal error:", e));
+      void this.receiveProposal(event).catch(e => console.error("[LiveCursor] Proposal error:", e));
+    }));
+
+    this.unsubscribes.push(this.context.eventBus.subscribe("live.topic.transition", (event) => {
+      void this.receiveTransition(event).catch(e => console.error("[LiveCursor] Transition error:", e));
     }));
   }
 
@@ -89,17 +97,71 @@ export class LiveDanmakuCursor extends BaseStatefulCursor {
     this.gateway.clear();
   }
 
-  private async receiveProposal(payload: { intent: any; cursorId: string }) {
-    const { intent, cursorId } = payload;
-    await this.context.stageOutput.propose({
-      ...intent,
-      id: `prop-exec-${this.context.now()}-${Math.random().toString(36).slice(2, 5)}`,
+  private async receiveProposal(event: StelleEvent) {
+    if (event.type !== "live.output.proposal") return;
+    const { intent, cursorId } = event.payload as { intent: any; cursorId: string };
+    const id = event.id;
+    const now = this.context.now();
+    
+    // Prune buffer
+    this.proposalBuffer = this.proposalBuffer.filter(p => now - p.receivedAt < this.proposalTtlMs);
+
+    // Prioritize: SuperChat > Gift > Topic > Others
+    const source = String(intent.metadata?.source || "");
+    const priority = source === "engagement_thanks" && (intent.metadata?.eventKind === "super_chat" || intent.metadata?.eventKind === "guard") ? 100
+      : source === "engagement_thanks" && intent.metadata?.eventKind === "gift" ? 80
+      : source === "live_program" ? 60
+      : 40;
+
+    const proposal: LiveOutputProposal = {
+      id: id || `prop-${now}-${Math.random().toString(36).slice(2, 7)}`,
       cursorId: cursorId || "live_stage_director",
-      output: {
-        caption: true,
-        tts: Boolean(this.context.config.live.ttsEnabled),
+      intent,
+      receivedAt: now,
+      priority,
+    };
+
+    this.proposalBuffer.push(proposal);
+    this.proposalBuffer.sort((a, b) => b.priority - a.priority);
+    
+    if (this.proposalBuffer.length > this.maxProposalsInBuffer) {
+      this.proposalBuffer.pop();
+    }
+
+    console.log(`[LiveCursor] Buffered proposal ${proposal.id} (Priority: ${priority}) total=${this.proposalBuffer.length}`);
+
+    // If super idle or super urgent, trigger a batch processing if nothing is happening
+    if (!this.draining && (priority >= 100 || this.pendingBatches.length === 0)) {
+      void this.processBatch([]).catch(e => console.error("[LiveCursor] Batch processing failed:", e));
+    }
+  }
+
+  private async receiveTransition(event: StelleEvent) {
+    if (event.type !== "live.topic.transition") return;
+    const { title, fromPhase, toPhase } = event.payload;
+    const text = BridgeGenerator.generate(title, fromPhase, toPhase);
+
+    // Transitions are strategic proposals
+    await this.receiveProposal({
+      type: "live.output.proposal",
+      source: "stage_director",
+      id: `prop-trans-${this.context.now()}`,
+      timestamp: this.context.now(),
+      payload: {
+        intent: {
+          lane: "topic_hosting",
+          priority: 55,
+          salience: "medium",
+          text,
+          summary: text,
+          topic: title,
+          ttlMs: 30_000,
+          interrupt: "soft",
+          metadata: { source: "topic_transition", fromPhase, toPhase },
+        },
+        cursorId: "live_stage_director",
       }
-    });
+    } as any);
   }
 
   /**
@@ -152,8 +214,7 @@ export class LiveDanmakuCursor extends BaseStatefulCursor {
    * 编排：处理缓冲完成的弹幕批次
    */
   private async processBatch(batch: NormalizedLiveEvent[]) {
-    if (batch.length === 0) return;
-    this.enqueueBatch(batch);
+    if (batch.length > 0) this.enqueueBatch(batch);
     return this.drainBatches();
   }
 
@@ -173,9 +234,15 @@ export class LiveDanmakuCursor extends BaseStatefulCursor {
     this.status = "active";
     this.drainPromise = (async () => {
       try {
-        while (this.pendingBatches.length > 0) {
+        while (this.pendingBatches.length > 0 || this.proposalBuffer.length > 0) {
           const batch = this.takeNextBatch();
+          // If batch is empty but we have proposals, we proceed with an empty batch to address proposals
           await this.handleBatch(batch);
+          
+          // Small delay between batches if we just processed one
+          if (this.pendingBatches.length > 0 || this.proposalBuffer.length > 0) {
+            await new Promise(r => setTimeout(r, 500));
+          }
         }
       } finally {
         this.draining = false;
@@ -235,19 +302,24 @@ export class LiveDanmakuCursor extends BaseStatefulCursor {
 
   private async handleBatch(batch: NormalizedLiveEvent[]): Promise<void> {
     const events = batch.filter(Boolean);
-    if (events.length === 0) return;
+    const now = this.context.now();
+    
+    // Refresh proposals
+    this.proposalBuffer = this.proposalBuffer.filter(p => now - p.receivedAt < this.proposalTtlMs);
+    
+    if (events.length === 0 && this.proposalBuffer.length === 0) return;
 
     const startedAt = this.context.now();
     const batchId = `live-batch-${++this.batchSequence}`;
-    const oldestAgeMs = startedAt - Math.min(...events.map(event => event.receivedAt));
+    const oldestAgeMs = events.length > 0 ? startedAt - Math.min(...events.map(event => event.receivedAt)) : 0;
 
     try {
-      console.log(`[LiveCursor] processing ${batchId} size=${events.length} oldestAgeMs=${oldestAgeMs} latest="${truncateText(events.at(-1)?.text ?? "", 60)}"`);
+      console.log(`[LiveCursor] processing ${batchId} size=${events.length} proposals=${this.proposalBuffer.length} oldestAgeMs=${oldestAgeMs}`);
       const activePolicies = this.policyStore.activePolicies("live_danmaku");
 
       // 1. 决策 (Router)
       this.summary = "Designing live strategy...";
-      let decision = await this.router.decide(events, this.responder.getRecentSpeech(), this.currentEmotion, activePolicies);
+      let decision = await this.router.decide(events, this.responder.getRecentSpeech(), this.currentEmotion, activePolicies, this.proposalBuffer);
       console.log(`[LiveCursor] decision ${decision.action}: ${truncateText(decision.script || decision.reason, 80)}`);
 
       // 2. 执行工具 (Executor)
@@ -262,7 +334,8 @@ export class LiveDanmakuCursor extends BaseStatefulCursor {
           toolResults,
           recentSpeech: this.responder.getRecentSpeech(),
           currentEmotion: this.currentEmotion,
-          activePolicies
+          activePolicies,
+          proposals: this.proposalBuffer
         });
       }
 
@@ -274,11 +347,21 @@ export class LiveDanmakuCursor extends BaseStatefulCursor {
           groupId: `${batchId}-${events.map(item => item.id).join("-").slice(0, 40)}`,
           sourceEventId: events.at(-1)?.id,
         });
+        
+        // Handle consumed proposals
+        if (decision.consumedProposalIds?.length) {
+          console.log(`[LiveCursor] consumed proposals: ${decision.consumedProposalIds.join(", ")}`);
+          this.proposalBuffer = this.proposalBuffer.filter(p => !decision.consumedProposalIds?.includes(p.id));
+        }
+
         console.log(`[LiveCursor] stage output ${decisions.map(item => item.status).join(",") || "none"}: ${truncateText(decision.script, 80)}`);
         this.summary = this.allDropped(decisions)
           ? `[Live:${decision.action}:dropped] ${this.getDropReasons(decisions)}`
           : `[Live:${decision.action}] ${truncateText(decision.script, 50)}`;
         await this.reportReflection(decision.action, decision.script, 4, "medium");
+      } else {
+        // If LLM dropped but there are still high priority proposals, maybe it made a mistake or we should try to execute one verbatim
+        await this.maybeExecuteFallbackProposal(decision);
       }
     } catch (error) {
       console.error("[LiveDanmakuCursor] batch failed", {
@@ -290,13 +373,30 @@ export class LiveDanmakuCursor extends BaseStatefulCursor {
     }
   }
 
+  private async maybeExecuteFallbackProposal(decision: any) {
+    if (this.proposalBuffer.length === 0) return;
+    const top = this.proposalBuffer[0];
+    
+    // If it's a super urgent proposal (SuperChat) and we dropped the noise, we MUST execute it
+    if (top.priority >= 100) {
+      console.log(`[LiveCursor] executing fallback urgent proposal: ${top.id}`);
+      const decisions = await this.responder.enqueue("response", top.intent.text, "happy", {
+        sourceEventId: top.id,
+        metadata: top.intent.metadata
+      });
+      this.proposalBuffer.shift();
+      this.summary = `[Live:Fallback] ${truncateText(top.intent.text, 50)}`;
+    }
+  }
+
   /**
    * 驱动：主播放循环
    */
   async tick(): Promise<void> {
-    // Idle topics, scheduled copy, and engagement thanks are owned by
-    // LiveEngagementService. Keeping LiveCursor tick as a no-op prevents a
-    // second autonomous LLM loop from speaking over real danmaku.
+    // If idle and we have proposals, trigger a drain
+    if (!this.draining && this.proposalBuffer.length > 0) {
+      void this.drainBatches().catch(e => console.error("[LiveCursor] Idle proposal drain failed:", e));
+    }
   }
 
   snapshot(): CursorSnapshot {
@@ -305,6 +405,7 @@ export class LiveDanmakuCursor extends BaseStatefulCursor {
       id: this.id, kind: this.kind, status: this.status, summary: this.summary,
       state: {
         bufferSize: this.gateway.getBufferSize(),
+        proposalBufferSize: this.proposalBuffer.length,
         stageStatus: stage.status,
         stageQueueLength: stage.queueLength,
         stageCurrentOutputId: stage.currentOutputId,

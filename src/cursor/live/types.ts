@@ -1,8 +1,20 @@
 import type { NormalizedLiveEvent } from "../../utils/live_event.js";
 import type { BehaviorPolicyOverlay } from "../policy_overlay_store.js";
+import type { OutputIntent } from "../../stage/output_types.js";
 
 export type LiveAction = "respond_to_crowd" | "respond_to_specific" | "drop_noise" | "generate_topic";
 export type LiveEmotion = "neutral" | "happy" | "laughing" | "sad" | "surprised" | "thinking" | "teasing";
+
+/**
+ * Interface: Strategic Proposal from StageDirector
+ */
+export interface LiveOutputProposal {
+  id: string;
+  cursorId: string;
+  intent: OutputIntent;
+  receivedAt: number;
+  priority: number; // Inherited from intent or calculated
+}
 
 /**
  * 接口：直播批处理决策 (LLM 输出)
@@ -16,6 +28,7 @@ export interface LiveBatchDecision {
   toolPlan?: {
     calls: Array<{ tool: string; parameters: Record<string, unknown> }>;
   };
+  consumedProposalIds?: string[]; // IDs of proposals woven into the script
 }
 
 export interface LiveComposeInput {
@@ -25,6 +38,7 @@ export interface LiveComposeInput {
   recentSpeech: string[];
   currentEmotion: string;
   activePolicies: BehaviorPolicyOverlay[];
+  proposals?: LiveOutputProposal[];
 }
 
 /**

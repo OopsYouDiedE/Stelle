@@ -110,6 +110,29 @@ export const LiveEventReceivedSchema = z.union([
       cursorId: z.string(),
     }),
   }),
+  EventMetadataSchema.extend({
+    type: z.literal("live.topic.transition"),
+    source: z.string(),
+    payload: z.object({
+      topicId: z.string(),
+      title: z.string(),
+      fromPhase: z.string(),
+      toPhase: z.string(),
+    }),
+  }),
+  EventMetadataSchema.extend({
+    type: z.literal("live.agenda.update"),
+    source: z.string(),
+    payload: z.object({
+      status: z.string(),
+      scriptId: z.string().optional(),
+      sectionId: z.string().optional(),
+      sectionGoal: z.string().optional(),
+      progress: z.number().optional(),
+      remainingSec: z.number().optional(),
+      nextSectionId: z.string().optional(),
+    }),
+  }),
 ]);
 
 export const BrowserObservationReceivedSchema = EventMetadataSchema.extend({

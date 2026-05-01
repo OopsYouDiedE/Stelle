@@ -10,6 +10,15 @@ export type TopicScriptLockLevel = typeof topicScriptLockLevelValues[number];
 export const topicScriptRuntimeDecisionValues = ["continue_section", "answer_question", "use_fallback", "request_patch", "human_review"] as const;
 export type TopicScriptRuntimeDecision = typeof topicScriptRuntimeDecisionValues[number];
 
+export const TopicScriptCueSchema = z.object({
+  type: z.enum(["sfx", "vfx", "camera", "emotion"]),
+  id: z.string().min(1),
+  params: z.record(z.unknown()).optional(),
+  timestamp_offset: z.number().optional(),
+});
+
+export type TopicScriptCue = z.infer<typeof TopicScriptCueSchema>;
+
 export const TopicScriptSectionSchema = z.object({
   section_id: z.string().min(1),
   phase: z.enum(["opening", "sampling", "clustering", "debating", "summarizing", "closing"]),
@@ -25,6 +34,7 @@ export const TopicScriptSectionSchema = z.object({
   handoff_rule: z.string().min(1),
   operator_notes: z.string().optional(),
   lock_level: z.enum(topicScriptLockLevelValues).default("soft"),
+  cues: z.array(TopicScriptCueSchema).default([]),
 });
 
 export type TopicScriptSection = z.infer<typeof TopicScriptSectionSchema>;
@@ -73,6 +83,7 @@ export interface CompiledTopicScriptSection {
   handoffRule: string;
   operatorNotes?: string;
   lockLevel: TopicScriptLockLevel;
+  cues: TopicScriptCue[];
 }
 
 export interface CompiledTopicScript {

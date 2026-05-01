@@ -7,7 +7,7 @@ import { TopicOrchestrator } from "./orchestrator.js";
 import { PublicRoomMemoryStore, type PublicRoomMemory } from "./public_memory.js";
 import { WorldCanonStore, type WorldCanonEntry } from "./world_canon.js";
 import { PromptLabService, type PromptLabExperiment } from "./prompt_lab.js";
-import type { ProgramWidgetState, TopicOrchestratorOptions, TopicState } from "./types.js";
+import type { ProgramWidgetState, TopicOrchestratorOptions, TopicPhase, TopicState } from "./types.js";
 import { sanitizeExternalText, truncateText } from "../../utils/text.js";
 import type { OutputIntent } from "../../stage/output_types.js";
 
@@ -69,16 +69,7 @@ export class LiveStageDirector {
     // 1. Listen to live events for both engagement and program tracking
     this.unsubscribes.push(this.deps.eventBus.subscribe("live.event.received", (event) => {
       this.lastActivityAt = this.deps.now();
-      
-      // Track for program
-      const res = this.orchestrator.ingestLivePayload(event.payload);
-      if (res.updated) {
-        this.publishProgramUpdate("live_event");
-        void this.maybeHost("live_event");
-      }
-
-      // Handle engagement (thanks)
-      void this.handleEngagementEvent(event.payload).catch(err => console.error("[StageDirector] Engagement error:", err));
+      this.ingestLivePayload(event.payload);
     }));
 
     // 2. Scheduled/Idle ticks
@@ -107,6 +98,16 @@ export class LiveStageDirector {
       this.orchestrator.updateStageStatus({ stage: { status: "idle", lane: event.payload.intent.lane, outputId: event.payload.intent.id } });
       this.publishProgramUpdate("stage_completed");
     }));
+    this.unsubscribes.push(this.deps.eventBus.subscribe("live.control.command", (event) => {
+      const { action, parameters } = event.payload;
+      if (action === "topic_orchestrator.update") {
+        const { title, currentQuestion } = parameters;
+        this.orchestrator.setMode(title); // This might be too simplistic, but let's assume it updates title
+        // We need a proper update method in orchestrator
+        this.orchestrator.updateTopic(title, currentQuestion);
+        this.publishProgramUpdate("tool_update");
+      }
+    }));
   }
 
   stop(): void {
@@ -122,6 +123,44 @@ export class LiveStageDirector {
   }
 
   // --- Engagement Logic ---
+
+  public ingestLivePayload(payload: Record<string, unknown>): void {
+    const res = this.orchestrator.ingestLivePayload(payload) as any;
+    if (res.updated) {
+      this.publishProgramUpdate("live_event");
+      void this.maybeHost("live_event");
+    }
+    if (res.transition) {
+      this.publishTransition(res.transition.from, res.transition.to);
+    }
+
+    // Handle engagement (thanks)
+    void this.handleEngagementEvent(payload).catch(err => console.error("[StageDirector] Engagement error:", err));
+  }
+
+  public setPhase(phase: TopicPhase): void {
+    const res = this.orchestrator.setPhase(phase);
+    if (res.updated) {
+      this.publishProgramUpdate("manual_phase");
+      this.publishTransition(res.from!, res.to!);
+    }
+  }
+
+  private publishTransition(from: string, to: string): void {
+    const topic = this.orchestrator.snapshot();
+    this.deps.eventBus.publish({
+      type: "live.topic.transition",
+      source: "stage_director",
+      id: `trans-${this.deps.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      timestamp: this.deps.now(),
+      payload: {
+        topicId: topic.topicId,
+        title: topic.title,
+        fromPhase: from,
+        toPhase: to,
+      }
+    } as any);
+  }
 
   private async handleEngagementEvent(payload: Record<string, unknown>): Promise<void> {
     const event = normalizeLiveEvent(payload);

@@ -88,8 +88,13 @@ export class TopicOrchestrator {
       this.clusterRepresentatives.set(label, text);
     }
     if (label === "question") this.pushQuestion(text);
-    this.refreshState();
-    return { updated: true, state: this.snapshot(), reason: label };
+    const transition = this.refreshState();
+    return { 
+      updated: true, 
+      state: this.snapshot(), 
+      reason: label,
+      ...(transition.phaseChanged ? { transition } : {})
+    } as any;
   }
 
   recordBatchFlush(payload: Record<string, unknown>): void {
@@ -108,9 +113,15 @@ export class TopicOrchestrator {
     return this.snapshot();
   }
 
-  setPhase(phase: TopicPhase): TopicState {
+  updateTopic(title: string, currentQuestion: string): void {
+    this.state = { ...this.state, title, currentQuestion, lastUpdatedAt: this.now() };
+  }
+
+  setPhase(phase: TopicPhase): { updated: boolean; from?: TopicPhase; to?: TopicPhase } {
+    if (this.state.phase === phase) return { updated: false };
+    const from = this.state.phase;
     this.state = { ...this.state, phase, lastUpdatedAt: this.now() };
-    return this.snapshot();
+    return { updated: true, from, to: phase };
   }
 
   snapshot(): TopicState {
@@ -145,7 +156,8 @@ export class TopicOrchestrator {
     };
   }
 
-  private refreshState(): void {
+  refreshState(): { phaseChanged: boolean; from?: TopicPhase; to?: TopicPhase } {
+    const oldPhase = this.state.phase;
     const phase = phaseForSampleCount(this.samples.length, this.conclusions.length);
     this.conclusions = buildConclusions(this.clusters(), this.pendingQuestions);
     this.state = {
@@ -155,6 +167,11 @@ export class TopicOrchestrator {
       conclusions: [...this.conclusions],
       pendingQuestions: [...this.pendingQuestions],
       lastUpdatedAt: this.now(),
+    };
+    return { 
+      phaseChanged: oldPhase !== phase,
+      from: oldPhase,
+      to: phase 
     };
   }
 
