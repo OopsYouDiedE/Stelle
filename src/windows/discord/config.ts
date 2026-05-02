@@ -1,4 +1,4 @@
-import { clamp } from "../../shared/json.js";
+import { asRecord, clamp } from "../../shared/json.js";
 import { bool } from "../../core/config/index.js";
 
 export interface DiscordConfig {
@@ -10,8 +10,8 @@ export interface DiscordConfig {
 }
 
 export function loadDiscordConfig(rawYaml: Record<string, unknown> = {}): DiscordConfig {
-  const cursors = (rawYaml.cursors as Record<string, unknown>) || {};
-  const discordCursor = Object.assign({}, cursors.discord || {}, cursors.discord_text_channel || {});
+  const cursors = asRecord(rawYaml.cursors);
+  const discordCursor = Object.assign({}, asRecord(cursors.discord), asRecord(cursors.discord_text_channel));
   
   return {
     enabled: discordCursor.enabled !== false,

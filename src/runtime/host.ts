@@ -64,7 +64,8 @@ export class RuntimeHost {
   private loadedPackageIds: string[] = [];
 
   constructor(readonly mode: StartMode = "runtime") {
-        const rawYaml = loadYamlConfig();
+    const rawYaml = loadYamlConfig();
+    const debugConfig = loadDebugConfig(rawYaml);
     this.config = { rawYaml } as any;
     this.live = new LiveRuntime(
       new ObsWebSocketController({ enabled: loadLiveConfig(rawYaml).obsControlEnabled }),
@@ -80,14 +81,14 @@ export class RuntimeHost {
     this.sceneObserver = new SceneObserver(loadSceneObservationConfig(rawYaml));
 
     this.debugPolicy = new DebugSecurityPolicy({
-      allowRemote: loadDebugConfig(rawYaml).enabled,
-      localOnly: !loadDebugConfig(rawYaml).enabled,
-      trustedTokens: loadDebugConfig(rawYaml).token ? [loadDebugConfig(rawYaml).token] : [],
-      operatorMode: loadDebugConfig(rawYaml).allowExternalWrite,
-      allowExternalEffect: loadDebugConfig(rawYaml).allowExternalWrite,
+      allowRemote: debugConfig.enabled,
+      localOnly: !debugConfig.enabled,
+      trustedTokens: debugConfig.token ? [debugConfig.token] : [],
+      operatorMode: debugConfig.allowExternalWrite,
+      allowExternalEffect: debugConfig.allowExternalWrite,
     });
     this.debugServer = new DebugServer(this.registry, this.debugPolicy, {
-      securityMode: loadDebugConfig(rawYaml).enabled ? "remote-token" : "local-only",
+      securityMode: debugConfig.enabled ? "remote-token" : "local-only",
       listResourceRefs: () => this.dataPlane.listResourceRefs(),
       listStreamRefs: () => this.dataPlane.listStreamRefs(),
       listBackpressureStatus: () => [this.events.getBackpressureStatus()],

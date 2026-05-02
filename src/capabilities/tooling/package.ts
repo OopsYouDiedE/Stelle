@@ -13,7 +13,7 @@ export const toolingCapability: ComponentPackage = {
 
   register(ctx: ComponentRegisterContext) {
     const registry = new ToolRegistry();
-    
+
     // Core and search tools are native to the tooling capability
     const coreTools = createCoreTools();
     for (const tool of coreTools) {

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { ok, sideEffects } from "./types.js";
 import type { ToolDefinition } from "./types.js";
-import { validatePublicHttpUrl } from "../security.js";
+import { validatePublicHttpUrl } from "./security.js";
 
 export function createSearchTools(): ToolDefinition[] {
   return [

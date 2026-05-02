@@ -7,7 +7,7 @@ import {
   type LiveThanksConfig, 
   type LiveIdleConfig, 
   type LiveScheduleConfig 
-} from "../../../../shared/live_config_schemas.js";
+} from "../../../shared/live_config_schemas.js";
 
 export interface StageDirectorConfig {
   thanks: LiveThanksConfig;

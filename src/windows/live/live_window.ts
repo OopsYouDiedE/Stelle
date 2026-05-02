@@ -3,7 +3,6 @@ import type { StelleEventBus as EventBus } from "../../core/event/event_bus.js";
 import type { PerceptualEvent } from "../../core/protocol/perceptual_event.js";
 import { LivePlatformSupervisor } from "./adapters/supervisor.js";
 import { BilibiliPlatformBridge } from "./adapters/bilibili_adapter.js";
-
 import type { NormalizedLiveEvent } from "./live_event.js";
 
 export interface LiveWindowOptions {

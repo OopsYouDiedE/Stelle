@@ -1,6 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { ToolContext } from "../types.js";
+import type { ToolContext } from "./types.js";
 
 export function workspacePath(context: ToolContext, filePath?: string): string {
   const cwd = path.resolve(context.cwd);

@@ -5,7 +5,6 @@ import type {
   ComponentRuntimeContext,
 } from "../../core/protocol/component.js";
 import { DiscordRuntime } from "../../windows/discord/runtime.js";
-
 import { DiscordWindow } from "./discord_window.js";
 import { createDiscordWindowDebugProvider } from "./debug_provider.js";
 

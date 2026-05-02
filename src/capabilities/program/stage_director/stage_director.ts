@@ -1,5 +1,4 @@
 // === Imports ===
-
 import type { StelleEventBus } from "../../../core/event/event_bus.js";
 import { TopicOrchestrator } from "./orchestrator.js";
 import { PublicRoomMemoryStore, type PublicRoomMemory } from "./public_memory.js";

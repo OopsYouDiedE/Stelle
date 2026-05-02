@@ -48,16 +48,14 @@ export class StelleEventBus {
       timestamp: (input.timestamp as number) || Date.now(),
     };
 
-    // 运行时强校验
     const result = StelleEventSchema.safeParse(eventData);
     if (!result.success) {
       console.error("[EventBus] Invalid event rejected:", result.error.format());
       return;
     }
 
-    const event = result.data; // Type is already StelleEvent from schema
+    const event = result.data;
 
-    // 记录历史 (环形缓冲区)
     this.history.push(event);
     if (this.history.length > this.maxHistory) {
       if (this.overflow === "reject") {
@@ -69,7 +67,6 @@ export class StelleEventBus {
       this.droppedItems += 1;
     }
 
-    // 分发：支持精确匹配和通配符监听
     this.emitter.emit(event.type, event);
     this.emitter.emit("*", event);
   }
