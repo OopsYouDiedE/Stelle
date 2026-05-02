@@ -1,5 +1,5 @@
 // === Imports ===
-import type { RuntimeConfig } from "../../../config/index.js";
+import type { RuntimeConfig } from "../../../core/config/runtime_config.js";
 import type { PerceptualEvent } from "../../../core/protocol/perceptual_event.js";
 import type { StelleEventBus } from "../../../core/event/event_bus.js";
 import type { NormalizedLiveEvent } from "../live_event.js";

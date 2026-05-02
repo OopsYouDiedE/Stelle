@@ -56,7 +56,7 @@ src/capabilities/program/topic_script/
   topic_script_events.ts
   review.ts
 
-src/utils/
+src/capabilities/model/
   openai_responses_client.ts
 
 data/topic_scripts/
@@ -64,7 +64,7 @@ data/topic_scripts/
   approved/
   compiled/
 
-test/live/program/
+test/capabilities/program/topic_script/
   topic_script_schema.test.ts
   topic_script_compiler.test.ts
   topic_script_repository.test.ts
@@ -380,7 +380,7 @@ Git：
 
 ```bash
 git switch -c codex/topic-script-stage-1-schema
-git add src/capabilities/program/topic_script/topic_script_schema.ts src/capabilities/program/topic_script/compiler.ts docs/TOPIC_SCRIPT_FORMAT.md test/live/
+git add src/capabilities/program/topic_script/topic_script_schema.ts src/capabilities/program/topic_script/compiler.ts docs/TOPIC_SCRIPT_FORMAT.md test/capabilities/program/topic_script/
 git commit -m "feat: add topic script schema and compiler"
 git push -u origin codex/topic-script-stage-1-schema
 gh pr create --draft --title "Stage 1: Add topic script schema and compiler" --body "Adds schema validation and Markdown compilation for topic scripts."
@@ -414,7 +414,7 @@ Git：
 
 ```bash
 git switch -c codex/topic-script-stage-2-generation
-git add src/capabilities/program/topic_script/repository.ts src/capabilities/program/topic_script/topic_script_service.ts src/utils/ data/topic_scripts/ test/live/
+git add src/capabilities/program/topic_script/repository.ts src/capabilities/program/topic_script/topic_script_service.ts src/capabilities/model/ data/topic_scripts/ test/capabilities/program/topic_script/
 git commit -m "feat: add topic script repository and service"
 git push -u origin codex/topic-script-stage-2-generation
 gh pr create --draft --title "Stage 2: Add topic script repository and generation service" --body "Adds persistence and draft generation flow for topic scripts."
@@ -426,7 +426,7 @@ gh pr create --draft --title "Stage 2: Add topic script repository and generatio
 
 - `topic_script_runtime.ts`
 - `topic_script_events.ts`
-- `StelleApplication` 生命周期注册。
+- `RuntimeHost` lifecycle registration.
 - 与 `LiveProgramService`、`TopicOrchestrator`、`StageOutputArbiter` 的事件接入。
 - runtime 单测和集成测试。
 
@@ -449,7 +449,7 @@ Git：
 
 ```bash
 git switch -c codex/topic-script-stage-3-runtime
-git add src/capabilities/program/topic_script/runtime.ts src/capabilities/program/topic_script/topic_script_events.ts src/runtime/application.ts test/
+git add src/capabilities/program/topic_script/runtime.ts src/capabilities/program/topic_script/topic_script_events.ts src/runtime/host.ts test/
 git commit -m "feat: wire topic script runtime into live program flow"
 git push -u origin codex/topic-script-stage-3-runtime
 gh pr create --draft --title "Stage 3: Wire topic script runtime into live program flow" --body "Connects approved topic scripts to the live program runtime without bypassing the stage arbiter."

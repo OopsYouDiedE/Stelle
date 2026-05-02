@@ -1,6 +1,6 @@
 //#region Imports
 import { safeErrorMessage } from "../../shared/json.js";
-import type { ModelConfig, ModelProviderConfig, LlmProviderType } from "../../config/index.js";
+import type { LlmProviderType, ModelConfig, ModelProviderConfig } from "./config.js";
 //#endregion
 
 //#region Types & Interfaces

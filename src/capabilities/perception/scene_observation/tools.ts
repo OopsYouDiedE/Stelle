@@ -14,7 +14,7 @@ export function createSceneTools(deps: ToolRegistryDeps): ToolDefinition[] {
       sideEffects: sideEffects(),
       async execute() {
         if (!deps.sceneObserver) return fail("scene_unavailable", "Scene observer is not configured.");
-        const observation = await deps.sceneObserver.observe();
+        const observation = (await deps.sceneObserver.observe()) as { timestamp: number };
         deps.eventBus?.publish({
           type: "scene.observation.received",
           source: "scene",

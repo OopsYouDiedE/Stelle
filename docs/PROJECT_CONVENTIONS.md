@@ -14,7 +14,7 @@
 - TypeScript 使用 ESM，源文件 import 需要写 `.js` 后缀。
 - 优先使用明确类型、Zod schema 和现有 helper，不用临时字符串解析替代结构化接口。
 - 公共入口移动时同步更新所有调用方和测试，不为旧结构留下临时 re-export。
-- 不绕过 `src/tool.ts`、`src/tools/index.ts` 等稳定公共入口。
+- 不绕过 `src/capabilities/tooling/tool_registry.ts` 和 owner package 的工具注册入口。
 
 ## Module Boundaries
 

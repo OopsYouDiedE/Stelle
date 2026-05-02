@@ -3,7 +3,7 @@
  *
  * 运行逻辑：
  * 1. CLI 参数解析。
- * 2. 实例化 StelleApplication 并调用 start() 启动。
+ * 2. 实例化 RuntimeHost 并调用 start() 启动。
  * 3. 捕获系统中断信号(`SIGINT`, `SIGTERM`) 触发安全停止。
  */
 import "dotenv/config";

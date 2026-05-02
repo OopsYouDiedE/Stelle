@@ -6,7 +6,7 @@ import { runtimeKernelCapability } from "../../src/capabilities/cognition/runtim
 import { stageOutputCapability } from "../../src/capabilities/expression/stage_output/package.js";
 import { liveWindowPackage } from "../../src/windows/live/package.js";
 import { LiveWindow } from "../../src/windows/live/live_window.js";
-import type { RuntimeConfig } from "../../src/config/index.js";
+import type { RuntimeConfig } from "../../src/core/config/runtime_config.js";
 
 describe("Live V2 Flow Integration", () => {
   it("should process danmaku through window -> kernel -> stage output", async () => {

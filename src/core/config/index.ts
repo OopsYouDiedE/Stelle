@@ -2,6 +2,8 @@ import fs from "node:fs";
 import YAML from "yaml";
 import { asRecord } from "../../shared/json.js";
 
+export type { RuntimeConfig } from "./runtime_config.js";
+
 export function loadYamlConfig(filePath = "config.yaml"): Record<string, unknown> {
   if (!fs.existsSync(filePath)) return {};
   return asRecord(YAML.parse(fs.readFileSync(filePath, "utf8")));

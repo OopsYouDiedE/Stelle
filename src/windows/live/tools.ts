@@ -1,11 +1,10 @@
 import { z } from "zod";
-import type { LiveRuntime } from "../stage/bridge/live_runtime.js";
 import { ok, sideEffects } from "../../capabilities/tooling/types.js";
 import type { ToolDefinition } from "../../capabilities/tooling/types.js";
-import type { ToolRegistryDeps } from "../../capabilities/tooling/deps.js";
+import type { LiveToolRuntime, ToolRegistryDeps } from "../../capabilities/tooling/deps.js";
 
 export function createLiveTools(deps: ToolRegistryDeps): ToolDefinition[] {
-  const liveRequired = (): LiveRuntime => {
+  const liveRequired = (): LiveToolRuntime => {
     if (!deps.live) throw new Error("Live runtime is not configured.");
     return deps.live;
   };
@@ -172,7 +171,7 @@ export function createLiveTools(deps: ToolRegistryDeps): ToolDefinition[] {
     name: string,
     title: string,
     inputSchema: TSchema,
-    action: (live: LiveRuntime, input: z.infer<TSchema>) => Promise<{ ok: boolean; summary: string }>,
+    action: (live: LiveToolRuntime, input: z.infer<TSchema>) => Promise<{ ok: boolean; summary: string }>,
   ): ToolDefinition<TSchema> {
     return {
       name,

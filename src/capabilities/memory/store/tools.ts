@@ -8,7 +8,7 @@ import type { ToolRegistryDeps } from "../../tooling/deps.js";
 export function createMemoryTools(deps: ToolRegistryDeps): ToolDefinition[] {
   const memoryRequired = (): MemoryStore => {
     if (!deps.memory) throw new Error("Memory store is not configured.");
-    return deps.memory;
+    return deps.memory as MemoryStore;
   };
   const MemoryScopeSchema = z.object({
     kind: z.enum(["discord_channel", "discord_global", "live", "long_term"]),

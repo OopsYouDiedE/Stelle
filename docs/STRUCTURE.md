@@ -1,63 +1,52 @@
 # Stelle Structure
 
-这份文档说明当前代码结构和每个部分的职责。严格架构边界见 [`ARCHITECTURE.md`](ARCHITECTURE.md)，启动和配置见 [`../README.md`](../README.md)。
-
-## Root
-
-| Path                  | Role                                                |
-| --------------------- | --------------------------------------------------- |
-| `README.md`           | 配置、构建、启动和文档入口。                        |
-| `config.yaml`         | 非密钥运行时配置。                                  |
-| `.env.example`        | 本地 `.env` 模板。                                  |
-| `package.json`        | npm scripts、依赖、格式化和测试入口。               |
-| `tsconfig.json`       | TypeScript runtime 编译配置。                       |
-| `vitest*.config.ts`   | 确定性测试和 eval 测试配置。                        |
-| `docs/`               | 架构、规范、测试、记忆和 Topic Script 文档。        |
-| `scripts/`            | 启动辅助、弹幕桥接、预检、日志导出和研究脚本。      |
-| `evals/`              | 依赖真实模型的能力评估，不作为普通单元测试运行。    |
-| `test/`               | 不依赖真实网络和真实 LLM 的确定性测试。             |
-| `assets/renderer/`    | Live renderer 客户端、样例数据、vendor 和模型目录。 |
-| `memory/`             | 本地运行时记忆数据，不作为源码规范化目标。          |
-| `data/topic_scripts/` | Topic Script 草稿、审核稿和编译产物。               |
+这份文档说明当前代码结构和每个部分的职责。严格架构边界见 [`ARCHITECTURE.md`](ARCHITECTURE.md)。
 
 ## Runtime Source
 
-| Path                | Role                                                                                       |
-| ------------------- | ------------------------------------------------------------------------------------------ |
-| `src/start.ts`      | CLI 入口，选择 `runtime`、`discord`、`live` 模式。                                         |
-| `src/core/`         | 通用协议、EventBus/EventSchema、Component registry/loader、DataPlane、watchdog、安全原语。 |
-| `src/runtime/`      | RuntimeHost、模式选择和 bootstrap service 注册。                                           |
-| `src/capabilities/` | 可复用能力：RuntimeKernel、stage output、memory、reflection、program、perception、action。 |
-| `src/windows/`      | 平台/场景组合层：live、discord、browser、desktop input、stage bridge 和 adapters。         |
-| `src/debug/`        | Debug server shell、认证和命令风险规则；DebugProvider contract 从 Core re-export。         |
-| `src/tools/`        | ToolRegistry、工具 schema、安全策略和按域拆分的默认工具 provider。                         |
-| `src/utils/`        | 兼容 re-export、JSON/text/TTS helpers；新代码不要从这里拿 EventBus 或 platform runtime。   |
+| Path                | Role                                                                                                       |
+| ------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `src/start.ts`      | CLI 入口，选择 `runtime`、`discord`、`live` 模式。                                                         |
+| `src/index.ts`      | 公开 API 出口。                                                                                            |
+| `src/core/`         | 通用协议、EventBus/EventSchema、config helpers、Component registry/loader、DataPlane、watchdog、安全原语。 |
+| `src/runtime/`      | `RuntimeHost`、模式选择和 bootstrap service 注册。                                                         |
+| `src/capabilities/` | 可复用能力：cognition、expression、memory、reflection、program、perception、action、tooling。              |
+| `src/windows/`      | 平台/场景组合层：live、discord、browser、desktop input、stage bridge 和 adapters。                         |
+| `src/debug/`        | Debug server shell、认证和命令风险规则。                                                                   |
+| `src/shared/`       | 与具体 package 无关的 JSON、text、live config schema helpers。                                             |
 
-## Live Renderer
+旧的 `src/utils/`、`src/tools/`、`src/config/`、`src/tool.ts`、`src/runtime_state.ts` 和
+`src/runtime/application.ts` 已移除。新代码应直接 import 拥有该实现的 package。
 
-`assets/renderer/client/src/` 是浏览器端舞台：
+## Tooling
 
-| File                   | Role                                       |
-| ---------------------- | ------------------------------------------ |
-| `main.ts`              | Socket 命令入口、表单绑定、基础 UI 状态。  |
-| `renderer_protocol.ts` | 浏览器端命令和 widget payload 类型。       |
-| `program_widgets.ts`   | 直播节目面板和 widget 渲染。               |
-| `audio_controller.ts`  | 音频队列、播放、字幕同步和 lip sync 调度。 |
-| `live2d.ts`            | Live2D/Pixi 初始化、动作和表情控制。       |
-| `style.css`            | 舞台、面板、状态和响应式样式。             |
+Tool registry 基础设施位于 `src/capabilities/tooling/`：
 
-## Tool Providers
-
-`src/tools/providers/default_tools.ts` 只保留兼容导出；实际实现按域拆分：
-
+- `tool_registry.ts`：注册、执行、审计和权限检查。
+- `types.ts`：工具定义、权限、上下文、结果和 side effect schema。
+- `security.ts`：公网 URL/SSRF 防护。
 - `core_tools.ts`：时间、计算、文件系统、命令执行。
-- `discord_tools.ts`：Discord 读取与发送。
-- `live_tools.ts`：直播舞台、OBS 和 topic 更新。
-- `memory_tools.ts`：recent、long-term、proposal 和 research log。
 - `search_tools.ts`：公共网页搜索和读取。
-- `tts_tools.ts`：TTS 文件生成。
-- `scene_tools.ts`：场景观察。
 - `workspace.ts`：workspace path 和原子写入 helper。
+
+领域工具由 owner package 提供：
+
+- `src/windows/discord/tools.ts`
+- `src/windows/live/tools.ts`
+- `src/capabilities/memory/store/tools.ts`
+- `src/capabilities/expression/speech_output/tools.ts`
+- `src/capabilities/perception/scene_observation/tools.ts`
+
+## Test Layout
+
+| Path                 | Role                                   |
+| -------------------- | -------------------------------------- |
+| `test/architecture/` | 架构边界测试。                         |
+| `test/core/`         | Core runtime primitives。              |
+| `test/capabilities/` | 按 capability 分类的确定性测试。       |
+| `test/windows/`      | Window/package/platform adapter 测试。 |
+| `test/integration/`  | 跨 package 的确定性集成流。            |
+| `test/helpers/`      | 测试 helper。                          |
 
 ## Memory Layout
 
@@ -66,22 +55,9 @@
 ```text
 memory/
 ├── discord/
-│   ├── channels/<channel-id>/recent.jsonl
-│   ├── channels/<channel-id>/history.md
-│   └── global/
 ├── live/
-│   ├── recent.jsonl
-│   └── history.md
 ├── program/
-│   ├── public_room_memory.jsonl
-│   └── world_canon.json
 └── long_term/
-    ├── observations/
-    ├── user_facts/
-    ├── self_state/
-    ├── core_identity/
-    ├── research_logs/
-    └── proposals/
 ```
 
 生成规则和检索规则见 [`MEMORY_GENERATION.md`](MEMORY_GENERATION.md)。

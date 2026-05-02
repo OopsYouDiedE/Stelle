@@ -7,15 +7,14 @@
  *
  * 主要导出：
  * - `start` / `startRuntime`：启动 Stelle。
- * - `ToolRegistry` / `createDefaultToolRegistry`：测试或外部宿主可复用的工具层。
- * - 少量类型：配置、记忆、Cursor snapshot、工具定义。
+ * - `ToolRegistry`：测试或外部宿主可复用的工具层。
+ * - 少量类型：记忆和工具定义。
  */
 export { start, startRuntime } from "./start.js";
 export { ToolRegistry } from "./capabilities/tooling/tool_registry.js";
 export { RuntimeHost } from "./runtime/host.js";
 
 export type { RuntimeHostSnapshot, StartMode } from "./runtime/host.js";
-export type { RuntimeStateSnapshot } from "./runtime_state.js";
 export type { ToolAuthority, ToolContext, ToolDefinition, ToolResult } from "./capabilities/tooling/types.js";
 
 export type { MemoryStore } from "./capabilities/memory/store/memory_store.js";
