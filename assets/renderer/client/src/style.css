@@ -748,7 +748,7 @@ body[data-scene="standalone"] .stage-scene {
 body[data-scene="standalone"] .stage-topbar {
   position: relative;
   z-index: 4;
-  display: flex;
+  display: none;
 }
 
 body[data-scene="standalone"] .stage-eyebrow {
@@ -775,7 +775,7 @@ body[data-scene="standalone"] .stage-center {
 }
 
 body[data-scene="standalone"] .program-layer {
-  display: block;
+  display: none;
   inset: auto clamp(0.8rem, 2vw, 2rem) clamp(7.2rem, 15vh, 10rem) auto;
   width: min(18rem, calc(100vw - 1.6rem));
   padding: 0;

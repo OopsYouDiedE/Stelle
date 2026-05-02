@@ -93,7 +93,7 @@ describe("cursor modularization", () => {
     await cursor.stop();
   });
 
-  it("bridges legacy and typed danmaku live events to the danmaku cursor", async () => {
+  it("bridges legacy and typed danmaku live events to the danmaku cursor without duplicates", async () => {
     const context = makeContext();
     const cursor = new LiveDanmakuCursor(context);
     const receiveSpy = vi
@@ -101,8 +101,21 @@ describe("cursor modularization", () => {
       .mockResolvedValue({ accepted: true, reason: "mocked" } as any);
 
     await cursor.initialize();
-    context.eventBus.publish({ type: "live.event.danmaku", source: "system", payload: { text: "new" } });
-    context.eventBus.publish({ type: "live.danmaku.received", source: "system", payload: { text: "legacy" } });
+    context.eventBus.publish({
+      type: "live.event.received",
+      source: "system",
+      payload: { id: "same-live-event", source: "fixture", text: "typed" },
+    });
+    context.eventBus.publish({
+      type: "live.event.danmaku",
+      source: "system",
+      payload: { id: "new-live-event", source: "fixture", text: "new" },
+    });
+    context.eventBus.publish({
+      type: "live.danmaku.received",
+      source: "system",
+      payload: { id: "same-live-event", source: "fixture", text: "legacy duplicate" },
+    });
 
     expect(receiveSpy).toHaveBeenCalledTimes(2);
     await cursor.stop();

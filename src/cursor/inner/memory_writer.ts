@@ -61,6 +61,7 @@ export class DefaultMemoryWriter implements InnerMemoryWriter {
       content: proposal.change,
       reason: `${proposal.rationale} (confidence=${proposal.confidence})`,
       layer: "core_identity",
+      confidence: proposal.confidence >= 0.8 ? "high" : proposal.confidence >= 0.5 ? "medium" : "low",
     });
   }
 

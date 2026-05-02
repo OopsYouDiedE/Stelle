@@ -85,6 +85,9 @@ describe("StageOutputArbiter", () => {
     const d2 = await arbiter.propose(intent2);
     expect(d2.status).toBe("queued");
     expect(mockRenderer.render).toHaveBeenCalledTimes(1);
+    expect(arbiter.snapshot().queuedOutputs).toEqual([
+      expect.objectContaining({ id: "2", lane: "live_chat", text: "Second", ttlRemainingMs: 5000 }),
+    ]);
 
     // Finish first
     resolveFirst!(undefined);
@@ -98,6 +101,44 @@ describe("StageOutputArbiter", () => {
       expect.objectContaining({ id: "2", text: "Second" }),
       expect.any(AbortSignal),
     );
+  });
+
+  it("splits long output into ordered queued chunks before applying text budgets", async () => {
+    let resolveFirst: (v: void) => void;
+    const rendered: string[] = [];
+    mockRenderer.render = vi.fn().mockImplementation((intent) => {
+      rendered.push(intent.text);
+      if (intent.id === "long-topic") {
+        return new Promise((r) => {
+          resolveFirst = r;
+        });
+      }
+      return Promise.resolve();
+    });
+
+    const decision = await arbiter.propose({
+      id: "long-topic",
+      cursorId: "topic_script_runtime",
+      lane: "topic_hosting",
+      priority: 40,
+      salience: "low",
+      text: "第一句先把主题展开，说清楚意识不是一个开关，而是一串持续被记住的关系。第二句继续往下讲，我会从记忆、边界和观众反馈里慢慢长出形状。",
+      ttlMs: 90_000,
+      interrupt: "none",
+      output: { caption: true },
+      estimatedDurationMs: 0,
+    });
+
+    expect(decision.status).toBe("accepted");
+    expect(arbiter.snapshot().queueLength).toBeGreaterThan(0);
+
+    resolveFirst!(undefined);
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(rendered.length).toBeGreaterThan(1);
+    expect(rendered.join("")).toContain("观众反馈");
+    expect(rendered.some((text) => text.includes("..."))).toBe(false);
+    expect(rendered.every((text) => text.length <= 40)).toBe(true);
   });
 
   it("should handle hard interrupt with cancellation", async () => {

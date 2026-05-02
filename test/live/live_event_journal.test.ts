@@ -27,6 +27,7 @@ describe("LiveEventJournal", () => {
       payload: { reason: "duplicate" },
     });
 
+    await new Promise((resolve) => setTimeout(resolve, 0));
     await journal.stop();
     const records = await readLiveJournal(journal.eventPath);
 

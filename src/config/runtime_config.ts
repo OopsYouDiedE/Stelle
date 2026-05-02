@@ -27,6 +27,7 @@ export interface DiscordConfig {
   enabled: boolean;
   token?: string;
   ambientEnabled: boolean;
+  ambientChannelIds: string[];
   maxReplyChars: number;
   cooldownSeconds: number;
 }
@@ -167,6 +168,7 @@ export function loadRuntimeConfig(): RuntimeConfig {
 
   // Cursor aliases. Canonical module ids override short aliases when both are present.
   const discordCursor = mergeRecords(asRecord(cursors.discord), asRecord(cursors.discord_text_channel));
+  const legacyDiscordChannels = asRecord(rawYaml.channels);
   const liveCursor = mergeRecords(asRecord(cursors.live), asRecord(cursors.live_danmaku));
   const liveRoot = mergeRecords(asRecord(rawYaml.live), liveCursor);
   const browserCursor = asRecord(cursors.browser);
@@ -217,6 +219,7 @@ export function loadRuntimeConfig(): RuntimeConfig {
       enabled: discordCursor.enabled !== false,
       token: process.env.DISCORD_TOKEN,
       ambientEnabled: discordCursor.ambientEnabled !== false,
+      ambientChannelIds: loadDiscordAmbientChannelIds(legacyDiscordChannels),
       maxReplyChars: clamp(Number(discordCursor.maxReplyChars || 900), 100, 4000, 900),
       cooldownSeconds: clamp(Number(discordCursor.cooldownSeconds || 240), 0, 3600, 240),
     },
@@ -227,7 +230,7 @@ export function loadRuntimeConfig(): RuntimeConfig {
       ttsEnabled:
         (liveCursor.ttsEnabled ?? process.env.LIVE_TTS_ENABLED) !== false && process.env.LIVE_TTS_ENABLED !== "false",
       obsControlEnabled: liveCursor.obsControlEnabled === true || process.env.OBS_CONTROL_ENABLED === "true",
-      speechQueueLimit: clamp(process.env.LIVE_SPEECH_QUEUE_LIMIT ?? liveCursor.speechQueueLimit, 1, 12, 3),
+      speechQueueLimit: clamp(process.env.LIVE_SPEECH_QUEUE_LIMIT ?? liveCursor.speechQueueLimit, 1, 32, 12),
       platforms: loadLivePlatformsConfig(liveRoot),
       thanks: loadLiveThanksConfig(liveRoot),
       idle: loadLiveIdleConfig(liveRoot),
@@ -316,6 +319,21 @@ function loadLivePlatformsConfig(liveRoot: Record<string, unknown>): LivePlatfor
   };
 }
 
+function loadDiscordAmbientChannelIds(legacyChannels: Record<string, unknown>): string[] {
+  const envIds = csvList(process.env.DISCORD_AMBIENT_CHANNEL_IDS);
+  if (envIds.length > 0) return envIds;
+
+  const legacyIds = Object.entries(legacyChannels)
+    .filter(([, value]) => asRecord(value).activated === true)
+    .map(([channelId]) => channelId);
+  if (legacyIds.length > 0) {
+    console.warn(
+      "[Config] config.yaml channels is deprecated. Move ambient Discord channel ids to DISCORD_AMBIENT_CHANNEL_IDS.",
+    );
+  }
+  return legacyIds;
+}
+
 function loadLiveThanksConfig(liveRoot: Record<string, unknown>): LiveThanksConfig {
   const thanks = asRecord(liveRoot.thanks);
   return {
@@ -365,6 +383,14 @@ function loadLiveScheduleConfig(liveRoot: Record<string, unknown>): LiveSchedule
 function stringList(value: unknown, fallback: string[]): string[] {
   const list = Array.isArray(value) ? value.map((item) => String(item).trim()).filter(Boolean) : [];
   return list.length ? list : fallback;
+}
+
+function csvList(value: unknown): string[] {
+  if (typeof value !== "string") return [];
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function bool(value: unknown, fallback: boolean): boolean {

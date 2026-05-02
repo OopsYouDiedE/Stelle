@@ -105,6 +105,7 @@ describe("LiveDanmakuCursor pending batch queue", () => {
   });
 
   it("routes addressable danmaku responses through StageOutput as direct_response", async () => {
+    const eventBus = new StelleEventBus();
     const generateJson = vi.fn().mockImplementation(async (_prompt, _schema, normalize) =>
       normalize({
         action: "respond_to_specific",
@@ -122,6 +123,7 @@ describe("LiveDanmakuCursor pending batch queue", () => {
     };
     const cursor = new LiveDanmakuCursor(
       fakeContext({
+        eventBus,
         llm: { generateJson, generateText: vi.fn() },
         stageOutput,
       }),
@@ -144,6 +146,7 @@ describe("LiveDanmakuCursor pending batch queue", () => {
         output: expect.objectContaining({ caption: true, tts: false }),
       }),
     );
+    expect(eventBus.getHistory().some((event) => event.type === "live.route.decision")).toBe(true);
   });
 });
 

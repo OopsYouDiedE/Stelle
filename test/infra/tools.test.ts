@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import { createDefaultToolRegistry, ToolRegistry } from "../../src/tool.js";
+import { z } from "zod";
+import { createDefaultToolRegistry, sideEffects, ToolRegistry } from "../../src/tool.js";
 
 describe("ToolRegistry & Single Call Test", () => {
   it("should correctly register and find tools", () => {
@@ -74,5 +75,49 @@ describe("ToolRegistry & Single Call Test", () => {
     );
     expect(coreResult.ok).toBe(false);
     expect(coreResult.error?.code).toBe("tool_not_whitelisted");
+  });
+
+  it("rate-limits tools inside their configured budget window", async () => {
+    const registry = new ToolRegistry({ budgets: { limited: { maxCalls: 1, windowMs: 60_000 } } });
+    registry.register({
+      name: "limited",
+      title: "Limited",
+      description: "Limited test tool",
+      authority: "readonly",
+      inputSchema: z.object({}),
+      sideEffects: sideEffects(),
+      execute: vi.fn().mockResolvedValue({ ok: true, summary: "ok" }),
+    });
+
+    const context = { caller: "system" as const, cwd: process.cwd(), allowedAuthority: ["readonly" as const] };
+    expect((await registry.execute("limited", {}, context)).ok).toBe(true);
+
+    const limited = await registry.execute("limited", {}, context);
+    expect(limited.ok).toBe(false);
+    expect(limited.error?.code).toBe("tool_rate_limited");
+  });
+
+  it("opens a circuit after repeated tool failures", async () => {
+    const registry = new ToolRegistry({
+      budgets: { flaky: { maxCalls: 10, failureThreshold: 2, circuitOpenMs: 60_000 } },
+    });
+    registry.register({
+      name: "flaky",
+      title: "Flaky",
+      description: "Flaky test tool",
+      authority: "readonly",
+      inputSchema: z.object({}),
+      sideEffects: sideEffects(),
+      execute: vi.fn().mockResolvedValue({ ok: false, summary: "nope", error: { code: "nope", message: "nope", retryable: true } }),
+    });
+    const context = { caller: "system" as const, cwd: process.cwd(), allowedAuthority: ["readonly" as const] };
+
+    await registry.execute("flaky", {}, context);
+    await registry.execute("flaky", {}, context);
+    const circuit = await registry.execute("flaky", {}, context);
+
+    expect(circuit.ok).toBe(false);
+    expect(circuit.error?.code).toBe("tool_circuit_open");
+    expect(registry.getHealth().find((item) => item.toolName === "flaky")?.circuitOpenUntil).toBeGreaterThan(Date.now());
   });
 });

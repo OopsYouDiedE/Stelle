@@ -106,7 +106,7 @@ export class LiveHealthService {
             break;
           }
         }
-      }),
+      }, { maxPending: 200, dropWhenFull: "oldest" }),
     );
 
     this.timer = setInterval(() => {

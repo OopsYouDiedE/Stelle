@@ -19,6 +19,7 @@ export type OutputDecisionStatus = "accepted" | "queued" | "dropped" | "interrup
 export interface OutputIntent {
   id: string;
   cursorId: string;
+  createdAt?: number;
   sourceEventId?: string;
   groupId?: string;
   sequence?: number;
@@ -57,6 +58,41 @@ export interface StageOutputRecord {
   completedAt?: number;
 }
 
+export interface StageQueuedOutputSnapshot {
+  id: string;
+  cursorId: string;
+  lane: OutputLane;
+  groupId?: string;
+  sequence?: number;
+  createdAt: number;
+  priority: number;
+  salience: OutputSalience;
+  text: string;
+  enqueuedAt: number;
+  ttlMs: number;
+  ttlRemainingMs: number;
+}
+
+export type StageOutputDeliveryTarget =
+  | "live.caption"
+  | "live.tts"
+  | "live.panel"
+  | "live.motion"
+  | "live.expression"
+  | "discord.reply";
+
+export interface StageOutputDeliveryRecord {
+  target: StageOutputDeliveryTarget;
+  ok: boolean;
+  summary: string;
+  errorCode?: string;
+}
+
+export interface StageOutputDeliveryReport {
+  outputId: string;
+  records: StageOutputDeliveryRecord[];
+}
+
 export interface StageOutputDecision {
   status: OutputDecisionStatus;
   outputId: string;
@@ -78,6 +114,7 @@ export interface StageOutputState {
   motionBusyUntil: number;
   queueLength: number;
   recentOutputs: StageOutputRecord[];
+  queuedOutputs?: StageQueuedOutputSnapshot[];
   stageOwner?: {
     cursorId: string;
     topic?: string;
@@ -105,6 +142,6 @@ export interface StageOutputArbiterDeps {
 }
 
 export interface StageOutputRenderer {
-  render(intent: OutputIntent, signal?: AbortSignal): Promise<void>;
+  render(intent: OutputIntent, signal?: AbortSignal): Promise<void | StageOutputDeliveryReport>;
   stopCurrentOutput(): Promise<void>;
 }

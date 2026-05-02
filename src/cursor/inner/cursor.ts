@@ -92,6 +92,7 @@ export class InnerCursor implements StelleCursor {
   private pendingImpactScore = 0;
   private lastReflectionAt = 0;
   private lastCoreReflectionAt = 0;
+  private nextCoreReflectionDueAt = 0;
   private isReflecting = false;
   private unsubscribes: (() => void)[] = [];
   private currentFocus = "保持轻量观察：先关注最近对话里反复出现的关系、情绪和未完成问题。";
@@ -110,6 +111,7 @@ export class InnerCursor implements StelleCursor {
   constructor(private readonly context: CursorContext) {
     this.lastReflectionAt = context.now();
     this.lastCoreReflectionAt = context.now();
+    this.nextCoreReflectionDueAt = context.now() + this.coreReflectionIntervalMs();
     const semanticService =
       (context.config.core as any).semanticResearchAgenda === true ? new SemanticClusterService(context) : undefined;
 
@@ -142,6 +144,28 @@ export class InnerCursor implements StelleCursor {
           this.receiveDispatch(event);
         },
       ),
+      this.context.eventBus.subscribe("stage.output.delivery_failed", (event) => {
+        this.recordDecision({
+          id: event.id,
+          source: "stage_output",
+          type: event.type,
+          summary: `Stage output delivery failed: ${event.payload.reason ?? event.payload.intent.id}`,
+          timestamp: event.timestamp,
+          impactScore: 4,
+          salience: "medium",
+        });
+      }),
+      this.context.eventBus.subscribe("stage.output.partially_delivered", (event) => {
+        this.recordDecision({
+          id: event.id,
+          source: "stage_output",
+          type: event.type,
+          summary: `Stage output partially delivered: ${event.payload.reason ?? event.payload.intent.id}`,
+          timestamp: event.timestamp,
+          impactScore: 3,
+          salience: "medium",
+        });
+      }),
     );
 
     if (!this.context.memory) return;
@@ -264,8 +288,7 @@ export class InnerCursor implements StelleCursor {
       await this.triggerCognitiveSynthesis();
     }
 
-    const coreInterval = Math.max(1, this.context.config.core.reflectionIntervalHours) * 60 * 60 * 1000;
-    if (now - this.lastCoreReflectionAt > coreInterval && !this.isReflecting) {
+    if (now >= this.nextCoreReflectionDueAt && !this.isReflecting) {
       await this.triggerCoreReflection();
     }
   }
@@ -413,6 +436,8 @@ export class InnerCursor implements StelleCursor {
     if (this.isReflecting || !this.context.config.models.apiKey || !this.context.memory) return;
     this.isReflecting = true;
     this.status = "active";
+    const startedAt = this.context.now();
+    this.nextCoreReflectionDueAt = startedAt + this.coreReflectionIntervalMs();
 
     try {
       const previousFocus = await this.context.memory.readLongTerm("current_focus", "self_state");
@@ -441,6 +466,8 @@ export class InnerCursor implements StelleCursor {
         this.lastCoreReflectionAt = this.context.now();
         this.addReflection(`Core focus updated: ${truncateText(this.currentFocus, 60)}`);
       }
+    } catch (error) {
+      console.error("[InnerCursor] Core reflection failed:", error);
     } finally {
       this.isReflecting = false;
       this.status = "idle";
@@ -670,6 +697,7 @@ export class InnerCursor implements StelleCursor {
         convictionsCount: this.coreConvictions.length,
         unreflectedCount: this.unreflectedCount,
         lastCoreReflectionAt: this.lastCoreReflectionAt,
+        nextCoreReflectionDueAt: this.nextCoreReflectionDueAt,
         currentFocusSummary: truncateText(this.currentFocus, 100),
         fieldNotesCount: this.recentFieldNotes.length,
         recommendedLiveFocus: this.recommendedLiveFocus,
@@ -709,5 +737,9 @@ export class InnerCursor implements StelleCursor {
   private addReflection(text: string): void {
     this.reflections.push(`[${new Date().toLocaleTimeString()}] ${text}`);
     while (this.reflections.length > 50) this.reflections.shift();
+  }
+
+  private coreReflectionIntervalMs(): number {
+    return Math.max(1, this.context.config.core.reflectionIntervalHours) * 60 * 60 * 1000;
   }
 }

@@ -118,11 +118,16 @@ export const LiveEventReceivedSchema = z.union([
   LiveEventReceivedBaseSchema.extend({ type: z.literal("live.platform.status_changed") }),
   LiveEventReceivedBaseSchema.extend({ type: z.literal("live.platform.error") }),
   LiveEventReceivedBaseSchema.extend({ type: z.literal("live.tts.status") }),
+  LiveEventReceivedBaseSchema.extend({ type: z.literal("live.tts.chunk") }),
+  LiveEventReceivedBaseSchema.extend({ type: z.literal("live.tts.realtime.status") }),
   LiveEventReceivedBaseSchema.extend({ type: z.literal("live.tts.error") }),
   LiveEventReceivedBaseSchema.extend({ type: z.literal("live.moderation.decision") }),
+  LiveEventReceivedBaseSchema.extend({ type: z.literal("live.route.decision") }),
   LiveEventReceivedBaseSchema.extend({ type: z.literal("live.health.updated") }),
   LiveEventReceivedBaseSchema.extend({ type: z.literal("live.control.command") }),
   LiveEventReceivedBaseSchema.extend({ type: z.literal("live.program.updated") }),
+  LiveEventReceivedBaseSchema.extend({ type: z.literal("live.emergency_slot.requested") }),
+  LiveEventReceivedBaseSchema.extend({ type: z.literal("live.emergency_slot.resolved") }),
   LiveEventReceivedBaseSchema.extend({ type: z.literal("scene.observation.received") }),
   EventMetadataSchema.extend({
     type: z.literal("live.output.proposal"),
@@ -220,6 +225,7 @@ const OutputLaneSchema = z.enum([
 const OutputIntentSchema = z.object({
   id: z.string(),
   cursorId: z.string(),
+  createdAt: z.number().optional(),
   sourceEventId: z.string().optional(),
   groupId: z.string().optional(),
   sequence: z.number().optional(),
@@ -253,6 +259,7 @@ const StageOutputEventBaseSchema = EventMetadataSchema.extend({
   payload: z.object({
     intent: OutputIntentSchema,
     reason: z.string().optional(),
+    delivery: z.record(z.any()).optional(),
   }),
 });
 
@@ -264,6 +271,8 @@ export const StageOutputEventSchema = z.union([
   StageOutputEventBaseSchema.extend({ type: z.literal("stage.output.started") }),
   StageOutputEventBaseSchema.extend({ type: z.literal("stage.output.completed") }),
   StageOutputEventBaseSchema.extend({ type: z.literal("stage.output.interrupted") }),
+  StageOutputEventBaseSchema.extend({ type: z.literal("stage.output.delivery_failed") }),
+  StageOutputEventBaseSchema.extend({ type: z.literal("stage.output.partially_delivered") }),
 ]);
 
 export const StagePolicyOverlayEventSchema = EventMetadataSchema.extend({

@@ -14,6 +14,15 @@ export interface RendererCommand {
   source?: string;
   status?: string;
   provider?: string;
+  audioId?: string;
+  durationHintMs?: number;
+  streamId?: string;
+  index?: number;
+  audioBase64?: string;
+  audioFormat?: string;
+  sampleRate?: number;
+  chunks?: number;
+  byteLength?: number;
   widget?: ProgramWidgetName;
   scene?: string;
   background?: string;

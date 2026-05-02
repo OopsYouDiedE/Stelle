@@ -41,10 +41,12 @@ export interface MemoryStoreOptions {
   recentLimit?: number;
   compactionEnabled?: boolean;
   llm?: import("./llm.js").LlmClient;
+  proposalAutoApproveMinConfidence?: MemoryProposalConfidence | false;
 }
 
 export const MEMORY_LAYERS = ["observations", "user_facts", "self_state", "core_identity", "research_logs"] as const;
 export type MemoryLayer = (typeof MEMORY_LAYERS)[number];
+export type MemoryProposalConfidence = "high" | "medium" | "low";
 
 export interface MemoryProposal {
   id: string;
@@ -54,6 +56,7 @@ export interface MemoryProposal {
   content: string;
   reason: string;
   layer: MemoryLayer;
+  confidence: MemoryProposalConfidence;
 }
 
 export type MemoryProposalStatus = "pending" | "approved" | "rejected";

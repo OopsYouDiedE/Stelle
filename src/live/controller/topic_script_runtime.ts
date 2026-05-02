@@ -35,7 +35,13 @@ export class TopicScriptRuntimeService {
   private unsubscribes: Array<() => void> = [];
   private script?: CompiledTopicScript;
   private sectionStartedAt = 0;
+  private sectionBeatAt = 0;
+  private sectionBeatIndex = 0;
+  private emergencyStartedAt = 0;
+  private emergencyOutputId?: string;
   private state: TopicScriptRuntimeState;
+  private readonly sectionBeatIntervalMs = 35_000;
+  private readonly sectionPrefillCount = 5;
 
   constructor(private readonly deps: TopicScriptRuntimeDeps) {
     this.repository = deps.repository ?? new TopicScriptRepository();
@@ -59,6 +65,10 @@ export class TopicScriptRuntimeService {
     );
     this.unsubscribes.push(
       this.deps.eventBus.subscribe("stage.output.completed", (event) => {
+        if (event.payload.intent.id === this.emergencyOutputId) {
+          this.resolveEmergency("stage_completed");
+          return;
+        }
         if (event.payload.intent.cursorId === "topic_script_runtime") {
           void this.advance("stage_completed").catch((error) => this.fail(error));
         }
@@ -67,6 +77,16 @@ export class TopicScriptRuntimeService {
     this.unsubscribes.push(
       this.deps.eventBus.subscribe("core.tick", () => {
         void this.advance("tick").catch((error) => this.fail(error));
+      }),
+    );
+    this.unsubscribes.push(
+      this.deps.eventBus.subscribe("live.tick", () => {
+        void this.advance("live_tick").catch((error) => this.fail(error));
+      }),
+    );
+    this.unsubscribes.push(
+      this.deps.eventBus.subscribe("live.emergency_slot.requested", (event) => {
+        void this.handleEmergencySlot(event.payload).catch((error) => this.fail(error));
       }),
     );
     await this.loadLatestApproved();
@@ -165,11 +185,62 @@ export class TopicScriptRuntimeService {
     });
   }
 
+  private async handleEmergencySlot(payload: Record<string, unknown>): Promise<void> {
+    if (this.state.status !== "running" || !this.script) return;
+    if (this.emergencyOutputId) return;
+    const section = this.currentSection();
+    if (!section) return;
+    const reason = String(payload.reason ?? "emergency");
+    const text = String(payload.text ?? "");
+    const line =
+      reason === "topic_burst"
+        ? `这个话题突然刷起来了，我先插一句：${text}`
+        : `我先回应这个高优先级事件：${text || reason}`;
+    this.emergencyStartedAt = this.now();
+    this.emergencyOutputId = `topic-script-emergency-${this.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    await this.deps.stageOutput.propose({
+      id: this.emergencyOutputId,
+      cursorId: "topic_script_runtime",
+      lane: "emergency",
+      priority: 95,
+      salience: "critical",
+      text: line,
+      summary: line,
+      topic: this.script.title,
+      ttlMs: 30_000,
+      interrupt: "soft",
+      output: { caption: true, tts: true },
+      metadata: {
+        source: "emergency_slot",
+        reason,
+        section_id: section.id,
+        script_id: this.script.scriptId,
+        revision: this.script.revision,
+      },
+    });
+  }
+
+  private resolveEmergency(reason: string): void {
+    const now = this.now();
+    const pausedMs = this.emergencyStartedAt ? now - this.emergencyStartedAt : 0;
+    if (pausedMs > 0) {
+      this.sectionStartedAt += pausedMs;
+      this.sectionBeatAt += pausedMs;
+    }
+    const outputId = this.emergencyOutputId;
+    this.emergencyStartedAt = 0;
+    this.emergencyOutputId = undefined;
+    this.publish("live.emergency_slot.resolved", { reason, outputId, pausedMs });
+  }
+
   private async advance(reason: string): Promise<void> {
     if (this.state.status !== "running" || !this.script) return;
     const section = this.currentSection();
     if (!section) return;
-    if (this.sectionStartedAt && this.now() - this.sectionStartedAt < section.durationSec * 1000) return;
+    if (this.sectionStartedAt && this.now() - this.sectionStartedAt < section.durationSec * 1000) {
+      await this.maybeFillSectionBuffer(section, reason);
+      return;
+    }
     this.publish("topic_script.section_completed", { sectionId: section.id, reason });
     this.state = { ...this.state, sectionIndex: this.state.sectionIndex + 1, updatedAt: this.now() };
     await this.enterCurrentSection(reason);
@@ -184,6 +255,8 @@ export class TopicScriptRuntimeService {
       return;
     }
     this.sectionStartedAt = this.now();
+    this.sectionBeatAt = this.now();
+    this.sectionBeatIndex = 0;
     this.state = { ...this.state, status: "running", sectionId: section.id, updatedAt: this.now() };
     this.publish("topic_script.section_started", {
       scriptId: this.script.scriptId,
@@ -196,11 +269,64 @@ export class TopicScriptRuntimeService {
       await this.forceFallback("empty_section");
       return;
     }
-    await this.propose(firstLine, section, "topic_hosting", 40, "low", "none", { source: "section_start", reason });
+    await this.propose(firstLine, section, "topic_hosting", 40, "low", "none", {
+      source: "section_start",
+      reason,
+      beatIndex: this.sectionBeatIndex++,
+    });
+    await this.prefillSectionBuffer(section, firstLine, reason);
   }
 
   private currentSection(): CompiledTopicScriptSection | undefined {
     return this.script?.sections[this.state.sectionIndex];
+  }
+
+  private async prefillSectionBuffer(
+    section: CompiledTopicScriptSection,
+    firstLine: string,
+    reason: string,
+  ): Promise<void> {
+    const candidates = this.sectionBeatCandidates(section).filter((line) => line !== firstLine);
+    for (let index = 0; index < Math.min(this.sectionPrefillCount, candidates.length); index += 1) {
+      await this.propose(candidates[index], section, "topic_hosting", 38, "low", "none", {
+        source: "section_buffer",
+        reason,
+        beatIndex: this.sectionBeatIndex++,
+      });
+    }
+  }
+
+  private async maybeFillSectionBuffer(section: CompiledTopicScriptSection, reason: string): Promise<void> {
+    const now = this.now();
+    const stage = this.deps.stageOutput.snapshot();
+    if (stage.queueLength >= this.sectionPrefillCount) return;
+    if (this.sectionBeatAt && now - this.sectionBeatAt < this.sectionBeatIntervalMs) return;
+
+    const candidates = this.sectionBeatCandidates(section);
+    if (candidates.length === 0) return;
+    const text = candidates[this.sectionBeatIndex % candidates.length];
+    this.sectionBeatAt = now;
+    await this.propose(text, section, "topic_hosting", 37, "low", "none", {
+      source: "section_beat",
+      reason,
+      beatIndex: this.sectionBeatIndex++,
+    });
+  }
+
+  private sectionBeatCandidates(section: CompiledTopicScriptSection): string[] {
+    const lines = [
+      ...section.softLines,
+      ...section.questionPrompts,
+      ...section.fallbackLines,
+      ...section.lockedLines.slice(1),
+    ];
+    const seen = new Set<string>();
+    return lines.filter((line) => {
+      const trimmed = line.trim();
+      if (!trimmed || seen.has(trimmed)) return false;
+      seen.add(trimmed);
+      return true;
+    });
   }
 
   private async propose(
@@ -221,7 +347,7 @@ export class TopicScriptRuntimeService {
       text,
       summary: text,
       topic: this.script?.title,
-      ttlMs: lane === "direct_response" ? 30_000 : 20_000,
+      ttlMs: lane === "direct_response" ? 30_000 : 90_000,
       interrupt,
       output: { caption: true, tts: true },
       metadata: {

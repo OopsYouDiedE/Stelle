@@ -6,7 +6,7 @@
 import crypto from "node:crypto";
 import type { LiveRendererCommand, LiveRendererServer } from "../live/infra/renderer_server.js";
 import { sanitizeExternalText } from "./text.js";
-import { buildLiveTtsRequest } from "./tts.js";
+import { buildLiveTtsRequest, DashScopeRealtimeTtsClient, getConfiguredLiveTtsTransport } from "./tts.js";
 import type { StelleEventBus } from "./event_bus.js";
 
 // === Types & Interfaces ===
@@ -107,6 +107,7 @@ export class HttpLiveRendererBridge implements LiveRendererBridge {
 export class LiveRuntime {
   private active = false;
   private stage: LiveStageState = { visible: true };
+  private realtimeTts?: DashScopeRealtimeTtsClient;
 
   constructor(
     readonly obs: ObsController = new ObsWebSocketController(),
@@ -247,6 +248,30 @@ export class LiveRuntime {
       stream: typeof request.stream === "boolean" ? request.stream : undefined,
     });
 
+    if (liveTts.provider === "dashscope" && getConfiguredLiveTtsTransport() === "realtime_ws") {
+      try {
+        return await this.playRealtimeTtsStream(caption, speaker, rateMs, request);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.publishTtsError(message, "dashscope_realtime");
+        await this.renderer?.publish({
+          type: "audio:status",
+          status: "realtime fallback",
+          provider: "dashscope",
+          text: message,
+        });
+      }
+    }
+
+    return this.playHttpTtsStream(caption, speaker, rateMs, liveTts);
+  }
+
+  private async playHttpTtsStream(
+    caption: string,
+    speaker: string,
+    rateMs: number | undefined,
+    liveTts: ReturnType<typeof buildLiveTtsRequest>,
+  ): Promise<LiveActionResult> {
     const id = `${liveTts.provider}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const url = `/tts/${liveTts.provider}/${id}`;
 
@@ -259,6 +284,7 @@ export class LiveRuntime {
     });
     await this.renderer?.publish({
       type: "audio:stream",
+      audioId: id,
       url,
       provider: liveTts.provider,
       request: liveTts.request,
@@ -271,9 +297,78 @@ export class LiveRuntime {
     return liveOk(`Queued live ${liveTts.provider} stream playback: ${url}.`, this.stage);
   }
 
+  private async playRealtimeTtsStream(
+    caption: string,
+    speaker: string,
+    rateMs: number | undefined,
+    request: Record<string, unknown>,
+  ): Promise<LiveActionResult> {
+    const client = this.realtimeTts ?? new DashScopeRealtimeTtsClient();
+    this.realtimeTts = client;
+    const streamId = `rt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const sampleRate = Number(process.env.QWEN_TTS_REALTIME_SAMPLE_RATE ?? 24000);
+    const format = String(process.env.QWEN_TTS_REALTIME_FORMAT ?? "pcm");
+
+    this.publishRealtimeStatus("starting", "dashscope", caption);
+    await this.renderer?.publish({
+      type: "audio:chunk:start",
+      audioId: streamId,
+      streamId,
+      provider: "dashscope",
+      text: caption,
+      speaker,
+      rateMs,
+      audioFormat: format,
+      sampleRate,
+    });
+    await this.renderer?.publish({
+      type: "audio:status",
+      status: "realtime streaming",
+      provider: "dashscope",
+      text: caption,
+    });
+
+    const result = await client.synthesize(caption, (chunk) => {
+      this.eventBus?.publish({
+        type: "live.tts.chunk",
+        source: "live_runtime",
+        id: `live-tts-chunk-${streamId}-${chunk.index}`,
+        timestamp: Date.now(),
+        payload: {
+          streamId,
+          provider: "dashscope",
+          index: chunk.index,
+          byteLength: chunk.byteLength,
+          responseId: chunk.responseId,
+        },
+      } as any);
+      void this.renderer?.publish({
+        type: "audio:chunk",
+        streamId,
+        provider: "dashscope",
+        index: chunk.index,
+        audioBase64: chunk.base64,
+        audioFormat: format,
+        sampleRate,
+      });
+    });
+
+    await this.renderer?.publish({
+      type: "audio:chunk:end",
+      streamId,
+      provider: "dashscope",
+      chunks: result.chunks,
+      byteLength: result.bytes,
+    });
+    this.publishRealtimeStatus("completed", "dashscope", caption, result);
+    return liveOk(`Streamed live DashScope Realtime TTS (${result.chunks} chunks).`, this.stage);
+  }
+
   async stopAudio(): Promise<LiveActionResult> {
     await this.renderer?.publish({ type: "audio:status", status: "stopped" });
     await this.renderer?.publish({ type: "audio:stop" });
+    await this.realtimeTts?.finish().catch(() => undefined);
+    this.realtimeTts = undefined;
     this.publishTtsStatus("stopped");
     return liveOk("Stopped live audio.", this.stage);
   }
@@ -285,6 +380,26 @@ export class LiveRuntime {
       id: `live-tts-${status}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       timestamp: Date.now(),
       payload: { status, provider, text },
+    } as any);
+  }
+
+  private publishRealtimeStatus(status: string, provider?: string, text?: string, result?: unknown): void {
+    this.eventBus?.publish({
+      type: "live.tts.realtime.status",
+      source: "live_runtime",
+      id: `live-tts-realtime-${status}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      timestamp: Date.now(),
+      payload: { status, provider, text, result },
+    } as any);
+  }
+
+  private publishTtsError(error: string, provider?: string): void {
+    this.eventBus?.publish({
+      type: "live.tts.error",
+      source: "live_runtime",
+      id: `live-tts-error-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      timestamp: Date.now(),
+      payload: { error, provider },
     } as any);
   }
 }

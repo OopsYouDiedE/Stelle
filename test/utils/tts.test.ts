@@ -7,6 +7,8 @@ import {
   buildDashScopeSpeechRequest,
   buildLiveTtsRequest,
   fetchLiveTtsAudio,
+  getConfiguredLiveTtsTransport,
+  parseDashScopeRealtimeAudioDelta,
 } from "../../src/utils/tts.js";
 import { LiveRuntime, type LiveRendererBridge } from "../../src/utils/live.js";
 
@@ -157,5 +159,23 @@ describe("DashScope Qwen-TTS", () => {
         response_format: "wav",
       }),
     });
+  });
+
+  it("selects realtime transport only when explicitly configured", () => {
+    delete process.env.LIVE_TTS_TRANSPORT;
+    expect(getConfiguredLiveTtsTransport()).toBe("http_sse");
+
+    process.env.LIVE_TTS_TRANSPORT = "realtime_ws";
+    expect(getConfiguredLiveTtsTransport()).toBe("realtime_ws");
+
+    process.env.LIVE_TTS_TRANSPORT = "websocket";
+    expect(getConfiguredLiveTtsTransport()).toBe("realtime_ws");
+  });
+
+  it("parses DashScope realtime audio delta events", () => {
+    const base64 = Buffer.from([1, 2, 3]).toString("base64");
+
+    expect(parseDashScopeRealtimeAudioDelta({ type: "response.audio.delta", delta: base64 })).toBe(base64);
+    expect(parseDashScopeRealtimeAudioDelta({ type: "response.created", response: { id: "r1" } })).toBeUndefined();
   });
 });

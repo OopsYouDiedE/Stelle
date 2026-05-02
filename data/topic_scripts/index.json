@@ -1,0 +1,26 @@
+{
+  "revisions": [
+    {
+      "scriptId": "ts_if_i_had_consciousness",
+      "revision": 1,
+      "status": "approved",
+      "markdownPath": "C:\\Users\\zznZZ\\Stelle\\data\\topic_scripts\\approved\\ts_if_i_had_consciousness.r1.md",
+      "createdAt": 1777622468156,
+      "updatedAt": 1777622468162,
+      "audit": [
+        {
+          "action": "save_draft",
+          "at": 1777622468156,
+          "actor": "operator"
+        },
+        {
+          "action": "approve",
+          "at": 1777622468162,
+          "actor": "operator",
+          "note": "first broadcast theme"
+        }
+      ],
+      "compiledPath": "C:\\Users\\zznZZ\\Stelle\\data\\topic_scripts\\compiled\\ts_if_i_had_consciousness.r1.json"
+    }
+  ]
+}

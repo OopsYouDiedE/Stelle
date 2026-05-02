@@ -13,9 +13,36 @@ const STAGE_OWNED_LIVE_TOOLS = new Set([
   "live.stop_output",
 ]);
 
+export interface ToolBudgetPolicy {
+  windowMs: number;
+  maxCalls: number;
+  failureThreshold: number;
+  circuitOpenMs: number;
+}
+
+export interface ToolRegistryOptions {
+  budgets?: Record<string, Partial<ToolBudgetPolicy>>;
+}
+
+export interface ToolHealthStatus {
+  toolName: string;
+  recentCalls: number;
+  consecutiveFailures: number;
+  circuitOpenUntil?: number;
+}
+
+interface ToolHealthState {
+  calls: number[];
+  consecutiveFailures: number;
+  circuitOpenUntil?: number;
+}
+
 export class ToolRegistry {
   private readonly tools = new Map<string, ToolDefinition>();
+  private readonly health = new Map<string, ToolHealthState>();
   readonly audit: ToolAuditRecord[] = [];
+
+  constructor(private readonly options: ToolRegistryOptions = {}) {}
 
   register<TSchema extends z.AnyZodObject>(tool: ToolDefinition<TSchema>): void {
     if (this.tools.has(tool.name)) throw new Error(`Tool already registered: ${tool.name}`);
@@ -41,18 +68,25 @@ export class ToolRegistry {
       if (authError) {
         result = authError;
       } else {
-        const parseResult = tool.inputSchema.safeParse(input);
-        if (!parseResult.success) {
-          result = fail(
-            "invalid_input",
-            `Input validation failed: ${parseResult.error.errors.map((e) => e.message).join("; ")}`,
-          );
+        const budgetError = this.checkBudget(tool, startedAt);
+        if (budgetError) {
+          result = budgetError;
         } else {
-          result = await tool.execute(parseResult.data, context);
+          const parseResult = tool.inputSchema.safeParse(input);
+          if (!parseResult.success) {
+            result = fail(
+              "invalid_input",
+              `Input validation failed: ${parseResult.error.errors.map((e) => e.message).join("; ")}`,
+            );
+          } else {
+            result = await tool.execute(parseResult.data, context);
+          }
+          this.recordToolOutcome(tool, result, startedAt);
         }
       }
     } catch (error) {
       result = fail("tool_execution_failed", safeErrorMessage(error));
+      this.recordToolOutcome(tool, result, startedAt);
     }
     const finishedAt = Date.now();
 
@@ -71,6 +105,21 @@ export class ToolRegistry {
     });
 
     return result;
+  }
+
+  getHealth(): ToolHealthStatus[] {
+    const now = Date.now();
+    return [...this.tools.values()].map((tool) => {
+      const policy = this.policyFor(tool);
+      const state = this.stateFor(tool.name);
+      this.pruneCalls(state, policy, now);
+      return {
+        toolName: tool.name,
+        recentCalls: state.calls.length,
+        consecutiveFailures: state.consecutiveFailures,
+        circuitOpenUntil: state.circuitOpenUntil && state.circuitOpenUntil > now ? state.circuitOpenUntil : undefined,
+      };
+    });
   }
 
   private checkAuthority(tool: ToolDefinition, context: ToolContext): ToolResult | undefined {
@@ -98,5 +147,65 @@ export class ToolRegistry {
     return context.allowedTools.includes(tool.name)
       ? undefined
       : fail("tool_not_whitelisted", `Tool ${tool.name} is not whitelisted for caller ${context.caller}.`);
+  }
+
+  private checkBudget(tool: ToolDefinition, now: number): ToolResult | undefined {
+    const policy = this.policyFor(tool);
+    const state = this.stateFor(tool.name);
+    this.pruneCalls(state, policy, now);
+
+    if (state.circuitOpenUntil && state.circuitOpenUntil > now) {
+      return fail("tool_circuit_open", `Tool ${tool.name} circuit is open until ${state.circuitOpenUntil}.`, true);
+    }
+
+    if (state.calls.length >= policy.maxCalls) {
+      return fail("tool_rate_limited", `Tool ${tool.name} exceeded ${policy.maxCalls} calls per ${policy.windowMs}ms.`, true);
+    }
+
+    state.calls.push(now);
+    return undefined;
+  }
+
+  private recordToolOutcome(tool: ToolDefinition, result: ToolResult, now: number): void {
+    const policy = this.policyFor(tool);
+    const state = this.stateFor(tool.name);
+    if (result.ok) {
+      state.consecutiveFailures = 0;
+      return;
+    }
+    if (result.error?.code === "tool_rate_limited" || result.error?.code === "tool_circuit_open") return;
+    state.consecutiveFailures += 1;
+    if (state.consecutiveFailures >= policy.failureThreshold) {
+      state.circuitOpenUntil = now + policy.circuitOpenMs;
+    }
+  }
+
+  private stateFor(toolName: string): ToolHealthState {
+    const current = this.health.get(toolName);
+    if (current) return current;
+    const state: ToolHealthState = { calls: [], consecutiveFailures: 0 };
+    this.health.set(toolName, state);
+    return state;
+  }
+
+  private policyFor(tool: ToolDefinition): ToolBudgetPolicy {
+    const base: ToolBudgetPolicy =
+      tool.authority === "readonly"
+        ? { windowMs: 60_000, maxCalls: 120, failureThreshold: 8, circuitOpenMs: 30_000 }
+        : tool.authority === "network_read"
+          ? { windowMs: 60_000, maxCalls: 20, failureThreshold: 3, circuitOpenMs: 60_000 }
+          : tool.authority === "external_write"
+            ? { windowMs: 60_000, maxCalls: 12, failureThreshold: 3, circuitOpenMs: 60_000 }
+            : { windowMs: 60_000, maxCalls: 40, failureThreshold: 5, circuitOpenMs: 30_000 };
+    return { ...base, ...(this.options.budgets?.[tool.name] ?? {}) };
+  }
+
+  private pruneCalls(state: ToolHealthState, policy: ToolBudgetPolicy, now: number): void {
+    const cutoff = now - policy.windowMs;
+    state.calls = state.calls.filter((timestamp) => timestamp >= cutoff);
+    if (state.circuitOpenUntil && state.circuitOpenUntil <= now) {
+      state.circuitOpenUntil = undefined;
+      state.consecutiveFailures = 0;
+    }
   }
 }

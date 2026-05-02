@@ -8,7 +8,7 @@
  */
 
 // === Imports ===
-import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { sanitizeExternalText, truncateText } from "../utils/text.js";
 import {
@@ -26,6 +26,7 @@ import {
   type MemoryEntry,
   type MemoryLayer,
   type MemoryProposal,
+  type MemoryProposalConfidence,
   type MemoryProposalDecision,
   type MemoryProposalStatus,
   type MemoryProposalView,
@@ -42,6 +43,7 @@ export {
   type MemoryEntry,
   type MemoryLayer,
   type MemoryProposal,
+  type MemoryProposalConfidence,
   type MemoryProposalDecision,
   type MemoryProposalStatus,
   type MemoryProposalView,
@@ -50,6 +52,16 @@ export {
   type MemoryStoreOptions,
   type ResearchLog,
 };
+
+export interface CheckpointRecoverySummary {
+  scannedRoots: string[];
+  found: number;
+  recovered: number;
+  deletedEmpty: number;
+  skippedUnknownScope: number;
+  warnings: string[];
+  recoveredAt: number;
+}
 
 // === Core Logic: MemoryStore Class ===
 
@@ -65,13 +77,16 @@ export class MemoryStore {
   private readonly rootDir: string;
   private readonly recentLimit: number;
   private readonly compactionEnabled: boolean;
+  private readonly proposalAutoApproveMinConfidence: MemoryProposalConfidence | false;
   private readonly llm?: import("./llm.js").LlmClient;
   private readonly queues = new Map<string, Promise<void>>();
+  private lastRecoverySummary?: CheckpointRecoverySummary;
 
   constructor(options: MemoryStoreOptions = {}) {
     this.rootDir = path.resolve(options.rootDir ?? "memory");
     this.recentLimit = options.recentLimit ?? 50;
     this.compactionEnabled = options.compactionEnabled ?? true;
+    this.proposalAutoApproveMinConfidence = options.proposalAutoApproveMinConfidence ?? false;
     this.llm = options.llm;
   }
 
@@ -106,15 +121,23 @@ export class MemoryStore {
   /**
    * Layer 2: Memory Proposals
    */
-  async proposeMemory(proposal: Omit<MemoryProposal, "id" | "timestamp">): Promise<string> {
+  async proposeMemory(
+    proposal: Omit<MemoryProposal, "id" | "timestamp" | "confidence"> & { confidence?: MemoryProposalConfidence },
+  ): Promise<string> {
     const id = `prop-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    const fullProposal: MemoryProposal = { ...proposal, id, timestamp: Date.now() };
+    const fullProposal: MemoryProposal = { confidence: "medium", ...proposal, id, timestamp: Date.now() };
 
     await this.inScopeQueue({ kind: "long_term" }, async () => {
       const dir = path.join(this.rootDir, "long_term", "proposals");
       await mkdir(dir, { recursive: true });
       await atomicAppend(path.join(dir, "log.jsonl"), `${JSON.stringify(fullProposal)}\n`);
     });
+    if (this.shouldAutoApprove(fullProposal)) {
+      await this.approveMemoryProposal(id, {
+        decidedBy: "auto",
+        reason: `auto-approved high confidence proposal from ${fullProposal.source}`,
+      });
+    }
     return id;
   }
 
@@ -128,7 +151,8 @@ export class MemoryStore {
         return { ...proposal, status: decision?.status ?? "pending", decision } satisfies MemoryProposalView;
       })
       .filter((proposal) => status === "pending" ? proposal.status === "pending" : proposal.status === status)
-      .slice(-Math.max(1, Math.min(200, limit)));
+      .sort((a, b) => proposalSortScore(b) - proposalSortScore(a))
+      .slice(0, Math.max(1, Math.min(200, limit)));
   }
 
   async approveMemoryProposal(
@@ -282,6 +306,7 @@ export class MemoryStore {
       compactionEnabled: this.compactionEnabled,
       channelRecentCounts,
       researchLogCount: (await this.readResearchLogs(1000)).length,
+      checkpointRecovery: this.lastRecoverySummary,
     };
   }
 
@@ -373,12 +398,12 @@ export class MemoryStore {
     await this.compactCheckpoint(scope, checkpointPath);
   }
 
-  private async compactCheckpoint(scope: MemoryScope, checkpointPath: string): Promise<void> {
+  private async compactCheckpoint(scope: MemoryScope, checkpointPath: string): Promise<"recovered" | "deleted_empty"> {
     const raw = await readFile(checkpointPath, "utf8").catch(() => "");
     const entries = parseJsonl<MemoryEntry>(raw);
     if (!entries.length) {
       await rm(checkpointPath, { force: true });
-      return;
+      return "deleted_empty";
     }
 
     const first = entries[0]!;
@@ -452,28 +477,64 @@ export class MemoryStore {
 
     await atomicAppend(this.historyPath(scope), output);
     await rm(checkpointPath, { force: true });
+    return "recovered";
   }
 
   private async recoverCheckpoints(): Promise<void> {
     // Recovery scans only the known live/discord roots so an interrupted compaction can
     // be resumed without touching unrelated workspace data.
     const roots = [path.join(this.rootDir, "live"), path.join(this.rootDir, "discord", "channels"), path.join(this.rootDir, "discord", "global")];
+    const summary: CheckpointRecoverySummary = {
+      scannedRoots: roots,
+      found: 0,
+      recovered: 0,
+      deletedEmpty: 0,
+      skippedUnknownScope: 0,
+      warnings: [],
+      recoveredAt: Date.now(),
+    };
     for (const root of roots) {
-      await this.recoverCheckpointsUnder(root);
+      const exists = await stat(root).then((item) => item.isDirectory()).catch(() => false);
+      if (!exists) {
+        const warning = `[Memory] Checkpoint recovery root not found: ${root}`;
+        summary.warnings.push(warning);
+        console.warn(warning);
+        continue;
+      }
+      await this.recoverCheckpointsUnder(root, summary);
     }
+    this.lastRecoverySummary = summary;
+    console.log(
+      `[Memory] checkpoint recovery scanned=${summary.scannedRoots.length} found=${summary.found} recovered=${summary.recovered} deleted_empty=${summary.deletedEmpty} skipped_unknown=${summary.skippedUnknownScope}`,
+    );
   }
 
-  private async recoverCheckpointsUnder(root: string): Promise<void> {
-    const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
+  private async recoverCheckpointsUnder(root: string, summary: CheckpointRecoverySummary): Promise<void> {
+    const entries = await readdir(root, { withFileTypes: true }).catch((error) => {
+      const warning = `[Memory] Checkpoint recovery cannot read ${root}: ${error instanceof Error ? error.message : String(error)}`;
+      summary.warnings.push(warning);
+      console.warn(warning);
+      return [];
+    });
     for (const entry of entries) {
       const full = path.join(root, entry.name);
-      if (entry.isDirectory()) await this.recoverCheckpointsUnder(full);
+      if (entry.isDirectory()) await this.recoverCheckpointsUnder(full, summary);
       if (!entry.isDirectory() || entry.name !== "checkpoint") continue;
       const files = await readdir(full).catch(() => []);
       for (const file of files.filter((item) => item.endsWith(".jsonl"))) {
         const checkpointPath = path.join(full, file);
+        summary.found += 1;
         const scope = this.scopeFromCheckpointPath(checkpointPath);
-        if (scope) await this.compactCheckpoint(scope, checkpointPath);
+        if (!scope) {
+          summary.skippedUnknownScope += 1;
+          const warning = `[Memory] Checkpoint recovery skipped unknown scope: ${checkpointPath}`;
+          summary.warnings.push(warning);
+          console.warn(warning);
+          continue;
+        }
+        const result = await this.compactCheckpoint(scope, checkpointPath);
+        if (result === "deleted_empty") summary.deletedEmpty += 1;
+        else summary.recovered += 1;
       }
     }
   }
@@ -517,5 +578,18 @@ export class MemoryStore {
     });
     await next;
   }
+
+  private shouldAutoApprove(proposal: MemoryProposal): boolean {
+    if (!this.proposalAutoApproveMinConfidence) return false;
+    if (proposal.confidence !== "high") return false;
+    const explicit = /explicit|明确|用户明确|user said|user stated/i.test(`${proposal.source} ${proposal.reason}`);
+    return explicit;
+  }
+}
+
+function proposalSortScore(proposal: MemoryProposalView): number {
+  const confidence = proposal.confidence === "high" ? 3 : proposal.confidence === "medium" ? 2 : 1;
+  const status = proposal.status === "pending" ? 10 : 0;
+  return status * 1_000_000_000_000 + confidence * 1_000_000_000 + proposal.timestamp;
 }
 

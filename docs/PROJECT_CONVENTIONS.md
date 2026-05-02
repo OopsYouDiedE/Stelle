@@ -1,3 +1,4 @@
+
 # Stelle Project Conventions
 
 这份文档是项目日常修改规范。架构合同见 [`ARCHITECTURE.md`](ARCHITECTURE.md)，测试规范见 [`TESTING.md`](TESTING.md)。
@@ -6,7 +7,7 @@
 
 - 使用 Prettier 统一格式。
 - 提交前运行 `npm run format:check`。
-- 需要批量格式化时运行 `npm run format`。
+- 需要批量格式化时运行 `npm run format`。`
 - Prettier 覆盖源码、测试、脚本、文档和配置；排除 `dist/`、`node_modules/`、`memory/`、`data/`、`evals/logs/`、vendor 和本地密钥。
 
 ## TypeScript

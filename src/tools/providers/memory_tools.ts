@@ -17,6 +17,7 @@ export function createMemoryTools(deps: ToolRegistryDeps): ToolDefinition[] {
   });
   const MemoryLayerSchema = z.enum(MEMORY_LAYERS);
   const MemoryProposalStatusSchema = z.enum(["pending", "approved", "rejected"]);
+  const MemoryProposalConfidenceSchema = z.enum(["high", "medium", "low"]);
 
   return [
     {
@@ -55,6 +56,7 @@ export function createMemoryTools(deps: ToolRegistryDeps): ToolDefinition[] {
         content: z.string().min(1),
         reason: z.string(),
         layer: MemoryLayerSchema.optional().default("user_facts"),
+        confidence: MemoryProposalConfidenceSchema.optional().default("medium"),
       }),
       sideEffects: sideEffects({ affectsUserState: true }),
       async execute(input, context) {
@@ -64,6 +66,7 @@ export function createMemoryTools(deps: ToolRegistryDeps): ToolDefinition[] {
           content: input.content,
           reason: input.reason,
           layer: input.layer as any,
+          confidence: input.confidence,
         });
         return ok(`Memory proposal submitted: ${id}.`, { proposal_id: id });
       },

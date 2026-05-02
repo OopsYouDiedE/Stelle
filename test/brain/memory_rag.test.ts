@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { MemoryStore } from "../../src/memory/memory.js";
 import { rm, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -106,5 +106,47 @@ March: Look at that shiny trashcan!
     const pending = await store.listMemoryProposals(10, "pending");
     expect(value).toContain("Owner prefers concise memory summaries.");
     expect(pending).toHaveLength(0);
+  });
+
+  it("sorts pending proposals by confidence without auto-approving by default", async () => {
+    const store = new MemoryStore({ rootDir: testRootDir });
+    await store.proposeMemory({
+      authorId: "system",
+      source: "inference",
+      content: "Maybe the user likes long recaps.",
+      reason: "weak inference",
+      layer: "user_facts",
+      confidence: "low",
+    });
+    const highId = await store.proposeMemory({
+      authorId: "owner",
+      source: "user_explicit",
+      content: "Owner prefers concise replies.",
+      reason: "explicit preference",
+      layer: "user_facts",
+      confidence: "high",
+    });
+
+    const pending = await store.listMemoryProposals(10, "pending");
+    expect(pending[0]).toMatchObject({ id: highId, confidence: "high", status: "pending" });
+    expect(await store.readLongTerm("user_owner", "user_facts")).toBeNull();
+  });
+
+  it("reports checkpoint recovery counts during startup", async () => {
+    const checkpointDir = path.join(testRootDir, "live", "checkpoint");
+    await mkdir(checkpointDir, { recursive: true });
+    await writeFile(
+      path.join(checkpointDir, "recent-1.jsonl"),
+      JSON.stringify({ id: "r1", timestamp: 1, source: "live", type: "danmaku", text: "hello checkpoint" }) + "\n",
+      "utf8",
+    );
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const store = new MemoryStore({ rootDir: testRootDir });
+    await store.start();
+    logSpy.mockRestore();
+
+    const snapshot = await store.snapshot();
+    expect(snapshot.checkpointRecovery).toMatchObject({ found: 1, recovered: 1, deletedEmpty: 0 });
   });
 });

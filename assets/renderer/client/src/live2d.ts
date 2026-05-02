@@ -105,6 +105,16 @@ export class Live2DAvatar {
     this.setStatus("Live2D voice sync");
   }
 
+  async startLipSyncFromAnalyser(analyser: AnalyserNode): Promise<void> {
+    if (!this.audioContext) this.audioContext = analyser.context as AudioContext;
+    if (this.audioContext.state === "suspended") await this.audioContext.resume();
+    this.analyser = analyser;
+    this.frequencyData = new Uint8Array(this.analyser.frequencyBinCount);
+    this.timeDomainData = new Uint8Array(this.analyser.fftSize);
+    this.speaking = true;
+    this.setStatus("Live2D voice sync");
+  }
+
   stopLipSync(): void {
     this.speaking = false;
     this.targetMouthOpen = 0;

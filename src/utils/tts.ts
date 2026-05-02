@@ -16,10 +16,12 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import mime from "mime";
+import WebSocket from "ws";
 
 // === Types & Interfaces ===
 
 export type TtsProviderName = "kokoro" | "dashscope";
+export type LiveTtsTransport = "http_sse" | "realtime_ws";
 
 export interface TtsStreamArtifact {
   index: number;
@@ -47,9 +49,277 @@ export interface LiveTtsRequest {
   request: Record<string, unknown>;
 }
 
+export interface RealtimeTtsChunk {
+  index: number;
+  base64: string;
+  byteLength: number;
+  responseId?: string;
+}
+
+export interface DashScopeRealtimeTtsOptions {
+  apiKey?: string;
+  baseUrl?: string;
+  model?: string;
+  voice?: string;
+  mode?: "server_commit" | "commit";
+  languageType?: string;
+  responseFormat?: "pcm" | "wav" | "mp3" | "opus";
+  sampleRate?: number;
+  instructions?: string;
+  optimizeInstructions?: boolean;
+  timeoutMs?: number;
+}
+
+export interface DashScopeRealtimeSynthesisResult {
+  sessionId?: string;
+  responseId?: string;
+  chunks: number;
+  bytes: number;
+  transport: "realtime_ws";
+}
+
 export interface StreamingTtsProvider {
   synthesizeToFiles(text: string, options?: TtsSynthesisOptions): Promise<TtsStreamArtifact[]>;
   synthesizeTextStream(chunks: AsyncIterable<string>, options?: TtsSynthesisOptions): Promise<TtsStreamArtifact[]>;
+}
+
+export class DashScopeRealtimeTtsClient {
+  private ws?: WebSocket;
+  private sessionId?: string;
+  private connected = false;
+  private sessionUpdated = false;
+  private sessionUpdateWaiters: Array<{ resolve: () => void; reject: (error: Error) => void; timer: NodeJS.Timeout }> =
+    [];
+  private pendingDone?: {
+    resolve: (result: DashScopeRealtimeSynthesisResult) => void;
+    reject: (error: Error) => void;
+    timer: NodeJS.Timeout;
+    responseId?: string;
+    chunks: number;
+    bytes: number;
+  };
+  private chunkHandler?: (chunk: RealtimeTtsChunk) => void;
+
+  constructor(private readonly options: DashScopeRealtimeTtsOptions = {}) {}
+
+  async synthesize(text: string, onChunk: (chunk: RealtimeTtsChunk) => void): Promise<DashScopeRealtimeSynthesisResult> {
+    const clean = text.trim();
+    if (!clean) return { chunks: 0, bytes: 0, transport: "realtime_ws" };
+
+    await this.ensureConnected();
+    this.chunkHandler = onChunk;
+    const pending = this.createPending();
+    this.send({
+      event_id: realtimeEventId("append"),
+      type: "input_text_buffer.append",
+      text: clean,
+    });
+    this.send({
+      event_id: realtimeEventId("commit"),
+      type: "input_text_buffer.commit",
+    });
+    return pending;
+  }
+
+  async finish(): Promise<void> {
+    if (!this.ws || !this.connected) return;
+    this.send({ event_id: realtimeEventId("finish"), type: "session.finish" });
+    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+    this.close();
+  }
+
+  close(): void {
+    this.connected = false;
+    this.sessionUpdated = false;
+    const ws = this.ws;
+    this.ws = undefined;
+    if (ws && ws.readyState === WebSocket.OPEN) ws.close();
+  }
+
+  private async ensureConnected(): Promise<void> {
+    if (this.ws && this.connected && this.sessionUpdated) return;
+    const apiKey = this.options.apiKey ?? process.env.DASHSCOPE_API_KEY;
+    if (!apiKey) throw new Error("Missing DASHSCOPE_API_KEY for DashScope Qwen-TTS Realtime.");
+
+    const model =
+      this.options.model ??
+      process.env.QWEN_TTS_REALTIME_MODEL ??
+      process.env.QWEN_TTS_MODEL?.replace(/(?:-instruct)?-flash$/, "-flash-realtime") ??
+      "qwen3-tts-flash-realtime";
+    const baseUrl =
+      this.options.baseUrl ?? process.env.QWEN_TTS_REALTIME_WS_URL ?? "wss://dashscope.aliyuncs.com/api-ws/v1/realtime";
+    const url = `${baseUrl}${baseUrl.includes("?") ? "&" : "?"}model=${encodeURIComponent(model)}`;
+
+    await new Promise<void>((resolve, reject) => {
+      const ws = new WebSocket(url, { headers: { Authorization: `Bearer ${apiKey}` } });
+      const timer = setTimeout(() => {
+        ws.close();
+        reject(new Error("DashScope Realtime TTS websocket connection timed out."));
+      }, this.options.timeoutMs ?? liveTtsTimeoutMs());
+
+      ws.once("open", () => {
+        clearTimeout(timer);
+        this.ws = ws;
+        this.connected = true;
+        this.attachHandlers(ws);
+        this.updateSession();
+        resolve();
+      });
+      ws.once("error", (error) => {
+        clearTimeout(timer);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      });
+    });
+    if (!this.sessionUpdated) await this.waitForSessionUpdated();
+  }
+
+  private attachHandlers(ws: WebSocket): void {
+    ws.on("message", (data) => this.handleMessage(String(data)));
+    ws.on("close", (_code, reason) => {
+      this.connected = false;
+      this.sessionUpdated = false;
+      this.rejectSessionWaiters(new Error(`DashScope Realtime TTS websocket closed: ${String(reason)}`));
+      const pending = this.pendingDone;
+      this.pendingDone = undefined;
+      if (pending) {
+        clearTimeout(pending.timer);
+        pending.reject(new Error(`DashScope Realtime TTS websocket closed: ${String(reason)}`));
+      }
+    });
+    ws.on("error", (error) => {
+      this.rejectSessionWaiters(error instanceof Error ? error : new Error(String(error)));
+      const pending = this.pendingDone;
+      this.pendingDone = undefined;
+      if (pending) {
+        clearTimeout(pending.timer);
+        pending.reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+  }
+
+  private updateSession(): void {
+    this.send({
+      event_id: realtimeEventId("session"),
+      type: "session.update",
+      session: {
+        voice: this.options.voice ?? process.env.QWEN_TTS_REALTIME_VOICE ?? process.env.QWEN_TTS_VOICE ?? "Cherry",
+        mode: this.options.mode ?? "commit",
+        language_type: this.options.languageType ?? process.env.QWEN_TTS_LANGUAGE_TYPE ?? "Chinese",
+        response_format:
+          this.options.responseFormat ??
+          (process.env.QWEN_TTS_REALTIME_FORMAT as DashScopeRealtimeTtsOptions["responseFormat"]) ??
+          "pcm",
+        sample_rate: this.options.sampleRate ?? Number(process.env.QWEN_TTS_REALTIME_SAMPLE_RATE ?? 24000),
+        ...(this.options.instructions ?? process.env.QWEN_TTS_INSTRUCTIONS
+          ? { instructions: this.options.instructions ?? process.env.QWEN_TTS_INSTRUCTIONS }
+          : {}),
+        ...(typeof this.options.optimizeInstructions === "boolean"
+          ? { optimize_instructions: this.options.optimizeInstructions }
+          : process.env.QWEN_TTS_OPTIMIZE_INSTRUCTIONS
+            ? { optimize_instructions: process.env.QWEN_TTS_OPTIMIZE_INSTRUCTIONS !== "false" }
+            : {}),
+      },
+    });
+  }
+
+  private createPending(): Promise<DashScopeRealtimeSynthesisResult> {
+    if (this.pendingDone) {
+      throw new Error("DashScope Realtime TTS already has an active response.");
+    }
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingDone = undefined;
+        reject(new Error("DashScope Realtime TTS response timed out."));
+      }, this.options.timeoutMs ?? liveTtsTimeoutMs());
+      this.pendingDone = { resolve, reject, timer, chunks: 0, bytes: 0 };
+    });
+  }
+
+  private handleMessage(raw: string): void {
+    let event: Record<string, any>;
+    try {
+      event = JSON.parse(raw) as Record<string, any>;
+    } catch {
+      return;
+    }
+    const type = String(event.type ?? "");
+
+    if (type === "session.created") {
+      this.sessionId = event.session?.id;
+      return;
+    }
+    if (type === "session.updated") {
+      this.sessionUpdated = true;
+      this.sessionId = event.session?.id ?? this.sessionId;
+      for (const waiter of this.sessionUpdateWaiters.splice(0)) {
+        clearTimeout(waiter.timer);
+        waiter.resolve();
+      }
+      return;
+    }
+    if (type === "response.created") {
+      if (this.pendingDone) this.pendingDone.responseId = event.response?.id;
+      return;
+    }
+    if (type === "response.audio.delta") {
+      const base64 = parseDashScopeRealtimeAudioDelta(event);
+      if (!base64 || !this.pendingDone) return;
+      const byteLength = Buffer.byteLength(base64, "base64");
+      const chunk = {
+        index: this.pendingDone.chunks++,
+        base64,
+        byteLength,
+        responseId: this.pendingDone.responseId,
+      };
+      this.pendingDone.bytes += byteLength;
+      this.chunkHandler?.(chunk);
+      return;
+    }
+    if (type === "response.done" || type === "session.finished") {
+      const pending = this.pendingDone;
+      if (!pending) return;
+      clearTimeout(pending.timer);
+      this.pendingDone = undefined;
+      pending.resolve({
+        sessionId: this.sessionId,
+        responseId: pending.responseId,
+        chunks: pending.chunks,
+        bytes: pending.bytes,
+        transport: "realtime_ws",
+      });
+      return;
+    }
+    if (type === "error") {
+      const pending = this.pendingDone;
+      if (!pending) return;
+      clearTimeout(pending.timer);
+      this.pendingDone = undefined;
+      pending.reject(new Error(String(event.error?.message ?? event.error ?? "DashScope Realtime TTS error")));
+    }
+  }
+
+  private send(event: Record<string, unknown>): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) throw new Error("DashScope Realtime TTS websocket is not open.");
+    this.ws.send(JSON.stringify(event));
+  }
+
+  private waitForSessionUpdated(): Promise<void> {
+    if (this.sessionUpdated) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.sessionUpdateWaiters = this.sessionUpdateWaiters.filter((item) => item.timer !== timer);
+        reject(new Error("DashScope Realtime TTS session.update timed out."));
+      }, this.options.timeoutMs ?? liveTtsTimeoutMs());
+      this.sessionUpdateWaiters.push({ resolve, reject, timer });
+    });
+  }
+
+  private rejectSessionWaiters(error: Error): void {
+    for (const waiter of this.sessionUpdateWaiters.splice(0)) {
+      clearTimeout(waiter.timer);
+      waiter.reject(error);
+    }
+  }
 }
 
 // === Core Logic ===
@@ -253,6 +523,13 @@ export function createConfiguredTtsProvider(): StreamingTtsProvider {
 
 export function getConfiguredTtsProviderName(): TtsProviderName {
   return normalizeTtsProvider(process.env.STELLE_TTS_PROVIDER ?? process.env.LIVE_TTS_PROVIDER ?? "kokoro");
+}
+
+export function getConfiguredLiveTtsTransport(): LiveTtsTransport {
+  const value = String(process.env.LIVE_TTS_TRANSPORT ?? process.env.QWEN_TTS_TRANSPORT ?? "http_sse")
+    .trim()
+    .toLowerCase();
+  return value === "realtime_ws" || value === "realtime" || value === "websocket" ? "realtime_ws" : "http_sse";
 }
 
 export function normalizeTtsProvider(value: string): TtsProviderName {
@@ -490,6 +767,15 @@ function parseDashScopeSsePcm(text: string): Buffer {
     }
   }
   return Buffer.concat(chunks);
+}
+
+export function parseDashScopeRealtimeAudioDelta(event: Record<string, any>): string | undefined {
+  const delta = event.delta ?? event.output?.audio?.data;
+  return typeof delta === "string" && delta.trim() ? delta.trim() : undefined;
+}
+
+function realtimeEventId(prefix: string): string {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
 function toWav(pcm16: Buffer, sampleRate: number): Uint8Array {

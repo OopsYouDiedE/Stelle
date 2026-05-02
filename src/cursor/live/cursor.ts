@@ -46,7 +46,10 @@ export class LiveDanmakuCursor extends BaseStatefulCursor {
   private readonly maxEventsPerMergedBatch = 30;
   private readonly maxProposalsInBuffer = 5;
   private readonly proposalTtlMs = 45_000;
+  private readonly seenLiveEventIds = new Map<string, number>();
+  private readonly liveEventDedupeTtlMs = 60_000;
   private currentEmotion: LiveEmotion = "neutral";
+  private lastRouteDecision?: Record<string, unknown>;
 
   constructor(context: CursorContext) {
     super(context);
@@ -84,13 +87,21 @@ export class LiveDanmakuCursor extends BaseStatefulCursor {
 
     this.unsubscribes.push(
       this.context.eventBus.subscribe("live.event.danmaku", (event) => {
-        void this.receiveLiveEvent(event.payload).catch((e) => console.error("[LiveCursor] Live event error:", e));
+        return this.receiveLiveEventFromBus(event.payload).catch((e) => console.error("[LiveCursor] Live event error:", e));
+      }),
+    );
+
+    this.unsubscribes.push(
+      this.context.eventBus.subscribe("live.event.received", (event) => {
+        return this.receiveLiveEventFromBus(event.payload).catch((e) =>
+          console.error("[LiveCursor] Typed live event error:", e),
+        );
       }),
     );
 
     this.unsubscribes.push(
       this.context.eventBus.subscribe("live.danmaku.received", (event) => {
-        void this.receiveLiveEvent(event.payload).catch((e) =>
+        return this.receiveLiveEventFromBus(event.payload).catch((e) =>
           console.error("[LiveCursor] Legacy live event error:", e),
         );
       }),
@@ -249,6 +260,25 @@ export class LiveDanmakuCursor extends BaseStatefulCursor {
     return result;
   }
 
+  private async receiveLiveEventFromBus(payload: Record<string, unknown>) {
+    if (this.isDuplicateLiveEvent(payload)) return { accepted: false, reason: "duplicate" };
+    return this.receiveLiveEvent(payload);
+  }
+
+  private isDuplicateLiveEvent(payload: Record<string, unknown>): boolean {
+    const key = liveEventDedupeKey(payload);
+    if (!key) return false;
+
+    const now = this.context.now();
+    for (const [seenKey, seenAt] of this.seenLiveEventIds) {
+      if (now - seenAt > this.liveEventDedupeTtlMs) this.seenLiveEventIds.delete(seenKey);
+    }
+
+    if (this.seenLiveEventIds.has(key)) return true;
+    this.seenLiveEventIds.set(key, now);
+    return false;
+  }
+
   // === Batch Management (Decision Loop) ===
   private async processBatch(batch: NormalizedLiveEvent[]) {
     if (batch.length > 0) this.enqueueBatch(batch);
@@ -370,6 +400,10 @@ export class LiveDanmakuCursor extends BaseStatefulCursor {
         this.proposalBuffer,
         personaState,
       );
+      this.publishRouteDecision(batchId, "router_decision", events, decision, {
+        startedAt,
+        oldestAgeMs,
+      });
       console.log(`[LiveCursor] decision ${decision.action}: ${truncateText(decision.script || decision.reason, 80)}`);
 
       // 2. 执行工具 (Executor)
@@ -390,6 +424,11 @@ export class LiveDanmakuCursor extends BaseStatefulCursor {
           },
           personaState,
         );
+        this.publishRouteDecision(batchId, "tool_composition", events, decision, {
+          startedAt,
+          oldestAgeMs,
+          toolResults,
+        });
       }
 
       // 3. 响应 (Responder)
@@ -403,6 +442,11 @@ export class LiveDanmakuCursor extends BaseStatefulCursor {
             .slice(0, 40)}`,
           sourceEventId: events.at(-1)?.id,
           priority: Math.max(...this.proposalBuffer.map((p) => p.priority), ProposalPriority.STRATEGIC),
+        });
+        this.publishRouteDecision(batchId, "stage_output", events, decision, {
+          startedAt,
+          oldestAgeMs,
+          stageDecisions: decisions,
         });
 
         // Handle consumed proposals
@@ -420,6 +464,10 @@ export class LiveDanmakuCursor extends BaseStatefulCursor {
         await this.reportReflection(decision.action, decision.script, 4, "medium");
       } else {
         // If LLM dropped but there are still high priority proposals, maybe it made a mistake or we should try to execute one verbatim
+        this.publishRouteDecision(batchId, "dropped", events, decision, {
+          startedAt,
+          oldestAgeMs,
+        });
         await this.maybeExecuteFallbackProposal(decision);
       }
     } catch (error) {
@@ -430,6 +478,68 @@ export class LiveDanmakuCursor extends BaseStatefulCursor {
         oldestAgeMs,
       });
     }
+  }
+
+  private publishRouteDecision(
+    batchId: string,
+    phase: "router_decision" | "tool_composition" | "stage_output" | "dropped",
+    events: NormalizedLiveEvent[],
+    decision: any,
+    extra: {
+      startedAt: number;
+      oldestAgeMs: number;
+      toolResults?: LiveToolResultView[];
+      stageDecisions?: StageOutputDecision[];
+    },
+  ): void {
+    this.context.eventBus.publish({
+      type: "live.route.decision" as any,
+      source: this.id,
+      id: `live-route-${batchId}-${phase}-${this.context.now()}`,
+      timestamp: this.context.now(),
+      payload: {
+        batchId,
+        phase,
+        eventIds: events.map((event) => event.id),
+        eventTexts: events.map((event) => truncateText(event.text, 120)),
+        action: decision.action,
+        emotion: decision.emotion,
+        intensity: decision.intensity,
+        reason: decision.reason,
+        script: truncateText(decision.script ?? "", 240),
+        toolPlan: decision.toolPlan,
+        toolResults: extra.toolResults?.map((result) => ({
+          name: result.name,
+          ok: result.ok,
+          summary: truncateText(result.summary, 160),
+        })),
+        consumedProposalIds: decision.consumedProposalIds,
+        stageDecisions: extra.stageDecisions?.map((item) => ({
+          status: item.status,
+          outputId: item.outputId,
+          reason: item.reason,
+          queueLength: item.queueLength,
+          lane: item.intent?.lane,
+          sequence: item.intent?.sequence,
+          text: item.intent ? truncateText(item.intent.text, 120) : undefined,
+        })),
+        proposalBufferSize: this.proposalBuffer.length,
+        pendingBatchCount: this.pendingBatches.length,
+        oldestAgeMs: extra.oldestAgeMs,
+        elapsedMs: this.context.now() - extra.startedAt,
+      },
+    });
+    this.lastRouteDecision = {
+      batchId,
+      phase,
+      action: decision.action,
+      emotion: decision.emotion,
+      reason: decision.reason,
+      script: truncateText(decision.script ?? "", 240),
+      elapsedMs: this.context.now() - extra.startedAt,
+      oldestAgeMs: extra.oldestAgeMs,
+      eventIds: events.map((event) => event.id),
+    };
   }
 
   private async maybeExecuteFallbackProposal(decision: any) {
@@ -475,9 +585,26 @@ export class LiveDanmakuCursor extends BaseStatefulCursor {
         stageCurrentOutputId: stage.currentOutputId,
         stageCurrentLane: stage.currentLane,
         currentEmotion: this.currentEmotion,
+        pendingBatchCount: this.pendingBatches.length,
+        lastRouteDecision: this.lastRouteDecision,
+        proposals: this.proposalBuffer.map((proposal) => ({
+          id: proposal.id,
+          priority: proposal.priority,
+          source: proposal.intent.metadata?.source,
+          text: truncateText(proposal.intent.text, 80),
+          ageMs: this.context.now() - proposal.receivedAt,
+        })),
       },
     };
   }
 }
 
 export { LiveDanmakuCursor as LiveCursor };
+
+function liveEventDedupeKey(payload: Record<string, unknown>): string | undefined {
+  const raw = payload.raw && typeof payload.raw === "object" ? (payload.raw as Record<string, unknown>) : undefined;
+  const id = payload.id ?? raw?.id ?? raw?.messageId ?? raw?.msg_id;
+  if (!id) return undefined;
+  const source = payload.source ?? payload.platform ?? raw?.source ?? raw?.platform ?? "live";
+  return `${String(source)}:${String(id)}`;
+}

@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import type { StelleEvent, StelleEventType } from "../../utils/event_schema.js";
 import type { StelleEventBus } from "../../utils/event_bus.js";
@@ -40,11 +40,12 @@ export class LiveEventJournal {
     await mkdir(this.sessionDir, { recursive: true });
     this.unsubscribe = this.eventBus.subscribe("*", (event) => {
       if (!this.shouldRecord(event.type)) return;
-      this.record(event).catch((error) => console.warn("[LiveEventJournal] write failed:", error));
-    });
+      return this.record(event).catch((error) => console.warn("[LiveEventJournal] write failed:", error));
+    }, { maxPending: 100, dropWhenFull: "oldest" });
   }
 
   async stop(): Promise<void> {
+    await this.eventBus.flushBackpressure("*");
     this.unsubscribe?.();
     this.unsubscribe = undefined;
     await this.writeQueue;
@@ -59,9 +60,9 @@ export class LiveEventJournal {
     };
     this.recent.push(record);
     if (this.recent.length > 80) this.recent.shift();
-    this.writeQueue = this.writeQueue.then(async () => {
+    this.writeQueue = this.writeQueue.catch(() => undefined).then(async () => {
       await mkdir(this.sessionDir, { recursive: true });
-      await appendFileAtomic(this.eventPath, `${JSON.stringify(record)}\n`);
+      await appendFileWithRetry(this.eventPath, `${JSON.stringify(record)}\n`);
     });
     await this.writeQueue;
   }
@@ -91,9 +92,23 @@ function liveSessionId(): string {
   return new Date().toISOString().replace(/[:.]/g, "-");
 }
 
-async function appendFileAtomic(file: string, content: string): Promise<void> {
-  const previous = await readFile(file, "utf8").catch(() => "");
-  const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
-  await writeFile(temp, previous + content, "utf8");
-  await import("node:fs/promises").then((fs) => fs.rename(temp, file));
+async function appendFileWithRetry(file: string, content: string, attempts = 4): Promise<void> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      await appendFile(file, content, "utf8");
+      return;
+    } catch (error) {
+      lastError = error;
+      if (!isRetryableFileLock(error) || attempt === attempts) break;
+      await new Promise((resolve) => setTimeout(resolve, attempt * 25));
+    }
+  }
+  throw lastError;
+}
+
+function isRetryableFileLock(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const code = (error as NodeJS.ErrnoException).code;
+  return code === "EPERM" || code === "EBUSY" || code === "EACCES";
 }

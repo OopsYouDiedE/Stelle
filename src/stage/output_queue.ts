@@ -1,6 +1,7 @@
 // === Imports ===
 import type { OutputIntent } from "./output_types.js";
 import { compareIntentPriority } from "./output_policy.js";
+import type { StageQueuedOutputSnapshot } from "./output_types.js";
 
 // === Types ===
 export interface DequeueReadyResult {
@@ -10,7 +11,7 @@ export interface DequeueReadyResult {
 
 // === Main Class ===
 export class StageOutputQueue {
-  private readonly items: Array<{ intent: OutputIntent; enqueuedAt: number }> = [];
+  private readonly items: Array<{ intent: OutputIntent & { createdAt: number }; enqueuedAt: number }> = [];
 
   constructor(
     private readonly maxLength: number,
@@ -34,7 +35,8 @@ export class StageOutputQueue {
       }
     }
 
-    this.items.push({ intent, enqueuedAt: this.now() });
+    const createdAt = intent.createdAt ?? this.now();
+    this.items.push({ intent: { ...intent, createdAt }, enqueuedAt: this.now() });
     this.items.sort((a, b) => compareIntentPriority(a.intent, b.intent));
 
     if (this.items.length > this.maxLength) {
@@ -56,7 +58,7 @@ export class StageOutputQueue {
     while (this.items.length > 0) {
       const item = this.items.shift();
       if (!item) return { dropped };
-      if (now - item.enqueuedAt <= item.intent.ttlMs) return { intent: item.intent, dropped };
+      if (now - item.intent.createdAt <= item.intent.ttlMs) return { intent: item.intent, dropped };
       dropped.push({ intent: item.intent, reason: "expired" });
     }
     return { dropped };
@@ -78,5 +80,23 @@ export class StageOutputQueue {
 
   length(): number {
     return this.items.length;
+  }
+
+  snapshot(): StageQueuedOutputSnapshot[] {
+    const now = this.now();
+    return this.items.map(({ intent, enqueuedAt }) => ({
+      id: intent.id,
+      cursorId: intent.cursorId,
+      lane: intent.lane,
+      groupId: intent.groupId,
+      sequence: intent.sequence,
+      createdAt: intent.createdAt,
+      priority: intent.priority,
+      salience: intent.salience,
+      text: intent.summary ?? intent.text,
+      enqueuedAt,
+      ttlMs: intent.ttlMs,
+      ttlRemainingMs: Math.max(0, intent.ttlMs - (now - intent.createdAt)),
+    }));
   }
 }

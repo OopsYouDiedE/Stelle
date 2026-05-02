@@ -66,6 +66,7 @@ export interface LiveRendererMemoryController {
     layer?: MemoryLayer;
     authorId?: string;
     source?: string;
+    confidence?: "high" | "medium" | "low";
   }): Promise<unknown> | unknown;
   listProposals?(input?: { limit?: number; status?: MemoryProposalStatus }): Promise<unknown> | unknown;
   approveProposal?(input: {
@@ -249,6 +250,10 @@ export class LiveRendererServer {
     };
     this.app.get("/", serveIndex);
     this.app.get("/live", serveIndex);
+    this.app.get("/live-test", (req, res) => {
+      if (!this.controlAllowed(req, res)) return;
+      res.send(liveTestHtml(this.options.control?.requireToken !== false));
+    });
 
     // 状态接口
     this.app.get("/state", (_req, res) => res.json({ ok: true, state: this.state }));
@@ -487,6 +492,10 @@ export class LiveRendererServer {
           layer: body.layer as MemoryLayer | undefined,
           authorId: typeof body.authorId === "string" ? body.authorId : undefined,
           source: typeof body.source === "string" ? body.source : undefined,
+          confidence:
+            body.confidence === "high" || body.confidence === "medium" || body.confidence === "low"
+              ? body.confidence
+              : undefined,
         });
         res.json({ ok: true, result });
       } catch (e) {
@@ -592,6 +601,65 @@ export class LiveRendererServer {
   }
 }
 
+function liveTestHtml(requireToken: boolean): string {
+  const tokenScript = requireToken
+    ? "const token = new URLSearchParams(location.search).get('token') || '';"
+    : "const token = '';";
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Stelle Live Test</title><style>
+:root{color-scheme:dark;--bg:#0b0f14;--panel:#111922;--panel2:#0d141c;--line:#283746;--text:#e7edf3;--muted:#91a1b3;--accent:#7fd1b9;--warn:#efc36a;--bad:#ff8f8f}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 Segoe UI,Microsoft YaHei,Arial,sans-serif;overflow:hidden}
+main{height:100vh;display:grid;grid-template-rows:auto 1fr;gap:10px;padding:12px}header{display:flex;justify-content:space-between;gap:12px;align-items:end;border-bottom:1px solid var(--line);padding-bottom:10px}
+h1,h2,p{margin:0}h1{font-size:20px}h2{font-size:13px;color:var(--accent);font-weight:650}.hint{color:var(--muted);font-size:12px}
+.grid{min-height:0;display:grid;grid-template-columns:minmax(280px,.72fr) minmax(360px,1fr) minmax(360px,1fr);gap:10px}.col{min-height:0;display:grid;gap:10px;grid-auto-rows:minmax(0,1fr)}
+section{min-height:0;border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:10px;display:grid;grid-template-rows:auto minmax(0,1fr);gap:8px}
+.cards{display:grid;grid-template-columns:repeat(6,minmax(90px,1fr));gap:8px}.card{border:1px solid var(--line);border-radius:6px;background:var(--panel2);padding:8px;min-width:0}.label{font-size:11px;color:var(--muted)}.value{font-size:15px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+textarea,input,select,button{border:1px solid #34485a;background:var(--panel2);color:var(--text);border-radius:6px;padding:8px;font:inherit}textarea{width:100%;resize:none;min-height:74px}input,select{width:100%}button{cursor:pointer}button:hover{border-color:var(--accent)}button.danger{border-color:#8b4242;background:#31191d}.row{display:grid;grid-template-columns:1fr 92px;gap:8px;margin-top:8px}.tools{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+pre,.scroll{margin:0;white-space:pre-wrap;word-break:break-word;overflow:auto;min-height:0;background:var(--panel2);border:1px solid #22303c;border-radius:6px;padding:8px;font:12px/1.45 Consolas,monospace}.feed{display:grid;gap:7px;align-content:start}.item{border-bottom:1px solid #263442;padding-bottom:7px}.meta{color:var(--muted);font-size:11px}.ok{color:var(--accent)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+#caption{font-size:clamp(24px,4vw,54px);line-height:1.08;text-align:center;align-self:center;word-break:break-word}.player{display:grid;grid-template-rows:auto 1fr auto;gap:8px}.statusline{display:flex;gap:8px;flex-wrap:wrap;color:var(--muted);font-size:12px}.pill{border:1px solid #34485a;border-radius:999px;padding:2px 8px}
+@media(max-width:1100px){body{overflow:auto}main{height:auto}.grid{grid-template-columns:1fr}.col{grid-auto-rows:minmax(220px,auto)}.cards{grid-template-columns:repeat(2,minmax(0,1fr))}}
+</style></head><body><main>
+<header><div><h1>Stelle Live Test</h1><p class="hint">真实 live 链路测试：弹幕输入、路由判断、Stage 队列、TTS 与浏览器播放状态。</p></div><div id="topStatus" class="warn">connecting</div></header>
+<div class="cards" id="cards"></div>
+<div class="grid">
+  <div class="col">
+    <section><h2>Danmaku Input</h2><div><textarea id="danmaku">能看到我的弹幕吗？</textarea><div class="row"><input id="viewer" value="Live Test Viewer"><select id="priority"><option>low</option><option>medium</option><option>high</option></select></div><div class="tools"><button id="send">Send</button><button id="sendLong">Long</button><button id="burst">Burst x5</button></div><div class="tools"><button data-cmd="stop_output" class="danger">Stop</button><button data-cmd="clear_queue">Clear Queue</button><button data-cmd="pause_auto_reply">Pause Reply</button><button data-cmd="resume_auto_reply">Resume</button><button data-cmd="mute_tts">Mute TTS</button><button data-cmd="unmute_tts">Unmute TTS</button></div><pre id="inputResult"></pre></div></section>
+    <section><h2>Incoming / Renderer Commands</h2><div id="commands" class="scroll feed"></div></section>
+  </div>
+  <div class="col">
+    <section class="player"><h2>Playback</h2><div id="caption">Renderer ready.</div><div class="statusline"><span class="pill" id="speaker">Stelle</span><span class="pill" id="audioStatus">audio idle</span><span class="pill" id="chunkStatus">chunks 0</span></div></section>
+    <section><h2>Route Decisions</h2><div id="routes" class="scroll feed"></div></section>
+  </div>
+  <div class="col">
+    <section><h2>Stage Output Stack</h2><pre id="stage"></pre></section>
+    <section><h2>Health / Journal</h2><pre id="health"></pre></section>
+  </div>
+</div>
+</main><script src="/socket.io/socket.io.js"></script><script>
+${tokenScript}
+const $=(id)=>document.getElementById(id);let audioCtx=null;let activeStream=null;let commandLog=[];let routes=[];
+function qs(path){if(!token)return path;return path+(path.includes('?')?'&':'?')+'token='+encodeURIComponent(token)}
+async function api(path,init){const res=await fetch(qs(path),{headers:{'content-type':'application/json'},...init});const data=await res.json().catch(()=>({ok:false,error:'bad json'}));if(!res.ok||data.ok===false)throw new Error(data.error||res.statusText);return data}
+const pretty=(v)=>JSON.stringify(v??null,null,2);const esc=(s)=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function addLog(target,item){const el=document.createElement('div');el.className='item';el.innerHTML='<div class="meta">'+esc(item.meta)+'</div><div>'+esc(item.text)+'</div>';target.prepend(el);while(target.children.length>80)target.lastElementChild.remove()}
+async function sendDanmaku(text){const body={id:'live-test-'+Date.now()+'-'+Math.random().toString(36).slice(2,7),source:'debug',cmd:'DANMU_MSG',priority:$('priority').value,receivedAt:Date.now(),userName:$('viewer').value,text};$('inputResult').textContent=pretty(await api('/api/live/event',{method:'POST',body:JSON.stringify(body)}));await refresh()}
+async function command(command,payload={}){$('inputResult').textContent=pretty(await api('/api/live/control',{method:'POST',body:JSON.stringify({command,...payload})}));await refresh()}
+function renderCards(h){const s=h.stageOutput||{},r=h.renderer||{},t=h.tts||{};const cards=[['Renderer',r.connected?'connected':'offline'],['Sockets',r.socketCount??0],['Stage',s.status??'unknown'],['Queue',s.queueLength??0],['TTS',s.ttsMuted?'muted':'on'],['Realtime',t.lastProvider?String(t.lastProvider):'n/a']];$('cards').innerHTML=cards.map(([a,b])=>'<div class="card"><div class="label">'+esc(a)+'</div><div class="value">'+esc(b)+'</div></div>').join('')}
+function renderStage(h){const s=h.stageOutput||{};$('stage').textContent=pretty({current:{id:s.currentOutputId,owner:s.currentOwner,lane:s.currentLane,speaking:s.speaking},queued:s.queuedOutputs||[],recent:s.recentOutputs||[]})}
+function renderRoutes(journal){routes=(journal||[]).map(r=>r.event).filter(e=>e.type==='live.route.decision').slice(-30).reverse();$('routes').innerHTML='';for(const e of routes)addLog($('routes'),{meta:(e.payload.phase||'route')+' · '+new Date(e.timestamp).toLocaleTimeString(),text:(e.payload.action||'')+' / '+(e.payload.reason||'')+'\\n'+(e.payload.script||'')})}
+async function refresh(){try{const h=(await api('/api/live/health')).snapshot||{};const j=(await api('/api/live/journal?limit=80')).journal||[];renderCards(h);renderStage(h);renderRoutes(j);$('health').textContent=pretty({health:h,journal:j.slice(-20)});$('topStatus').textContent='updated '+new Date().toLocaleTimeString();$('topStatus').className='ok'}catch(e){$('topStatus').textContent=String(e);$('topStatus').className='bad'}}
+function setAudioStatus(v){$('audioStatus').textContent=v}function setCaption(v){$('caption').textContent=v||' '}function setSpeaker(v){$('speaker').textContent=v||'Stelle'}
+function ensureAudio(){const C=window.AudioContext||window.webkitAudioContext;if(!audioCtx)audioCtx=new C();audioCtx.resume().catch(()=>{});return audioCtx}
+function b64(v){const bin=atob(v);const out=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)out[i]=bin.charCodeAt(i);return out}
+function pcm(bytes){const view=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength);const out=new Float32Array(Math.floor(bytes.byteLength/2));for(let i=0;i<out.length;i++)out[i]=Math.max(-1,Math.min(1,view.getInt16(i*2,true)/32768));return out}
+function startChunk(c){const ctx=ensureAudio();activeStream={id:c.streamId,rate:c.sampleRate||24000,next:ctx.currentTime+.05,chunks:0,bytes:0};setCaption(c.text||' ');setSpeaker(c.speaker||'Stelle');setAudioStatus('realtime streaming');$('chunkStatus').textContent='chunks 0'}
+function pushChunk(c){if(!activeStream||activeStream.id!==c.streamId)startChunk(c);const ctx=ensureAudio();const bytes=b64(c.audioBase64||'');const samples=pcm(bytes);const buf=ctx.createBuffer(1,samples.length,c.sampleRate||activeStream.rate);buf.copyToChannel(samples,0);const src=ctx.createBufferSource();src.buffer=buf;src.connect(ctx.destination);const at=Math.max(ctx.currentTime+.02,activeStream.next);src.start(at);activeStream.next=at+buf.duration;activeStream.chunks++;activeStream.bytes+=bytes.byteLength;$('chunkStatus').textContent='chunks '+activeStream.chunks;setAudioStatus('realtime playing')}
+function endChunk(c){setAudioStatus('realtime queued '+(c.chunks??activeStream?.chunks??0))}
+function playUrl(c){if(!c.url)return;const a=new Audio(c.url);setCaption(c.text||' ');setSpeaker(c.speaker||'Stelle');setAudioStatus('audio loading');a.onplay=()=>setAudioStatus('audio playing');a.onended=()=>setAudioStatus('audio idle');a.onerror=()=>setAudioStatus('audio error');a.play().catch(e=>setAudioStatus('blocked '+e.message))}
+io().on('command',c=>{commandLog.unshift(c);commandLog=commandLog.slice(0,80);addLog($('commands'),{meta:(c.type||'command')+' · '+new Date().toLocaleTimeString(),text:[c.text,c.status,c.url,c.streamId].filter(Boolean).join(' / ')});if(c.type==='caption:set'||c.type==='caption:stream')setCaption(c.text);if(c.type==='audio:status')setAudioStatus([c.provider,c.status].filter(Boolean).join(' ')||'audio');if(c.type==='audio:play'||c.type==='audio:stream')playUrl(c);if(c.type==='audio:chunk:start')startChunk(c);if(c.type==='audio:chunk')pushChunk(c);if(c.type==='audio:chunk:end')endChunk(c);if(c.type==='audio:stop')setAudioStatus('audio stopped')});
+$('send').onclick=()=>sendDanmaku($('danmaku').value);$('sendLong').onclick=()=>sendDanmaku('这是一条很长的直播测试弹幕，我想确认从弹幕进入、路由判断、回复生成、StageOutput 排队、TTS 合成到浏览器播放每一段都能被看见，而且长文本不会把界面撑坏。现在请你用两三句话回应我，并说明你收到了这条测试。');$('burst').onclick=async()=>{for(let i=1;i<=5;i++)await sendDanmaku('连发测试 '+i+'：能看到吗？')};document.querySelectorAll('button[data-cmd]').forEach(b=>b.onclick=()=>command(b.dataset.cmd));refresh();setInterval(refresh,4000);
+</script></body></html>`;
+}
+
 function debugHtml(requireToken: boolean): string {
   const tokenScript = requireToken
     ? "const token = new URLSearchParams(location.search).get('token') || '';"
@@ -663,12 +731,17 @@ function renderCards(snapshot){
   byId('cards').innerHTML = cards.map(([label,value,cls]) => '<div class="card"><div class="label">' + esc(label) + '</div><div class="value ' + cls + '">' + esc(value) + '</div></div>').join('');
 }
 function renderCursors(cursors){
-  const entries = Object.values(cursors || {});
+  const entries = Array.isArray(latest?.cursorSnapshots) ? latest.cursorSnapshots : Object.values(cursors || {});
   if (!entries.length) { byId('cursors').innerHTML = '<div class="hint">No cursor snapshots yet.</div>'; return; }
-  byId('cursors').innerHTML = '<table><thead><tr><th>ID</th><th>Status</th><th>Last Active</th></tr></thead><tbody>' + entries.map((c) => '<tr><td>' + esc(c.id) + '</td><td>' + esc(c.status || c.state?.status) + '</td><td>' + esc(c.lastActiveAt || c.state?.lastActiveAt) + '</td></tr>').join('') + '</tbody></table>';
+  byId('cursors').innerHTML = '<table><thead><tr><th>ID</th><th>Status</th><th>Summary</th><th>State</th></tr></thead><tbody>' + entries.map((c) => '<tr><td>' + esc(c.id) + '</td><td>' + esc(c.status || c.state?.status) + '</td><td>' + esc(c.summary, '') + '</td><td><pre class="smallpre">' + esc(JSON.stringify(c.state || {}, null, 2), '{}') + '</pre></td></tr>').join('') + '</tbody></table>';
 }
 function renderTools(tools){
-  const items = (tools || []).map((tool) => '<span class="pill">' + esc(tool.name) + ' / ' + esc(tool.authority) + '</span>');
+  const health = new Map((latest?.toolHealth || []).map((item) => [item.toolName, item]));
+  const items = (tools || []).map((tool) => {
+    const h = health.get(tool.name) || {};
+    const suffix = h.circuitOpenUntil ? ' circuit-open' : ' calls=' + (h.recentCalls || 0) + ' fail=' + (h.consecutiveFailures || 0);
+    return '<span class="pill">' + esc(tool.name) + ' / ' + esc(tool.authority) + esc(suffix, '') + '</span>';
+  });
   byId('tools').innerHTML = items.length ? items.join('') : '<div class="hint">No tools registered.</div>';
 }
 function render(snapshot){
@@ -680,7 +753,7 @@ function render(snapshot){
   byId('stage').innerHTML = '<div class="hint">Current: ' + esc(stage.currentOutputId, 'none') + ' / owner: ' + esc(stage.currentOwner, 'none') + ' / lane: ' + esc(stage.currentLane, 'none') + '</div>';
   byId('outputs').textContent = pretty(stage.recentOutputs || []);
   byId('events').textContent = pretty((snapshot.runtime && snapshot.runtime.recentEvents) || []);
-  byId('renderer').textContent = pretty({ renderer: snapshot.renderer, live: snapshot.live, discord: snapshot.discord, memory: snapshot.memory });
+  byId('renderer').textContent = pretty({ renderer: snapshot.renderer, live: snapshot.live, discord: snapshot.discord, memory: snapshot.memory, eventBus: snapshot.eventBus });
   byId('audit').textContent = pretty(snapshot.audit || []);
   byId('raw').textContent = pretty(snapshot);
   byId('status').textContent = 'updated ' + new Date().toLocaleTimeString();

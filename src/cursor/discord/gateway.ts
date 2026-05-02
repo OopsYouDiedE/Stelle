@@ -146,7 +146,9 @@ export class DiscordGateway {
   }
 
   private isChannelActivated(channelId: string): boolean {
-    const channels = asRecord(this.context.config.rawYaml.channels);
+    const ambientChannelIds = this.context.config.discord.ambientChannelIds;
+    if (Array.isArray(ambientChannelIds)) return ambientChannelIds.includes(channelId);
+    const channels = asRecord(this.context.config.rawYaml?.channels);
     return asRecord(channels[channelId]).activated === true;
   }
 

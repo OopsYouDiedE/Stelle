@@ -89,6 +89,7 @@ export function setupRendererControllers(deps: RendererControllerDeps): void {
         content: input.content,
         reason: input.reason,
         layer: input.layer ?? "user_facts",
+        confidence: input.confidence ?? "medium",
       }),
     listProposals: (input) => deps.memory.listMemoryProposals(input?.limit, input?.status),
     approveProposal: (input) =>
@@ -141,8 +142,13 @@ export function setupRendererControllers(deps: RendererControllerDeps): void {
         stageOutput: deps.stageOutput.snapshot(),
         deviceAction: deps.deviceAction.snapshot(),
         tools: deps.tools.list().map((t) => ({ name: t.name, authority: t.authority, title: t.title })),
+        toolHealth: deps.tools.getHealth(),
         audit: deps.tools.audit.slice(-50),
         memory: memorySnapshot,
+        eventBus: {
+          backpressure: deps.eventBus.getBackpressureStats(),
+        },
+        cursorSnapshots: cursors.map((cursor) => cursor.snapshot()),
       };
     },
     useTool: (name, input) => {

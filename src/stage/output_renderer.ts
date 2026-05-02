@@ -3,7 +3,10 @@ import type {
   StageOutputRenderer as StageOutputRendererContract,
   StageOutputRendererDeps,
   OutputIntent,
+  StageOutputDeliveryRecord,
+  StageOutputDeliveryReport,
 } from "./output_types.js";
+import type { ToolContext, ToolResult } from "../tool.js";
 
 // === Constants ===
 const LIVE_STAGE_TOOLS = [
@@ -35,7 +38,7 @@ export class StageOutputRenderer implements StageOutputRendererContract {
     );
   }
 
-  async render(intent: OutputIntent, signal?: AbortSignal): Promise<void> {
+  async render(intent: OutputIntent, signal?: AbortSignal): Promise<StageOutputDeliveryReport | void> {
     const toolContext = {
       caller: "stage_renderer" as const,
       cwd: this.deps.cwd,
@@ -43,30 +46,38 @@ export class StageOutputRenderer implements StageOutputRendererContract {
       allowedTools: [...LIVE_STAGE_TOOLS, "live.stop_output"],
       signal,
     };
+    const records: StageOutputDeliveryRecord[] = [];
 
     if (signal?.aborted) return;
 
     try {
       if (intent.output.expression) {
-        await this.deps.tools
-          .execute("live.set_expression", { expression: intent.output.expression }, toolContext)
-          .catch(() => undefined);
+        records.push(
+          await this.executeTarget(
+            "live.expression",
+            "live.set_expression",
+            { expression: intent.output.expression },
+            toolContext,
+          ),
+        );
       }
 
       if (signal?.aborted) return;
 
       if (intent.output.motion) {
-        await this.deps.tools
-          .execute("live.trigger_motion", { group: intent.output.motion }, toolContext)
-          .catch(() => undefined);
+        records.push(
+          await this.executeTarget("live.motion", "live.trigger_motion", { group: intent.output.motion }, toolContext),
+        );
       }
 
       if (signal?.aborted) return;
 
-      if (!intent.output.caption && !intent.output.tts) return;
+      if (!intent.output.caption && !intent.output.tts && !intent.output.discordReply) return this.report(intent, records);
 
-      await this.deps.tools
-        .execute(
+      if (intent.output.caption || intent.output.tts) {
+        records.push(
+          await this.executeTarget(
+            "live.panel",
           "live.panel.push_event",
           {
             event_id: intent.id,
@@ -81,26 +92,86 @@ export class StageOutputRenderer implements StageOutputRendererContract {
                   : "low",
           },
           toolContext,
-        )
-        .catch(() => undefined);
+          ),
+        );
+      }
 
       if (intent.output.tts && this.deps.ttsEnabled) {
-        await this.deps.tools.execute(
-          "live.stream_tts_caption",
-          { text: intent.text, speaker: "Stelle", rate_ms: 32 },
-          toolContext,
+        records.push(
+          await this.executeTarget(
+            "live.tts",
+            "live.stream_tts_caption",
+            { text: intent.text, speaker: "Stelle", rate_ms: 32 },
+            toolContext,
+          ),
         );
-        return;
+      } else if (intent.output.caption) {
+        records.push(
+          await this.executeTarget(
+            "live.caption",
+            "live.stream_caption",
+            { text: intent.text, speaker: "Stelle" },
+            toolContext,
+          ),
+        );
       }
 
       if (signal?.aborted) return;
 
-      if (intent.output.caption) {
-        await this.deps.tools.execute("live.stream_caption", { text: intent.text, speaker: "Stelle" }, toolContext);
+      if (intent.output.discordReply) {
+        const messageId = intent.output.discordReply.messageId ?? intent.sourceEventId;
+        records.push(
+          await this.executeTarget(
+            "discord.reply",
+            messageId ? "discord.reply_message" : "discord.send_message",
+            messageId
+              ? {
+                  channel_id: intent.output.discordReply.channelId,
+                  message_id: messageId,
+                  content: intent.text,
+                }
+              : {
+                  channel_id: intent.output.discordReply.channelId,
+                  content: intent.text,
+                },
+            {
+              ...toolContext,
+              allowedTools: [...toolContext.allowedTools, "discord.reply_message", "discord.send_message"],
+            },
+          ),
+        );
       }
     } finally {
       // No more fire-and-forget abort listener here.
     }
+    return this.report(intent, records);
+  }
+
+  private async executeTarget(
+    target: StageOutputDeliveryRecord["target"],
+    tool: string,
+    input: Record<string, unknown>,
+    context: ToolContext,
+  ): Promise<StageOutputDeliveryRecord> {
+    try {
+      const result: ToolResult = await this.deps.tools.execute(tool, input, context);
+      return {
+        target,
+        ok: result.ok,
+        summary: result.summary,
+        errorCode: result.error?.code,
+      };
+    } catch (error) {
+      return {
+        target,
+        ok: false,
+        summary: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  private report(intent: OutputIntent, records: StageOutputDeliveryRecord[]): StageOutputDeliveryReport {
+    return { outputId: intent.id, records };
   }
 }
 

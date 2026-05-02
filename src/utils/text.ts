@@ -51,6 +51,7 @@ export function sanitizeExternalTextChunk(value: unknown): string {
   return text
     .replace(/\r\n/g, "\n")
     .replace(/[ \t]+\n/g, "\n")
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "")
     .replace(/\n{3,}/g, "\n\n");
 }
 
@@ -59,8 +60,35 @@ export function sanitizeExternalTextChunk(value: unknown): string {
  */
 export function truncateText(text: string, maxChars: number): string {
   const clean = sanitizeExternalText(text);
-  if (clean.length <= maxChars) return clean;
-  return `${clean.slice(0, Math.max(0, maxChars - 3))}...`;
+  const chars = Array.from(clean);
+  if (chars.length <= maxChars) return clean;
+  return `${chars.slice(0, Math.max(0, maxChars - 3)).join("")}...`;
+}
+
+export function truncateUtf8Bytes(text: string, maxBytes: number): string {
+  const clean = sanitizeExternalText(text);
+  if (Buffer.byteLength(clean, "utf8") <= maxBytes) return clean;
+  let result = "";
+  for (const char of clean) {
+    const next = result + char;
+    if (Buffer.byteLength(next, "utf8") > maxBytes) break;
+    result = next;
+  }
+  return result;
+}
+
+export function sanitizeTemplateValue(
+  value: unknown,
+  options: { maxCodePoints?: number; maxUtf8Bytes?: number } = {},
+): string {
+  let text = sanitizeExternalText(value).replace(/\s+/g, " ");
+  if (options.maxCodePoints !== undefined) {
+    text = Array.from(text).slice(0, Math.max(0, options.maxCodePoints)).join("");
+  }
+  if (options.maxUtf8Bytes !== undefined) {
+    text = truncateUtf8Bytes(text, options.maxUtf8Bytes);
+  }
+  return text;
 }
 
 /**

@@ -142,7 +142,42 @@ function applyCommand(command: RendererCommand): void {
     return;
   }
   if (command.type === "audio:play" || command.type === "audio:stream") {
-    audio.queueAudio(command.url ?? "", { text: command.text, speaker: command.speaker, rateMs: command.rateMs });
+    audio.queueAudio(command.url ?? "", {
+      audioId: command.audioId,
+      text: command.text,
+      speaker: command.speaker,
+      rateMs: command.rateMs,
+      durationHintMs: command.durationHintMs,
+    });
+    return;
+  }
+  if (command.type === "audio:chunk:start") {
+    audio.startChunkStream({
+      audioId: command.audioId,
+      streamId: command.streamId ?? `chunk-${Date.now()}`,
+      text: command.text,
+      speaker: command.speaker,
+      rateMs: command.rateMs,
+      audioFormat: command.audioFormat,
+      sampleRate: command.sampleRate,
+    });
+    return;
+  }
+  if (command.type === "audio:chunk") {
+    audio.pushAudioChunk({
+      streamId: command.streamId ?? "",
+      audioBase64: command.audioBase64 ?? "",
+      audioFormat: command.audioFormat,
+      sampleRate: command.sampleRate,
+    });
+    return;
+  }
+  if (command.type === "audio:chunk:end") {
+    audio.endChunkStream({
+      streamId: command.streamId ?? "",
+      chunks: command.chunks,
+      byteLength: command.byteLength,
+    });
     return;
   }
   if (command.type === "audio:stop") {

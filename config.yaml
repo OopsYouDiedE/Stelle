@@ -4,7 +4,7 @@
 # - 这里保存可提交的静态配置；token 和 API key 仍走环境变量。
 # - `cursors` 控制各 Cursor 的行为边界。
 # - `core` 控制主动反思循环频率。
-# - `channels` 控制 Discord 非 mention ambient 回复允许列表。
+# - Discord 非 mention ambient 回复允许列表走 DISCORD_AMBIENT_CHANNEL_IDS。
 cursors:
   discord:
     ambientEnabled: true
@@ -77,9 +77,3 @@ debug:
   enabled: true
   requireToken: true
   allowExternalWrite: false
-
-channels:
-  "1235845356697288747":
-    activated: true
-  "1494546366808985710":
-    activated: true

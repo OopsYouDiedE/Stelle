@@ -44,6 +44,22 @@ describe("topic script runtime", () => {
     expect(intents[0]?.metadata?.script_id).toBe("ts_runtime");
   });
 
+  it("prefills topic hosting lines so the stage has a speaking buffer", async () => {
+    const { repository } = await approvedRepository();
+    const intents: OutputIntent[] = [];
+    const runtime = new TopicScriptRuntimeService({
+      eventBus: new StelleEventBus(),
+      repository,
+      stageOutput: fakeStageOutput(intents),
+      now: () => 1000,
+    });
+
+    await runtime.start();
+
+    expect(intents.length).toBeGreaterThan(1);
+    expect(intents.some((intent) => intent.metadata?.source === "section_buffer")).toBe(true);
+  });
+
   it("turns viewer questions into direct responses without bypassing StageOutput", async () => {
     const { repository } = await approvedRepository();
     const eventBus = new StelleEventBus();
@@ -109,6 +125,60 @@ describe("topic script runtime", () => {
       sectionIndex: 0,
     });
   });
+
+  it("advances sections on live ticks after the section duration elapses", async () => {
+    const { repository } = await approvedRepository();
+    const eventBus = new StelleEventBus();
+    const intents: OutputIntent[] = [];
+    let now = 1000;
+    const runtime = new TopicScriptRuntimeService({
+      eventBus,
+      repository,
+      stageOutput: fakeStageOutput(intents),
+      now: () => now,
+    });
+    await runtime.start();
+
+    now += 200_000;
+    eventBus.publish({
+      type: "live.tick",
+      source: "fixture",
+      reason: "test_live_tick",
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(runtime.snapshot().sectionIndex).toBe(1);
+    expect(intents.some((intent) => intent.cursorId === "topic_script_runtime")).toBe(true);
+    expect(intents.some((intent) => intent.metadata?.section_id === "sampling_2")).toBe(true);
+  });
+
+  it("replenishes topic hosting lines on live ticks before a section ends", async () => {
+    const { repository } = await approvedRepository();
+    const eventBus = new StelleEventBus();
+    const intents: OutputIntent[] = [];
+    let now = 1000;
+    const runtime = new TopicScriptRuntimeService({
+      eventBus,
+      repository,
+      stageOutput: fakeStageOutput(intents),
+      now: () => now,
+    });
+    await runtime.start();
+    const before = intents.length;
+
+    now += 36_000;
+    eventBus.publish({
+      type: "live.tick",
+      source: "fixture",
+      reason: "test_live_tick",
+    });
+    await Promise.resolve();
+
+    expect(runtime.snapshot().sectionIndex).toBe(0);
+    expect(intents.length).toBeGreaterThan(before);
+    expect(intents.at(-1)?.metadata?.source).toBe("section_beat");
+  });
 });
 
 async function approvedRepository(): Promise<{ repository: TopicScriptRepository }> {
@@ -126,5 +196,15 @@ function fakeStageOutput(intents: OutputIntent[]): StageOutputArbiter {
       intents.push(intent);
       return { status: "accepted", outputId: intent.id, reason: "test", intent };
     },
+    snapshot: () => ({
+      id: "stage_output",
+      status: "idle",
+      speaking: false,
+      captionBusyUntil: 0,
+      ttsBusyUntil: 0,
+      motionBusyUntil: 0,
+      queueLength: 0,
+      recentOutputs: [],
+    }),
   } as unknown as StageOutputArbiter;
 }

@@ -9,7 +9,7 @@ import { PublicRoomMemoryStore, type PublicRoomMemory } from "./public_memory.js
 import { WorldCanonStore, type WorldCanonEntry } from "./world_canon.js";
 import { PromptLabService, type PromptLabExperiment } from "./prompt_lab.js";
 import type { ProgramWidgetState, TopicOrchestratorOptions, TopicPhase, TopicState } from "./types.js";
-import { sanitizeExternalText, truncateText } from "../../utils/text.js";
+import { sanitizeExternalText, sanitizeTemplateValue } from "../../utils/text.js";
 import type { OutputIntent } from "../../stage/output_types.js";
 
 // === Interfaces ===
@@ -30,6 +30,12 @@ export interface LiveStageDirectorDeps {
 export interface LiveStageDirectorSnapshot {
   topic: TopicState;
   widgets: ProgramWidgetState;
+  emergencySlot?: {
+    active: boolean;
+    reason?: string;
+    text?: string;
+    requestedAt?: number;
+  };
 }
 
 // === Main Class ===
@@ -61,6 +67,8 @@ export class LiveStageDirector {
   private publicMemories: PublicRoomMemory[] = [];
   private worldCanonEntries: WorldCanonEntry[] = [];
   private promptLabExperiments: PromptLabExperiment[] = [];
+  private emergencySlot?: LiveStageDirectorSnapshot["emergencySlot"];
+  private readonly topicBurstWindow: Array<{ key: string; at: number; text: string }> = [];
 
   constructor(private readonly deps: LiveStageDirectorDeps) {
     this.orchestrator = deps.orchestrator ?? new TopicOrchestrator(deps.options);
@@ -93,7 +101,7 @@ export class LiveStageDirector {
       this.deps.eventBus.subscribe("live.batch.flushed", (event) => {
         this.orchestrator.recordBatchFlush(event.payload);
         this.publishProgramUpdate("batch_flush");
-        void this.maybeHost("batch_flush");
+        return this.maybeHost("batch_flush");
       }),
     );
 
@@ -106,6 +114,7 @@ export class LiveStageDirector {
 
     this.unsubscribes.push(
       this.deps.eventBus.subscribe("stage.output.started", (event) => {
+        this.syncTopicFromStageIntent(event.payload.intent);
         this.orchestrator.updateStageStatus({
           stage: { status: "speaking", lane: event.payload.intent.lane, outputId: event.payload.intent.id },
         });
@@ -115,6 +124,7 @@ export class LiveStageDirector {
 
     this.unsubscribes.push(
       this.deps.eventBus.subscribe("stage.output.completed", (event) => {
+        this.syncTopicFromStageIntent(event.payload.intent);
         this.orchestrator.updateStageStatus({
           stage: { status: "idle", lane: event.payload.intent.lane, outputId: event.payload.intent.id },
         });
@@ -132,6 +142,13 @@ export class LiveStageDirector {
         }
       }),
     );
+
+    this.unsubscribes.push(
+      this.deps.eventBus.subscribe("live.emergency_slot.resolved", () => {
+        this.emergencySlot = this.emergencySlot ? { ...this.emergencySlot, active: false } : { active: false };
+        this.publishProgramUpdate("emergency_resolved");
+      }),
+    );
   }
 
   stop(): void {
@@ -143,6 +160,7 @@ export class LiveStageDirector {
     return {
       topic: this.orchestrator.snapshot(),
       widgets: this.orchestrator.widgetState(this.publicMemories, this.worldCanonEntries, this.promptLabExperiments),
+      emergencySlot: this.emergencySlot,
     };
   }
 
@@ -158,7 +176,8 @@ export class LiveStageDirector {
       this.publishTransition(res.transition.from!, res.transition.to!);
     }
 
-    // Handle engagement (thanks)
+    // Handle engagement (thanks) and emergency interstitials
+    this.maybeRequestEmergencySlot(normalizeLiveEvent(payload));
     void this.handleEngagementEvent(payload).catch((err) => console.error("[StageDirector] Engagement error:", err));
   }
 
@@ -219,10 +238,11 @@ export class LiveStageDirector {
     // Idle logic
     const idle = this.deps.config.live.idle;
     if (idle.enabled && idle.templates.length > 0) {
-      if (
-        now - this.lastActivityAt >= idle.minQuietSeconds * 1000 &&
-        now - this.lastIdleOutputAt >= idle.cooldownSeconds * 1000
-      ) {
+      const dueAt = Math.max(
+        this.lastActivityAt + idle.minQuietSeconds * 1000,
+        this.lastIdleOutputAt + idle.cooldownSeconds * 1000,
+      );
+      if (now >= dueAt) {
         this.lastIdleOutputAt = now;
         this.lastActivityAt = now;
         await this.proposeProposal({
@@ -283,13 +303,19 @@ export class LiveStageDirector {
                 : [];
     if (!templates.length) return undefined;
 
-    const username = truncateText(sanitizeExternalText(event.user?.name ?? "观众"), thanks.usernameMaxLen);
+    const username = sanitizeTemplateValue(event.user?.name ?? "观众", {
+      maxCodePoints: thanks.usernameMaxLen,
+      maxUtf8Bytes: thanks.usernameMaxLen * 4,
+    });
     return renderTemplate(pick(templates), {
       ...this.variables(),
       username,
       platform: event.source,
-      comment: event.text,
-      gift_name: event.trustedPayment?.giftName ?? (event.text || "礼物"),
+      comment: sanitizeTemplateValue(event.text, { maxCodePoints: 80, maxUtf8Bytes: 240 }),
+      gift_name: sanitizeTemplateValue(event.trustedPayment?.giftName ?? (event.text || "礼物"), {
+        maxCodePoints: 32,
+        maxUtf8Bytes: 96,
+      }),
       amount: event.trustedPayment?.amount ?? "",
       currency: event.trustedPayment?.currency ?? "",
     });
@@ -342,6 +368,55 @@ export class LiveStageDirector {
       interrupt: "none",
       metadata: { source: "live_program", phase: topic.phase },
     });
+  }
+
+  private maybeRequestEmergencySlot(event: NormalizedLiveEvent): void {
+    const now = this.deps.now();
+    let reason = "";
+
+    if (event.kind === "super_chat" || event.kind === "guard") {
+      reason = event.kind;
+    } else if (event.kind === "gift" && (event.trustedPayment?.amount ?? 0) >= 100) {
+      reason = "high_value_gift";
+    } else if (event.kind === "danmaku") {
+      const key = sanitizeTemplateValue(event.text, { maxCodePoints: 28 }).toLowerCase();
+      if (key.length >= 4) {
+        this.topicBurstWindow.push({ key, at: now, text: event.text });
+        while (this.topicBurstWindow.length && now - this.topicBurstWindow[0].at > 30_000) {
+          this.topicBurstWindow.shift();
+        }
+        if (this.topicBurstWindow.filter((item) => item.key === key).length >= 5) reason = "topic_burst";
+      }
+    }
+
+    if (!reason) return;
+    const text = sanitizeTemplateValue(event.text || event.trustedPayment?.giftName || reason, {
+      maxCodePoints: 120,
+      maxUtf8Bytes: 360,
+    });
+    this.emergencySlot = { active: true, reason, text, requestedAt: now };
+    this.deps.eventBus.publish({
+      type: "live.emergency_slot.requested" as any,
+      source: "live_stage_director",
+      id: `live-emergency-${now}-${Math.random().toString(36).slice(2, 7)}`,
+      timestamp: now,
+      payload: {
+        reason,
+        text,
+        eventId: event.id,
+        eventKind: event.kind,
+        priority: event.priority,
+      },
+    } as any);
+    this.publishProgramUpdate("emergency_slot");
+  }
+
+  private syncTopicFromStageIntent(intent: OutputIntent): void {
+    const title = typeof intent.topic === "string" ? sanitizeExternalText(intent.topic).trim() : "";
+    if (!title || intent.cursorId !== "topic_script_runtime") return;
+    const current = this.orchestrator.snapshot();
+    if (current.title === title) return;
+    this.orchestrator.updateTopic(title, title);
   }
 
   private async proposeProposal(input: Omit<OutputIntent, "id" | "cursorId" | "output">): Promise<void> {
@@ -464,7 +539,7 @@ function renderTemplate(template: string, variables: Record<string, string | num
   });
   return randomized.replace(/\{([a-zA-Z0-9_]+)\}/g, (match, key: string) => {
     const value = variables[key];
-    return value === undefined ? match : String(value);
+    return value === undefined ? match : sanitizeTemplateValue(value, { maxCodePoints: 160, maxUtf8Bytes: 480 });
   });
 }
 

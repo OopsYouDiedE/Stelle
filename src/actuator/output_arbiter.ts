@@ -1,5 +1,5 @@
 // === Imports ===
-import { applyOutputBudget } from "../stage/output_budget.js";
+import { applyOutputBudget, splitOutputText } from "../stage/output_budget.js";
 import { decideOutputPolicy } from "../stage/output_policy.js";
 import { StageOutputQueue } from "../stage/output_queue.js";
 import type {
@@ -24,7 +24,7 @@ export class StageOutputArbiter extends BaseArbiter<OutputIntent, StageOutputDec
 
   constructor(deps: StageOutputArbiterDeps) {
     super("stage_output", deps);
-    this.queue = new StageOutputQueue(deps.maxQueueLength ?? 5, deps.now);
+    this.queue = new StageOutputQueue(deps.maxQueueLength ?? 12, deps.now);
     this.state = {
       id: "stage_output",
       status: "idle",
@@ -34,6 +34,7 @@ export class StageOutputArbiter extends BaseArbiter<OutputIntent, StageOutputDec
       motionBusyUntil: 0,
       queueLength: 0,
       recentOutputs: [],
+      queuedOutputs: [],
       autoReplyPaused: false,
       ttsMuted: false,
     };
@@ -41,6 +42,53 @@ export class StageOutputArbiter extends BaseArbiter<OutputIntent, StageOutputDec
 
   // === Arbitration Logic ===
   async propose(input: OutputIntent): Promise<StageOutputDecision> {
+    const createdAt = input.createdAt ?? this.deps.now();
+    const normalized = { ...input, createdAt };
+    const chunks = splitOutputText(normalized.text, normalized.lane);
+    if (chunks.length > 1) return this.proposeChunked(normalized, chunks);
+    return this.proposeSingle(
+      chunks[0] ? { ...normalized, text: chunks[0], summary: normalized.summary ?? chunks[0] } : normalized,
+    );
+  }
+
+  private async proposeChunked(input: OutputIntent, chunks: string[]): Promise<StageOutputDecision> {
+    const groupId = input.groupId ?? `chunk-${input.id}`;
+    let firstDecision: StageOutputDecision | undefined;
+    let sequence = input.sequence ?? 0;
+
+    for (let index = 0; index < chunks.length; index += 1) {
+      const chunk = chunks[index];
+      const chunkIntent: OutputIntent = {
+        ...input,
+        id: index === 0 ? input.id : `${input.id}-part-${index + 1}`,
+        groupId,
+        sequence: sequence++,
+        text: chunk,
+        summary: chunk,
+        ttlMs: Math.max(input.ttlMs, input.lane === "topic_hosting" ? 45_000 : 30_000),
+        createdAt: input.createdAt,
+        metadata: {
+          ...input.metadata,
+          chunkedFrom: input.id,
+          chunkIndex: index,
+          chunkTotal: chunks.length,
+        },
+      };
+      const decision = await this.proposeSingle(chunkIntent);
+      if (!firstDecision) firstDecision = decision;
+    }
+
+    return (
+      firstDecision ?? {
+        status: "dropped",
+        outputId: input.id,
+        reason: "empty_text",
+        intent: input,
+      }
+    );
+  }
+
+  private async proposeSingle(input: OutputIntent): Promise<StageOutputDecision> {
     // 1. Auto-reply Check
     if (this.autoReplyPaused && isAutoReplyIntent(input)) {
       this.record({
@@ -233,6 +281,7 @@ export class StageOutputArbiter extends BaseArbiter<OutputIntent, StageOutputDec
       ...this.state,
       queueLength: this.queue.length(),
       recentOutputs: [...this.recentOutputs],
+      queuedOutputs: this.queue.snapshot(),
       autoReplyPaused: this.autoReplyPaused,
       ttsMuted: this.ttsMuted,
     };
@@ -286,7 +335,8 @@ export class StageOutputArbiter extends BaseArbiter<OutputIntent, StageOutputDec
       if (signal.aborted) throw new Error("interrupted");
 
       const startTime = this.deps.now();
-      await (this.deps as StageOutputArbiterDeps).renderer.render(intent, signal);
+      const delivery = await (this.deps as StageOutputArbiterDeps).renderer.render(intent, signal);
+      if (delivery) this.publishDeliveryReport(intent, delivery);
 
       if (signal.aborted) throw new Error("interrupted");
 
@@ -384,6 +434,26 @@ export class StageOutputArbiter extends BaseArbiter<OutputIntent, StageOutputDec
       if (this.recentOutputs.length > 20) this.recentOutputs.shift();
     }
     this.state = { ...this.state, recentOutputs: [...this.recentOutputs] };
+  }
+
+  private publishDeliveryReport(
+    intent: OutputIntent,
+    report: import("../stage/output_types.js").StageOutputDeliveryReport,
+  ): void {
+    const failures = report.records.filter((record) => !record.ok);
+    if (!failures.length) return;
+    const type = failures.length === report.records.length ? "stage.output.delivery_failed" : "stage.output.partially_delivered";
+    this.deps.eventBus?.publish({
+      type: type as any,
+      source: "stage_output",
+      id: `${type}-${intent.id}-${this.deps.now()}`,
+      timestamp: this.deps.now(),
+      payload: {
+        intent,
+        reason: failures.map((failure) => `${failure.target}:${failure.summary}`).join("; "),
+        delivery: report,
+      },
+    });
   }
 }
 
