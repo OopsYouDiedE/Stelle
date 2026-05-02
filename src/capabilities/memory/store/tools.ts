@@ -1,9 +1,9 @@
 import { z } from "zod";
-import { MEMORY_LAYERS, type MemoryStore } from "../../capabilities/memory/store/memory_store.js";
-import { sanitizeExternalText } from "../../shared/text.js";
-import { ok, sideEffects } from "../types.js";
-import type { ToolDefinition } from "../types.js";
-import type { ToolRegistryDeps } from "./deps.js";
+import { MEMORY_LAYERS, type MemoryStore } from "./memory_store.js";
+import { sanitizeExternalText } from "../../../shared/text.js";
+import { ok, sideEffects } from "../../tooling/types.js";
+import type { ToolDefinition } from "../../tooling/types.js";
+import type { ToolRegistryDeps } from "../../tooling/deps.js";
 
 export function createMemoryTools(deps: ToolRegistryDeps): ToolDefinition[] {
   const memoryRequired = (): MemoryStore => {

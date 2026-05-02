@@ -5,7 +5,7 @@ import type {
 } from "../../../core/protocol/component.js";
 import { StageOutputArbiter } from "./arbiter.js";
 import { createStageOutputDebugProvider } from "./debug_provider.js";
-import type { RuntimeConfig } from "../../../config/index.js";
+
 import type { Intent } from "../../../core/protocol/intent.js";
 import type { OutputIntent, StageOutputRenderer } from "./types.js";
 
@@ -33,7 +33,7 @@ export const stageOutputCapability: ComponentPackage = {
   ],
 
   register(ctx: ComponentRegisterContext) {
-    const config = ctx.config as RuntimeConfig;
+    const config = ctx.config as any;
     const renderer =
       ctx.registry.resolve<StageOutputRenderer>("expression.stage_renderer") ?? new NullStageOutputRenderer();
 

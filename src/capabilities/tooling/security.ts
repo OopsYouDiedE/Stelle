@@ -1,6 +1,6 @@
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
-import { safeErrorMessage } from "../shared/json.js";
+import { safeErrorMessage } from "../../shared/json.js";
 import { fail } from "./types.js";
 import type { ToolResult } from "./types.js";
 

@@ -7,7 +7,7 @@ import {
   buildDashScopeSpeechRequest,
   buildLiveTtsRequest,
   fetchLiveTtsAudio,
-} from "../../src/utils/tts.js";
+} from "../../src/capabilities/expression/speech_output/tts_provider.js";
 import { LiveRuntime, type LiveRendererBridge } from "../../src/windows/stage/bridge/live_runtime.js";
 
 const originalEnv = { ...process.env };

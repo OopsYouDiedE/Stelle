@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
-import { createDefaultToolRegistry, ToolRegistry } from "../../src/tool.js";
+import { createTestToolRegistry } from "../utils/test_registry.js";
+import { ToolRegistry } from "../../src/capabilities/tooling/tool_registry.js";
 import { z } from "zod";
-import type { ToolDefinition } from "../../src/tools/types.js";
+import type { ToolDefinition } from "../../src/capabilities/tooling/types.js";
 
 describe("ToolRegistry & Single Call Test", () => {
   it("should correctly register and find tools", () => {
@@ -37,7 +38,7 @@ describe("ToolRegistry & Single Call Test", () => {
   });
 
   it("registers OBS control tools", () => {
-    const registry = createDefaultToolRegistry({ live: {} as any });
+    const registry = createTestToolRegistry({ live: {} as any });
     expect(registry.get("obs.status")).toBeDefined();
     expect(registry.get("obs.start_stream")).toBeDefined();
     expect(registry.get("obs.stop_stream")).toBeDefined();
@@ -45,7 +46,7 @@ describe("ToolRegistry & Single Call Test", () => {
   });
 
   it("keeps default registry compatibility after tool module split", () => {
-    const registry = createDefaultToolRegistry({ live: {} as any, discord: {} as any, memory: {} as any });
+    const registry = createTestToolRegistry({ live: {} as any, discord: {} as any, memory: {} as any });
     expect(registry.get("basic.datetime")?.authority).toBe("readonly");
     expect(registry.get("memory.write_long_term")?.authority).toBe("safe_write");
     expect(registry.get("discord.reply_message")?.authority).toBe("external_write");
@@ -54,7 +55,7 @@ describe("ToolRegistry & Single Call Test", () => {
   });
 
   it("requires cursor/core callers to whitelist system.run_command", async () => {
-    const registry = createDefaultToolRegistry();
+    const registry = createTestToolRegistry();
 
     const cursorResult = await registry.execute(
       "system.run_command",

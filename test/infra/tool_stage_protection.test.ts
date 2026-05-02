@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import { ToolRegistry, sideEffects } from "../../src/tool.js";
+import { ToolRegistry } from "../../src/capabilities/tooling/tool_registry.js";
+import { sideEffects } from "../../src/capabilities/tooling/types.js";
 import { z } from "zod";
 
 describe("ToolRegistry Stage Protection", () => {

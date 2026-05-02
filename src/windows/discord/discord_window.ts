@@ -1,11 +1,12 @@
+import { loadDiscordConfig } from "./config.js";
 import type { PerceptualEvent } from "../../core/protocol/perceptual_event.js";
 import type { Intent } from "../../core/protocol/intent.js";
-import type { RuntimeConfig } from "../../config/index.js";
+
 import { DiscordRuntime, type DiscordMessageSummary } from "../../windows/discord/runtime.js";
 import type { StelleEventBus } from "../../core/event/event_bus.js";
 
 export interface DiscordWindowOptions {
-  config: RuntimeConfig;
+  config: any;
   discord: DiscordRuntime;
   events: StelleEventBus;
   logger: Pick<Console, "info" | "warn" | "error">;
@@ -26,8 +27,8 @@ export class DiscordWindow {
         this.options.logger.error("DiscordWindow failed to handle cognition intent", error);
       });
     });
-    if (this.options.config.discord.token) {
-      await this.options.discord.login(this.options.config.discord.token);
+    if (loadDiscordConfig(this.options.config.rawYaml).token) {
+      await this.options.discord.login(loadDiscordConfig(this.options.config.rawYaml).token);
       await this.options.discord.setBotPresence({ window: "window.discord", detail: "runtime" }).catch(() => undefined);
     }
     this.options.logger.info("Discord Window started");

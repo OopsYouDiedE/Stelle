@@ -1,8 +1,11 @@
+import { loadDebugConfig } from "../../debug/config.js";
+import { loadControlConfig } from "../../debug/config.js";
+import { loadLiveConfig } from "../live/config.js";
 import { LiveRendererServer } from "./renderer/renderer_server.js";
-import type { RuntimeConfig } from "../../config/index.js";
+
 
 export interface StageWindowOptions {
-  config: RuntimeConfig;
+  config: any;
   logger: Pick<Console, "info" | "warn" | "error">;
   getDebugSnapshot?: () => Record<string, unknown>;
 }
@@ -15,16 +18,16 @@ export class StageWindow {
 
   async start(): Promise<void> {
     this.renderer = new LiveRendererServer({
-      host: this.options.config.live.rendererHost,
-      port: this.options.config.live.rendererPort,
+      host: loadLiveConfig(this.options.config.rawYaml).rendererHost,
+      port: loadLiveConfig(this.options.config.rawYaml).rendererPort,
       debug: {
-        enabled: this.options.config.debug.enabled,
-        requireToken: this.options.config.debug.requireToken,
-        token: this.options.config.debug.token,
+        enabled: loadDebugConfig(this.options.config.rawYaml).enabled,
+        requireToken: loadDebugConfig(this.options.config.rawYaml).requireToken,
+        token: loadDebugConfig(this.options.config.rawYaml).token,
       },
       control: {
-        requireToken: this.options.config.control.requireToken,
-        token: this.options.config.control.token,
+        requireToken: loadControlConfig(this.options.config.rawYaml).requireToken,
+        token: loadControlConfig(this.options.config.rawYaml).token,
       },
       debugController: this.options.getDebugSnapshot
         ? {

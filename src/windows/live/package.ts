@@ -1,3 +1,4 @@
+import { createLiveTools } from "./tools.js";
 import type {
   ComponentPackage,
   ComponentRegisterContext,
@@ -27,6 +28,11 @@ export const liveWindowPackage: ComponentPackage = {
     ctx.registry.provideForPackage?.(liveWindowPackage.id, "window.live", liveWindow) ??
       ctx.registry.provide("window.live", liveWindow);
     ctx.registry.provideDebugProvider(createLiveWindowDebugProvider(liveWindow));
+    const toolRegistry = ctx.registry.resolve<any>("tools.registry");
+    const live = ctx.registry.resolve<any>("platform.live_runtime");
+    if (toolRegistry && live) {
+      for (const tool of createLiveTools({ live })) toolRegistry.register(tool);
+    }
   },
 
   async start(ctx: ComponentRuntimeContext) {

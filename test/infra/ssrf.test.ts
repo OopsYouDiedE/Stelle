@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createDefaultToolRegistry } from "../../src/tool.js";
+import { createTestToolRegistry } from "../utils/test_registry.js";
 
 describe("SSRF protection", () => {
   afterEach(() => {
@@ -8,7 +8,7 @@ describe("SSRF protection", () => {
 
   it("blocks private initial URLs before fetch", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
-    const registry = createDefaultToolRegistry();
+    const registry = createTestToolRegistry();
 
     const result = await registry.execute(
       "search.web_read",
@@ -33,7 +33,7 @@ describe("SSRF protection", () => {
       headers: new Headers({ location: "http://169.254.169.254/latest/meta-data" }),
       text: vi.fn(),
     } as unknown as Response);
-    const registry = createDefaultToolRegistry();
+    const registry = createTestToolRegistry();
 
     const result = await registry.execute(
       "search.web_read",
@@ -52,7 +52,7 @@ describe("SSRF protection", () => {
 
   it("blocks IPv4-mapped IPv6 loopback URLs", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
-    const registry = createDefaultToolRegistry();
+    const registry = createTestToolRegistry();
 
     const result = await registry.execute(
       "search.web_read",

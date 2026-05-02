@@ -1,5 +1,13 @@
+import { speechOutputPackage } from "../capabilities/expression/speech_output/package.js";
 import path from "node:path";
-import { loadRuntimeConfig, type RuntimeConfig } from "../config/index.js";
+import { loadYamlConfig } from "../core/config/index.js";
+import { loadDiscordConfig } from "../windows/discord/config.js";
+import { loadBrowserConfig } from "../capabilities/action/browser_control/config.js";
+import { loadDesktopInputConfig } from "../capabilities/action/desktop_input/config.js";
+import { loadModelConfig } from "../capabilities/model/config.js";
+import { loadLiveConfig } from "../windows/live/config.js";
+import { loadSceneObservationConfig } from "../capabilities/perception/scene_observation/config.js";
+import { loadDebugConfig } from "../debug/config.js";
 import { ComponentLoader } from "../core/runtime/component_loader.js";
 import { ComponentRegistry } from "../core/runtime/component_registry.js";
 import { DataPlane } from "../core/runtime/data_plane.js";
@@ -40,7 +48,7 @@ export interface RuntimeHostSnapshot {
 }
 
 export class RuntimeHost {
-  readonly config: RuntimeConfig;
+  readonly config: any;
   readonly registry = new ComponentRegistry();
   readonly events = new StelleEventBus();
   readonly dataPlane = new DataPlane();
@@ -56,29 +64,30 @@ export class RuntimeHost {
   private loadedPackageIds: string[] = [];
 
   constructor(readonly mode: StartMode = "runtime") {
-    this.config = loadRuntimeConfig();
+        const rawYaml = loadYamlConfig();
+    this.config = { rawYaml } as any;
     this.live = new LiveRuntime(
-      new ObsWebSocketController({ enabled: this.config.live.obsControlEnabled }),
+      new ObsWebSocketController({ enabled: loadLiveConfig(rawYaml).obsControlEnabled }),
       undefined,
       this.events,
     );
-    this.llm = new LlmClient(this.config.models);
+    this.llm = new LlmClient(loadModelConfig(rawYaml));
     this.memory = new MemoryStore({
       rootDir: path.join(process.cwd(), "memory"),
       recentLimit: 50,
       llm: this.llm,
     });
-    this.sceneObserver = new SceneObserver(this.config.sceneObservation);
+    this.sceneObserver = new SceneObserver(loadSceneObservationConfig(rawYaml));
 
     this.debugPolicy = new DebugSecurityPolicy({
-      allowRemote: this.config.debug.enabled,
-      localOnly: !this.config.debug.enabled,
-      trustedTokens: this.config.debug.token ? [this.config.debug.token] : [],
-      operatorMode: this.config.debug.allowExternalWrite,
-      allowExternalEffect: this.config.debug.allowExternalWrite,
+      allowRemote: loadDebugConfig(rawYaml).enabled,
+      localOnly: !loadDebugConfig(rawYaml).enabled,
+      trustedTokens: loadDebugConfig(rawYaml).token ? [loadDebugConfig(rawYaml).token] : [],
+      operatorMode: loadDebugConfig(rawYaml).allowExternalWrite,
+      allowExternalEffect: loadDebugConfig(rawYaml).allowExternalWrite,
     });
     this.debugServer = new DebugServer(this.registry, this.debugPolicy, {
-      securityMode: this.config.debug.enabled ? "remote-token" : "local-only",
+      securityMode: loadDebugConfig(rawYaml).enabled ? "remote-token" : "local-only",
       listResourceRefs: () => this.dataPlane.listResourceRefs(),
       listStreamRefs: () => this.dataPlane.listStreamRefs(),
       listBackpressureStatus: () => [this.events.getBackpressureStatus()],
@@ -171,15 +180,15 @@ export class RuntimeHost {
         topicScriptCapability,
       );
     } else {
-      packages.push(stageOutputCapability);
+      packages.push(stageOutputCapability, speechOutputPackage);
     }
-    if ((this.mode === "runtime" || this.mode === "discord") && this.config.discord.enabled) {
+    if ((this.mode === "runtime" || this.mode === "discord") && loadDiscordConfig(this.config.rawYaml).enabled) {
       packages.push(discordWindowPackage);
     }
-    if (this.mode === "runtime" && this.config.browser.enabled) {
+    if (this.mode === "runtime" && loadBrowserConfig(this.config.rawYaml).enabled) {
       packages.push(browserWindowPackage);
     }
-    if (this.mode === "runtime" && this.config.desktopInput.enabled) {
+    if (this.mode === "runtime" && loadDesktopInputConfig(this.config.rawYaml).enabled) {
       packages.push(desktopInputWindowPackage);
     }
 

@@ -1,6 +1,6 @@
 import type { ResearchAgendaUpdate, SelfModelUpdate, IdentityProposal } from "./types.js";
 import type { MemoryStore } from "../../memory/store/memory_store.js";
-import type { ToolRegistry } from "../../../tool.js";
+import type { ToolRegistry } from "../../tooling/tool_registry.js";
 
 // === Region: Interfaces ===
 

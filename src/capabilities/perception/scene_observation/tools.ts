@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { ok, fail, sideEffects } from "../types.js";
-import type { ToolDefinition } from "../types.js";
-import type { ToolRegistryDeps } from "./deps.js";
+import { ok, fail, sideEffects } from "../../tooling/types.js";
+import type { ToolDefinition } from "../../tooling/types.js";
+import type { ToolRegistryDeps } from "../../tooling/deps.js";
 
 export function createSceneTools(deps: ToolRegistryDeps): ToolDefinition[] {
   return [

@@ -6,7 +6,7 @@ import type {
 import { DeviceActionArbiter } from "./arbiter.js";
 import { createDeviceActionDebugProvider } from "./debug_provider.js";
 import { buildDeviceActionAllowlist } from "./allowlist.js";
-import type { RuntimeConfig } from "../../../config/index.js";
+
 import type { DeviceActionDriver } from "./types.js";
 
 export const deviceActionCapability: ComponentPackage = {
@@ -21,7 +21,7 @@ export const deviceActionCapability: ComponentPackage = {
   ],
 
   register(ctx: ComponentRegisterContext) {
-    const config = ctx.config as RuntimeConfig;
+    const config = ctx.config as any;
     const drivers = [
       ctx.registry.resolve<DeviceActionDriver>("action.driver.browser_control"),
       ctx.registry.resolve<DeviceActionDriver>("action.driver.desktop_input"),

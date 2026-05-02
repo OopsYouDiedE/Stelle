@@ -3,7 +3,7 @@ import type {
   ComponentRegisterContext,
   ComponentRuntimeContext,
 } from "../../core/protocol/component.js";
-import type { RuntimeConfig } from "../../config/index.js";
+
 import type { DebugServer } from "../../debug/server/debug_server.js";
 import { StageWindow } from "./stage_window.js";
 import { createStageWindowDebugProvider } from "./debug_provider.js";
@@ -23,7 +23,7 @@ export const stageWindowPackage: ComponentPackage = {
   register(ctx: ComponentRegisterContext) {
     const debugServer = ctx.registry.resolve<DebugServer>("runtime.debug_server");
     const window = new StageWindow({
-      config: ctx.config as RuntimeConfig,
+      config: ctx.config as any,
       logger: ctx.logger,
       getDebugSnapshot: () => debugServer?.getRuntimeSnapshot() as unknown as Record<string, unknown>,
     });

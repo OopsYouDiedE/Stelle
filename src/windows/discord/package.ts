@@ -1,10 +1,11 @@
+import { createDiscordTools } from "./tools.js";
 import type {
   ComponentPackage,
   ComponentRegisterContext,
   ComponentRuntimeContext,
 } from "../../core/protocol/component.js";
 import { DiscordRuntime } from "../../windows/discord/runtime.js";
-import type { RuntimeConfig } from "../../config/index.js";
+
 import { DiscordWindow } from "./discord_window.js";
 import { createDiscordWindowDebugProvider } from "./debug_provider.js";
 
@@ -22,7 +23,7 @@ export const discordWindowPackage: ComponentPackage = {
   register(ctx: ComponentRegisterContext) {
     const discord = ctx.registry.resolve<DiscordRuntime>("platform.discord") ?? new DiscordRuntime();
     const window = new DiscordWindow({
-      config: ctx.config as RuntimeConfig,
+      config: ctx.config as any,
       discord,
       events: ctx.events as never,
       logger: ctx.logger,
@@ -30,6 +31,10 @@ export const discordWindowPackage: ComponentPackage = {
     ctx.registry.provideForPackage?.(discordWindowPackage.id, "window.discord", window) ??
       ctx.registry.provide("window.discord", window);
     ctx.registry.provideDebugProvider(createDiscordWindowDebugProvider(window));
+    const toolRegistry = ctx.registry.resolve<any>("tools.registry");
+    if (toolRegistry) {
+      for (const tool of createDiscordTools({ discord })) toolRegistry.register(tool);
+    }
   },
 
   async start(ctx: ComponentRuntimeContext) {

@@ -7,7 +7,7 @@ import { z } from "zod";
 import { asRecord, enumValue } from "../../shared/json.js";
 import { sanitizeExternalText, truncateText } from "../../shared/text.js";
 
-/** 意图分类（原 intent_schema.ts 内联到此处） */
+/** 意图分类 */
 export const LiveEventIntentSchema = z.enum([
   "greeting",
   "test_connection",

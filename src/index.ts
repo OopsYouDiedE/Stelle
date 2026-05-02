@@ -11,11 +11,11 @@
  * - 少量类型：配置、记忆、Cursor snapshot、工具定义。
  */
 export { start, startRuntime } from "./start.js";
-export { createDefaultToolRegistry, ToolRegistry } from "./tool.js";
+export { ToolRegistry } from "./capabilities/tooling/tool_registry.js";
 export { RuntimeHost } from "./runtime/host.js";
 
 export type { RuntimeHostSnapshot, StartMode } from "./runtime/host.js";
 export type { RuntimeStateSnapshot } from "./runtime_state.js";
-export type { ToolAuthority, ToolContext, ToolDefinition, ToolResult } from "./tool.js";
-export type { RuntimeConfig } from "./config/index.js";
+export type { ToolAuthority, ToolContext, ToolDefinition, ToolResult } from "./capabilities/tooling/types.js";
+
 export type { MemoryStore } from "./capabilities/memory/store/memory_store.js";

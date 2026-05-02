@@ -300,14 +300,7 @@ describe("DeviceActionArbiter", () => {
   });
 
   it("should include Android resources when Android device actions are enabled", () => {
-    const allowlist = buildDeviceActionAllowlist({
-      browser: { enabled: false },
-      desktopInput: { enabled: false },
-      android: {
-        enabled: true,
-        allowlist: { resources: ["emulator-5554"], risks: ["readonly", "safe_interaction", "text_input"] },
-      },
-    } as any);
+    const allowlist = buildDeviceActionAllowlist({ rawYaml: { cursors: { android: { enabled: true, allowlist: { cursors: ["android_device"], resources: ["emulator-5554"], resourceKinds: ["android_device"], risks: ["safe_interaction"] } } } } } as any);
 
     expect(allowlist?.cursors).toContain("android_device");
     expect(allowlist?.resources).toContain("emulator-5554");

@@ -1,13 +1,14 @@
+import { loadLiveConfig } from "./config.js";
 import type { StelleEventBus as EventBus } from "../../core/event/event_bus.js";
 import type { PerceptualEvent } from "../../core/protocol/perceptual_event.js";
 import { LivePlatformSupervisor } from "./adapters/supervisor.js";
 import { BilibiliPlatformBridge } from "./adapters/bilibili_adapter.js";
-import type { RuntimeConfig } from "../../config/index.js";
+
 import type { NormalizedLiveEvent } from "./live_event.js";
 
 export interface LiveWindowOptions {
   eventBus: EventBus;
-  config: RuntimeConfig;
+  config: any;
   logger: any;
 }
 
@@ -19,7 +20,7 @@ export class LiveWindow {
   async start(): Promise<void> {
     this.options.logger.info("Live Window starting platforms...");
 
-    const bilibiliConfig = this.options.config.live.platforms.bilibili;
+    const bilibiliConfig = loadLiveConfig(this.options.config.rawYaml).platforms.bilibili;
     if (bilibiliConfig?.enabled) {
       const bridge = new BilibiliPlatformBridge(bilibiliConfig, (event) => {
         void this.receivePlatformEvent(event).catch((error) => {

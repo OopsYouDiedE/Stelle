@@ -1,3 +1,4 @@
+import { createMemoryTools } from "./tools.js";
 import type {
   ComponentPackage,
   ComponentRegisterContext,

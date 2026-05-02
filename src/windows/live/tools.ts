@@ -1,8 +1,8 @@
 import { z } from "zod";
-import type { LiveRuntime } from "../../windows/stage/bridge/live_runtime.js";
-import { ok, sideEffects } from "../types.js";
-import type { ToolDefinition } from "../types.js";
-import type { ToolRegistryDeps } from "./deps.js";
+import type { LiveRuntime } from "../stage/bridge/live_runtime.js";
+import { ok, sideEffects } from "../../capabilities/tooling/types.js";
+import type { ToolDefinition } from "../../capabilities/tooling/types.js";
+import type { ToolRegistryDeps } from "../../capabilities/tooling/deps.js";
 
 export function createLiveTools(deps: ToolRegistryDeps): ToolDefinition[] {
   const liveRequired = (): LiveRuntime => {

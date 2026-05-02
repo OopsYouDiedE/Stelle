@@ -1,9 +1,9 @@
 import { z } from "zod";
-import type { DiscordRuntime } from "../../windows/discord/runtime.js";
+import type { DiscordRuntime } from "./runtime.js";
 import { sanitizeExternalText } from "../../shared/text.js";
-import { ok, sideEffects } from "../types.js";
-import type { ToolDefinition } from "../types.js";
-import type { ToolRegistryDeps } from "./deps.js";
+import { ok, sideEffects } from "../../capabilities/tooling/types.js";
+import type { ToolDefinition } from "../../capabilities/tooling/types.js";
+import type { ToolRegistryDeps } from "../../capabilities/tooling/deps.js";
 
 export function createDiscordTools(deps: ToolRegistryDeps): ToolDefinition[] {
   const discordRequired = (): DiscordRuntime => {

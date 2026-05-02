@@ -5,7 +5,7 @@ import type { DeviceActionDriver, DeviceActionIntent } from "../../src/capabilit
 import { LiveResponder } from "../../src/windows/live/legacy_cursor/responder.js";
 import { DefaultMemoryWriter } from "../../src/capabilities/cognition/reflection/memory_writer.js";
 import { ObsWebSocketController } from "../../src/utils/live.js";
-import { createDefaultToolRegistry } from "../../src/tool.js";
+import { createTestToolRegistry } from "../utils/test_registry.js";
 import { recordEvalCase } from "../utils/report.js";
 import { summarizeChecks, type CheckResult } from "../utils/scoring.js";
 
@@ -45,7 +45,7 @@ describe("Runtime Capability Coverage Eval", () => {
       "obs_websocket_control_contract",
       "OBS control exposes real status/start/stop/scene tools and disabled fail-closed behavior",
       async () => {
-        const registry = createDefaultToolRegistry({ live: {} as any });
+        const registry = createTestToolRegistry({ live: {} as any });
         const disabledStart = await new ObsWebSocketController({ enabled: false }).startStream();
         return {
           output: {

@@ -1,5 +1,5 @@
 // === Imports ===
-import type { RuntimeConfig } from "../../../config/index.js";
+
 import type { StelleEventBus } from "../../../core/event/event_bus.js";
 import { TopicOrchestrator } from "./orchestrator.js";
 import { PublicRoomMemoryStore, type PublicRoomMemory } from "./public_memory.js";
@@ -12,7 +12,7 @@ import type { OutputIntent } from "../../expression/stage_output/types.js";
 // === Interfaces ===
 
 export interface StageDirectorDeps {
-  config: RuntimeConfig;
+  config: any;
   eventBus: StelleEventBus;
   stageView?: {
     updateTopic(state: unknown): Promise<unknown>;

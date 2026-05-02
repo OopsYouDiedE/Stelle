@@ -5,7 +5,7 @@ import type {
 } from "../../../core/protocol/component.js";
 import { StageDirector } from "./stage_director.js";
 import { createStageDirectorDebugProvider } from "./debug_provider.js";
-import type { RuntimeConfig } from "../../../config/index.js";
+
 
 export const stageDirectorCapability: ComponentPackage = {
   id: "capability.program.stage_director",
@@ -19,7 +19,7 @@ export const stageDirectorCapability: ComponentPackage = {
   ],
 
   register(ctx: ComponentRegisterContext) {
-    const config = ctx.config as any as RuntimeConfig;
+    const config = ctx.config as any as any;
 
     const director = new StageDirector({
       config,

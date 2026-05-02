@@ -1,3 +1,4 @@
+import { createSceneTools } from "./tools.js";
 import type { ComponentPackage, ComponentRegisterContext } from "../../../core/protocol/component.js";
 import { SceneObservationCapability } from "./observer.js";
 
