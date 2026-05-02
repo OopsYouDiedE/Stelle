@@ -1,6 +1,6 @@
 // === Imports ===
 // === Main Class ===
-export class LiveEventDeduper {
+export class TextEventDeduper {
   private readonly seen = new Map<string, number>();
 
   constructor(

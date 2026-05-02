@@ -12,8 +12,6 @@ export const liveWindowPackage: ComponentPackage = {
   version: "1.0.0",
   displayName: "Live Window",
 
-  requires: [{ id: "capability.cognition.runtime_kernel" }, { id: "capability.expression.stage_output" }],
-
   provides: [
     { id: "window.live", kind: "service" },
     { id: "window.live.debug", kind: "debug_provider" },
@@ -22,7 +20,6 @@ export const liveWindowPackage: ComponentPackage = {
   register(ctx: ComponentRegisterContext) {
     const liveWindow = new LiveWindow({
       eventBus: ctx.events as never,
-      registry: ctx.registry,
       config: ctx.config as any,
       logger: ctx.logger,
     });

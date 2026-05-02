@@ -2,7 +2,6 @@ import os from "node:os";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import type { StageOutputArbiter } from "../../src/capabilities/expression/stage_output/arbiter.js";
 import type { OutputIntent } from "../../src/capabilities/expression/stage_output/types.js";
 import { StelleEventBus } from "../../src/utils/event_bus.js";
 import { TopicScriptRepository } from "../../src/capabilities/program/topic_script/repository.js";
@@ -13,10 +12,11 @@ describe("topic script runtime", () => {
   it("stays idle without output when no approved script exists", async () => {
     const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "stelle-topic-runtime-empty-"));
     const intents: OutputIntent[] = [];
+    const eventBus = new StelleEventBus();
+    captureOutputProposals(eventBus, intents);
     const runtime = new TopicScriptRuntimeService({
-      eventBus: new StelleEventBus(),
+      eventBus,
       repository: new TopicScriptRepository({ rootDir, now: () => 1000 }),
-      stageOutput: fakeStageOutput(intents),
       now: () => 1000,
     });
 
@@ -29,10 +29,11 @@ describe("topic script runtime", () => {
   it("loads the latest approved script and proposes the first section through StageOutput", async () => {
     const { repository } = await approvedRepository();
     const intents: OutputIntent[] = [];
+    const eventBus = new StelleEventBus();
+    captureOutputProposals(eventBus, intents);
     const runtime = new TopicScriptRuntimeService({
-      eventBus: new StelleEventBus(),
+      eventBus,
       repository,
-      stageOutput: fakeStageOutput(intents),
       now: () => 1000,
     });
 
@@ -48,16 +49,16 @@ describe("topic script runtime", () => {
     const { repository } = await approvedRepository();
     const eventBus = new StelleEventBus();
     const intents: OutputIntent[] = [];
+    captureOutputProposals(eventBus, intents);
     const runtime = new TopicScriptRuntimeService({
       eventBus,
       repository,
-      stageOutput: fakeStageOutput(intents),
       now: () => 1000,
     });
     await runtime.start();
 
     eventBus.publish({
-      type: "live.event.received",
+      type: "program.interaction.received",
       source: "fixture",
       payload: { id: "q1", source: "fixture", cmd: "DANMU_MSG", text: "为什么要记住观众？" },
     });
@@ -80,16 +81,16 @@ describe("topic script runtime", () => {
     const { repository } = await approvedRepository();
     const eventBus = new StelleEventBus();
     const intents: OutputIntent[] = [];
+    captureOutputProposals(eventBus, intents);
     const runtime = new TopicScriptRuntimeService({
       eventBus,
       repository,
-      stageOutput: fakeStageOutput(intents),
       now: () => 1000,
     });
     await runtime.start();
 
     eventBus.publish({
-      type: "live.event.received",
+      type: "program.interaction.received",
       source: "fixture",
       payload: { id: "q1", source: "fixture", cmd: "DANMU_MSG", text: "为什么要记住观众？" },
     });
@@ -120,11 +121,9 @@ async function approvedRepository(): Promise<{ repository: TopicScriptRepository
   return { repository };
 }
 
-function fakeStageOutput(intents: OutputIntent[]): StageOutputArbiter {
-  return {
-    propose: async (intent: OutputIntent) => {
-      intents.push(intent);
-      return { status: "accepted", outputId: intent.id, reason: "test", intent };
-    },
-  } as unknown as StageOutputArbiter;
+function captureOutputProposals(eventBus: StelleEventBus, intents: OutputIntent[]): void {
+  eventBus.subscribe("program.output.proposal", (event) => {
+    const payload = event.payload as { intent?: OutputIntent };
+    if (payload.intent) intents.push(payload.intent);
+  });
 }

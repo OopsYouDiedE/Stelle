@@ -3,100 +3,13 @@ import type {
   ComponentRegisterContext,
   ComponentRuntimeContext,
 } from "../../../core/protocol/component.js";
-import { RuntimeKernel } from "./kernel.js";
-import type { RuntimeKernelPipeline, AttentionResult } from "./pipeline.js";
 import type { PerceptualEvent } from "../../../core/protocol/perceptual_event.js";
-import type { Intent } from "../../../core/protocol/intent.js";
-
+import { RuntimeKernel } from "./kernel.js";
+import { DefaultRuntimeKernelPipeline } from "./default_pipeline.js";
 import { createRuntimeKernelDebugProvider } from "./debug_provider.js";
 
 let activeKernel: RuntimeKernel | undefined;
-
-class DefaultRuntimeKernelPipeline implements RuntimeKernelPipeline {
-  async enrich(event: PerceptualEvent): Promise<PerceptualEvent> {
-    return event;
-  }
-  async evaluateAttention(event: PerceptualEvent): Promise<AttentionResult> {
-    const text = eventText(event);
-    if (event.type === "live.text_batch" || Array.isArray((event.payload as { messages?: unknown[] })?.messages)) {
-      return { accepted: true, reason: "message batch accepted for merge planning", salience: 0.7 };
-    }
-    if (event.salienceHint !== undefined && event.salienceHint < 0.15) {
-      return { accepted: false, reason: "salience hint below attention threshold", salience: event.salienceHint };
-    }
-    if (!text && event.type !== "scene.observation.received") {
-      return { accepted: false, reason: "event has no actionable text or observation", salience: 0 };
-    }
-    if (/\b(spam|广告|刷屏)\b/i.test(text)) {
-      return { accepted: false, reason: "low-value spam ignored", salience: 0.05 };
-    }
-    if (isHighPriority(event)) {
-      return { accepted: true, reason: "high priority proposal accepted", salience: 1 };
-    }
-    if (/(\?|？|吗|么|在吗|能看到吗|hello|hi|你好)/i.test(text)) {
-      return { accepted: true, reason: "addressable message accepted", salience: 0.8 };
-    }
-    if (event.type === "scene.observation.received") {
-      return { accepted: true, reason: "structured scene observation accepted", salience: 0.6 };
-    }
-    return { accepted: false, reason: "ordinary chatter below response threshold", salience: 0.2 };
-  }
-  async plan(event: PerceptualEvent): Promise<Intent[]> {
-    const text = eventText(event);
-    const now = Date.now();
-    const priority = isHighPriority(event) ? 10 : 1;
-    if (event.type === "live.text_batch" || Array.isArray((event.payload as { messages?: unknown[] })?.messages)) {
-      return [
-        {
-          id: `intent_batch_${now}`,
-          type: "respond",
-          sourcePackageId: "capability.cognition.runtime_kernel",
-          priority: 2,
-          createdAt: now,
-          reason: "Merged multiple live messages into one response intent",
-          sourceEventIds: [event.id],
-          payload: { text: "我看到这一波问题了，先合起来回应一下。", merge: true },
-        },
-      ];
-    }
-    if (/在吗|能看到吗/i.test(text)) {
-      return [
-        respondIntent(event, "在的，能看到。", "Connection test message receives an explicit response", priority),
-      ];
-    }
-    if (event.type === "scene.observation.received") {
-      return [
-        {
-          id: `intent_observe_${now}`,
-          type: "observe",
-          sourcePackageId: "capability.cognition.runtime_kernel",
-          priority,
-          createdAt: now,
-          reason: "Scene observation summarized for runtime cognition",
-          sourceEventIds: [event.id],
-          payload: event.payload,
-        },
-      ];
-    }
-    return [
-      respondIntent(event, `收到：${text || "我看到了"}`, "Addressable event planned as response intent", priority),
-    ];
-  }
-
-  async planTick(): Promise<Intent[]> {
-    return [
-      {
-        id: `intent_idle_${Date.now()}`,
-        type: "respond",
-        sourcePackageId: "capability.cognition.runtime_kernel",
-        priority: 0,
-        createdAt: Date.now(),
-        reason: "Idle tick generated a proactive topic intent",
-        payload: { text: "趁现在空一点，我抛个小话题。", proactive: true },
-      },
-    ];
-  }
-}
+let unsubscribePerceptualEvents: (() => void) | undefined;
 
 export const runtimeKernelCapability: ComponentPackage = {
   id: "capability.cognition.runtime_kernel",
@@ -119,10 +32,31 @@ export const runtimeKernelCapability: ComponentPackage = {
   },
 
   async start(ctx: ComponentRuntimeContext) {
+    const kernel = ctx.registry.resolve<RuntimeKernel>("cognition.kernel");
+    unsubscribePerceptualEvents = ctx.events.subscribe("perceptual.event", (event) => {
+      const payload = asRecord(event).payload;
+      if (!kernel || !isPerceptualEvent(payload)) return;
+      void kernel
+        .step(payload)
+        .then((decisions) => {
+          for (const decision of decisions) {
+            if (decision.kind !== "intent") continue;
+            ctx.events.publish({
+              type: "cognition.intent",
+              source: runtimeKernelCapability.id,
+              payload: decision.intent,
+              metadata: { reason: decision.reason, sourceEventIds: decision.intent.sourceEventIds },
+            });
+          }
+        })
+        .catch((error) => ctx.logger.error("Runtime Kernel failed to process perceptual event", error));
+    });
     ctx.logger.log("Runtime Kernel started");
   },
 
   async stop(ctx: ComponentRuntimeContext) {
+    unsubscribePerceptualEvents?.();
+    unsubscribePerceptualEvents = undefined;
     ctx.logger.log("Runtime Kernel stopped");
   },
 
@@ -137,32 +71,17 @@ export const runtimeKernelCapability: ComponentPackage = {
   },
 };
 
-function eventText(event: PerceptualEvent): string {
-  const payload = event.payload as { text?: unknown; summary?: unknown; message?: { content?: unknown } };
-  return String(payload?.text ?? payload?.summary ?? payload?.message?.content ?? "").trim();
-}
-
-function isHighPriority(event: PerceptualEvent): boolean {
-  const payload = event.payload as Record<string, unknown>;
-  const trust = payload?.trust as Record<string, unknown> | undefined;
-  return Boolean(
-    event.metadata?.priority === "high" ||
-    payload?.priority === "high" ||
-    payload?.kind === "gift" ||
-    payload?.kind === "super_chat" ||
-    trust?.paid === true,
+function isPerceptualEvent(value: unknown): value is PerceptualEvent {
+  const record = asRecord(value);
+  return (
+    typeof record.id === "string" &&
+    typeof record.type === "string" &&
+    typeof record.sourceWindow === "string" &&
+    typeof record.timestamp === "number" &&
+    "payload" in record
   );
 }
 
-function respondIntent(event: PerceptualEvent, text: string, reason: string, priority: number): Intent {
-  return {
-    id: `intent_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-    type: "respond",
-    sourcePackageId: "capability.cognition.runtime_kernel",
-    priority,
-    createdAt: Date.now(),
-    reason,
-    sourceEventIds: [event.id],
-    payload: { text },
-  };
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }

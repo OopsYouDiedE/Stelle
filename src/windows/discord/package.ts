@@ -14,8 +14,6 @@ export const discordWindowPackage: ComponentPackage = {
   version: "1.0.0",
   displayName: "Discord Window",
 
-  requires: [{ id: "capability.cognition.runtime_kernel" }],
-
   provides: [
     { id: "window.discord", kind: "service" },
     { id: "window.discord.debug", kind: "debug_provider" },
@@ -27,7 +25,6 @@ export const discordWindowPackage: ComponentPackage = {
       config: ctx.config as RuntimeConfig,
       discord,
       events: ctx.events as never,
-      registry: ctx.registry,
       logger: ctx.logger,
     });
     ctx.registry.provideForPackage?.(discordWindowPackage.id, "window.discord", window) ??

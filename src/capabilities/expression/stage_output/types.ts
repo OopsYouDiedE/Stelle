@@ -1,5 +1,3 @@
-// === Imports ===
-import type { ToolRegistry } from "../../../tool.js";
 import type { StelleEventBus } from "../../../utils/event_bus.js";
 
 // === Intent & Salience ===
@@ -86,13 +84,6 @@ export interface StageOutputState {
   };
   autoReplyPaused?: boolean;
   ttsMuted?: boolean;
-}
-
-// === Renderer & Arbiter Interfaces ===
-export interface StageOutputRendererDeps {
-  tools: ToolRegistry;
-  cwd: string;
-  ttsEnabled: boolean;
 }
 
 export interface StageOutputArbiterDeps {

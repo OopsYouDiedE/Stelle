@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  LiveBatchAggregator,
+  TextBatchAggregator,
   type DropReason,
   type FlushReason,
-} from "../../src/capabilities/perception/text_ingress/live_batch_aggregator.js";
+} from "../../src/capabilities/perception/text_ingress/text_batch_aggregator.js";
 import type { NormalizedLiveEvent } from "../../src/utils/live_event.js";
 
-describe("LiveBatchAggregator", () => {
+describe("TextBatchAggregator", () => {
   let now = 0;
   const policy = {
     flushIntervalMs: 2_000,
@@ -27,7 +27,7 @@ describe("LiveBatchAggregator", () => {
 
   it("flushes continuous ordinary messages by max wait instead of resetting the timer", () => {
     const flushed: Array<{ batch: NormalizedLiveEvent[]; reason: FlushReason; at: number }> = [];
-    const aggregator = new LiveBatchAggregator(
+    const aggregator = new TextBatchAggregator(
       policy,
       () => now,
       (batch, reason) => flushed.push({ batch, reason, at: now }),
@@ -47,7 +47,7 @@ describe("LiveBatchAggregator", () => {
 
   it("flushes a high priority event quickly", () => {
     const flushed: Array<{ batch: NormalizedLiveEvent[]; reason: FlushReason; at: number }> = [];
-    const aggregator = new LiveBatchAggregator(
+    const aggregator = new TextBatchAggregator(
       policy,
       () => now,
       (batch, reason) => flushed.push({ batch, reason, at: now }),
@@ -67,7 +67,7 @@ describe("LiveBatchAggregator", () => {
 
   it("flushes immediately at max batch size", () => {
     const flushed: NormalizedLiveEvent[][] = [];
-    const aggregator = new LiveBatchAggregator(
+    const aggregator = new TextBatchAggregator(
       { ...policy, maxBatchSize: 3 },
       () => now,
       (batch) => flushed.push(batch),
@@ -85,7 +85,7 @@ describe("LiveBatchAggregator", () => {
 
   it("drops the lowest priority event with an explicit reason when the buffer is full", () => {
     const dropped: Array<{ event: NormalizedLiveEvent; reason: DropReason }> = [];
-    const aggregator = new LiveBatchAggregator(
+    const aggregator = new TextBatchAggregator(
       { ...policy, maxBatchSize: 10, maxBufferSize: 2 },
       () => now,
       () => undefined,

@@ -71,6 +71,10 @@ export interface DeviceActionDecision {
   result?: DeviceActionResult;
 }
 
+export interface DeviceActionService {
+  propose(input: unknown): Promise<DeviceActionDecision>;
+}
+
 export interface DeviceActionDriver {
   readonly resourceKind: DeviceResourceKind;
   execute(intent: DeviceActionIntent): Promise<DeviceActionResult>;

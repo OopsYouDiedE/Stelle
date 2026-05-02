@@ -26,6 +26,8 @@ export interface DataPlane {
     ttlMs: number;
     accessScope?: ResourceRef["accessScope"];
     metadata?: Record<string, unknown>;
+    allowedPackageIds?: string[];
+    debugReadable?: boolean;
   }): Promise<ResourceRef>;
   readBlob(ref: ResourceRef, requesterPackageId: string): Promise<Uint8Array | string | object>;
   release(refId: string, requesterPackageId: string): Promise<void>;
@@ -38,6 +40,8 @@ export interface DataPlane {
     maxQueueSize?: number;
     overflow?: PackageBackpressurePolicy["overflow"];
     metadata?: Record<string, unknown>;
+    allowedPackageIds?: string[];
+    debugReadable?: boolean;
   }): Promise<StreamRef>;
   subscribe(streamRef: StreamRef, requesterPackageId: string): AsyncIterable<unknown>;
 }

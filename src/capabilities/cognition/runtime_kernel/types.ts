@@ -11,3 +11,8 @@ export interface RuntimeKernelSnapshot {
   activeIntents: string[];
   lastDecision?: KernelDecision;
 }
+
+export interface RuntimeCognitionService {
+  step(event: PerceptualEvent): Promise<KernelDecision[]>;
+  tick(): Promise<KernelDecision[]>;
+}

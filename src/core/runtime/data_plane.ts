@@ -18,6 +18,8 @@ export class DataPlane implements IDataPlane {
     ttlMs: number;
     accessScope?: ResourceRef["accessScope"];
     metadata?: Record<string, unknown>;
+    allowedPackageIds?: string[];
+    debugReadable?: boolean;
   }): Promise<ResourceRef> {
     return this.resources.put(
       input.ownerPackageId,
@@ -27,6 +29,8 @@ export class DataPlane implements IDataPlane {
       input.accessScope,
       input.mediaType,
       input.metadata,
+      input.allowedPackageIds,
+      input.debugReadable,
     );
   }
 
@@ -59,6 +63,8 @@ export class DataPlane implements IDataPlane {
     maxQueueSize?: number;
     overflow?: QueueOverflowPolicy;
     metadata?: Record<string, unknown>;
+    allowedPackageIds?: string[];
+    debugReadable?: boolean;
   }): Promise<StreamRef> {
     return this.streams.create(input);
   }

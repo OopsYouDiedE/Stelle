@@ -1,4 +1,3 @@
-import type { StageOutputArbiter } from "../../expression/stage_output/arbiter.js";
 import type { OutputIntent } from "../../expression/stage_output/types.js";
 import type { StelleEventBus } from "../../../utils/event_bus.js";
 import { classifyText } from "../stage_director/orchestrator.js";
@@ -9,7 +8,6 @@ import type { CompiledTopicScript, CompiledTopicScriptSection } from "./topic_sc
 
 export interface TopicScriptRuntimeDeps {
   eventBus: StelleEventBus;
-  stageOutput: StageOutputArbiter;
   repository?: TopicScriptRepository;
   now?: () => number;
 }
@@ -52,19 +50,21 @@ export class TopicScriptRuntimeService {
 
   async start(): Promise<void> {
     this.unsubscribes.push(
-      this.deps.eventBus.subscribe("live.event.received", (event) => {
-        void this.handleLivePayload(event.payload).catch((error) => this.fail(error));
+      this.deps.eventBus.subscribe("program.interaction.received", (event) => {
+        void this.handleProgramPayload(asRecord(event.payload)).catch((error) => this.fail(error));
       }),
     );
     this.unsubscribes.push(
       this.deps.eventBus.subscribe("stage.output.completed", (event) => {
-        if (event.payload.intent.cursorId === "topic_script_runtime") {
+        const payload = asRecord(event.payload);
+        const intent = asRecord(payload.intent);
+        if (intent.cursorId === "topic_script_runtime") {
           void this.advance("stage_completed").catch((error) => this.fail(error));
         }
       }),
     );
     this.unsubscribes.push(
-      this.deps.eventBus.subscribe("core.tick", () => {
+      this.deps.eventBus.subscribe("program.tick", () => {
         void this.advance("tick").catch((error) => this.fail(error));
       }),
     );
@@ -143,7 +143,7 @@ export class TopicScriptRuntimeService {
 
   // === Handlers ===
 
-  private async handleLivePayload(payload: Record<string, unknown>): Promise<void> {
+  private async handleProgramPayload(payload: Record<string, unknown>): Promise<void> {
     if (this.state.status !== "running" || !this.script) return;
     const event = normalizeTopicScriptInput(payload);
     if (event.kind !== "text" && event.kind !== "super_chat") return;
@@ -211,7 +211,7 @@ export class TopicScriptRuntimeService {
     interrupt: OutputIntent["interrupt"],
     metadata: Record<string, unknown>,
   ): Promise<void> {
-    await this.deps.stageOutput.propose({
+    const intent: OutputIntent = {
       id: `topic-script-${this.now()}-${Math.random().toString(36).slice(2, 7)}`,
       cursorId: "topic_script_runtime",
       lane,
@@ -229,6 +229,13 @@ export class TopicScriptRuntimeService {
         revision: this.script?.revision,
         section_id: section.id,
       },
+    };
+    this.deps.eventBus.publish({
+      type: "program.output.proposal",
+      source: "program.topic_script",
+      id: `${intent.id}:proposal`,
+      timestamp: this.now(),
+      payload: { intent },
     });
   }
 
@@ -259,4 +266,8 @@ function normalizeTopicScriptInput(payload: Record<string, unknown>): { id: stri
     kind: kind === "super_chat" ? "super_chat" : "text",
     text: String(inner.text ?? payload.text ?? ""),
   };
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }

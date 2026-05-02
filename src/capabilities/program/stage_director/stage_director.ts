@@ -1,7 +1,6 @@
 // === Imports ===
 import type { RuntimeConfig } from "../../../config/index.js";
 import type { StelleEventBus } from "../../../utils/event_bus.js";
-import type { StageOutputArbiter } from "../../expression/stage_output/arbiter.js";
 import { TopicOrchestrator } from "./orchestrator.js";
 import { PublicRoomMemoryStore, type PublicRoomMemory } from "./public_memory.js";
 import { WorldCanonStore, type WorldCanonEntry } from "./world_canon.js";
@@ -12,7 +11,7 @@ import type { OutputIntent } from "../../expression/stage_output/types.js";
 
 // === Interfaces ===
 
-export interface LiveStageDirectorDeps {
+export interface StageDirectorDeps {
   config: RuntimeConfig;
   eventBus: StelleEventBus;
   stageView?: {
@@ -20,7 +19,6 @@ export interface LiveStageDirectorDeps {
     setSceneMode(scene: string): Promise<unknown>;
     updateWidget(widget: string, state: unknown): Promise<unknown>;
   };
-  stageOutput: StageOutputArbiter;
   publicMemory?: PublicRoomMemoryStore;
   worldCanon?: WorldCanonStore;
   promptLab?: PromptLabService;
@@ -29,7 +27,7 @@ export interface LiveStageDirectorDeps {
   now: () => number;
 }
 
-export interface LiveStageDirectorSnapshot {
+export interface StageDirectorSnapshot {
   topic: TopicState;
   widgets: ProgramWidgetState;
 }
@@ -37,7 +35,7 @@ export interface LiveStageDirectorSnapshot {
 // === Main Class ===
 
 /**
- * LiveStageDirector
+ * StageDirector
  *
  * Unified controller that manages both rule-based engagement (thanks, idle, schedule)
  * and program orchestration (topic management, widgets).
@@ -45,7 +43,7 @@ export interface LiveStageDirectorSnapshot {
  * Instead of writing directly to OutputArbiter, it primarily emits ProposalEvents
  * to allow coordination by the RuntimeKernel and output capabilities.
  */
-export class LiveStageDirector {
+export class StageDirector {
   readonly orchestrator: TopicOrchestrator;
   private unsubscribes: Array<() => void> = [];
 
@@ -64,7 +62,7 @@ export class LiveStageDirector {
   private worldCanonEntries: WorldCanonEntry[] = [];
   private promptLabExperiments: PromptLabExperiment[] = [];
 
-  constructor(private readonly deps: LiveStageDirectorDeps) {
+  constructor(private readonly deps: StageDirectorDeps) {
     this.orchestrator = deps.orchestrator ?? new TopicOrchestrator(deps.options);
     this.lastActivityAt = deps.now();
   }
@@ -77,39 +75,41 @@ export class LiveStageDirector {
 
     // 1. Listen to live events for both engagement and program tracking
     this.unsubscribes.push(
-      this.deps.eventBus.subscribe("live.event.received", (event) => {
+      this.deps.eventBus.subscribe("program.interaction.received", (event) => {
         this.lastActivityAt = this.deps.now();
-        this.ingestLivePayload(event.payload);
+        this.ingestProgramPayload(asRecord(event.payload));
       }),
     );
 
     // 2. Scheduled/Idle ticks
     this.unsubscribes.push(
-      this.deps.eventBus.subscribe("live.tick", () => {
+      this.deps.eventBus.subscribe("program.tick", () => {
         void this.handleTick().catch((err) => console.error("[StageDirector] Tick error:", err));
       }),
     );
 
     // 3. Program orchestration events
     this.unsubscribes.push(
-      this.deps.eventBus.subscribe("live.batch.flushed", (event) => {
-        this.orchestrator.recordBatchFlush(event.payload);
+      this.deps.eventBus.subscribe("program.batch.flushed", (event) => {
+        this.orchestrator.recordBatchFlush(asRecord(event.payload));
         this.publishProgramUpdate("batch_flush");
         void this.maybeHost("batch_flush");
       }),
     );
 
     this.unsubscribes.push(
-      this.deps.eventBus.subscribe("live.health.updated", (event) => {
-        this.orchestrator.updateStageStatus({ health: event.payload });
+      this.deps.eventBus.subscribe("program.stage_status_changed", (event) => {
+        this.orchestrator.updateStageStatus({ health: asRecord(event.payload) });
         this.publishProgramUpdate("health");
       }),
     );
 
     this.unsubscribes.push(
       this.deps.eventBus.subscribe("stage.output.started", (event) => {
+        const payload = asRecord(event.payload);
+        const intent = asRecord(payload.intent);
         this.orchestrator.updateStageStatus({
-          stage: { status: "speaking", lane: event.payload.intent.lane, outputId: event.payload.intent.id },
+          stage: { status: "speaking", lane: String(intent.lane ?? ""), outputId: String(intent.id ?? "") },
         });
         this.publishProgramUpdate("stage_started");
       }),
@@ -117,19 +117,23 @@ export class LiveStageDirector {
 
     this.unsubscribes.push(
       this.deps.eventBus.subscribe("stage.output.completed", (event) => {
+        const payload = asRecord(event.payload);
+        const intent = asRecord(payload.intent);
         this.orchestrator.updateStageStatus({
-          stage: { status: "idle", lane: event.payload.intent.lane, outputId: event.payload.intent.id },
+          stage: { status: "idle", lane: String(intent.lane ?? ""), outputId: String(intent.id ?? "") },
         });
         this.publishProgramUpdate("stage_completed");
       }),
     );
 
     this.unsubscribes.push(
-      this.deps.eventBus.subscribe("live.control.command", (event) => {
-        const { action, parameters } = event.payload;
+      this.deps.eventBus.subscribe("program.control.command", (event) => {
+        const payload = asRecord(event.payload);
+        const action = payload.action;
+        const parameters = asRecord(payload.parameters);
         if (action === "topic_orchestrator.update") {
           const { title, currentQuestion } = parameters;
-          this.orchestrator.updateTopic(title, currentQuestion);
+          this.orchestrator.updateTopic(String(title ?? ""), String(currentQuestion ?? ""));
           this.publishProgramUpdate("tool_update");
         }
       }),
@@ -141,7 +145,7 @@ export class LiveStageDirector {
     this.unsubscribes = [];
   }
 
-  snapshot(): LiveStageDirectorSnapshot {
+  snapshot(): StageDirectorSnapshot {
     return {
       topic: this.orchestrator.snapshot(),
       widgets: this.orchestrator.widgetState(this.publicMemories, this.worldCanonEntries, this.promptLabExperiments),
@@ -150,11 +154,11 @@ export class LiveStageDirector {
 
   // === Engagement Logic ===
 
-  public ingestLivePayload(payload: Record<string, unknown>): void {
+  public ingestProgramPayload(payload: Record<string, unknown>): void {
     const res = this.orchestrator.ingestLivePayload(payload);
     if (res.updated) {
-      this.publishProgramUpdate("live_event");
-      void this.maybeHost("live_event");
+      this.publishProgramUpdate("program_interaction");
+      void this.maybeHost("program_interaction");
     }
     if (res.transition) {
       this.publishTransition(res.transition.from!, res.transition.to!);
@@ -177,7 +181,7 @@ export class LiveStageDirector {
     // Transition events are the handoff layer between the program orchestrator and the
     // RuntimeKernel and output capabilities, which turn phase changes into spoken or visual hosting updates.
     this.deps.eventBus.publish({
-      type: "live.topic.transition",
+      type: "program.topic.transition",
       source: "stage_director",
       id: `trans-${this.deps.now()}-${Math.random().toString(36).slice(2, 7)}`,
       timestamp: this.deps.now(),
@@ -342,7 +346,7 @@ export class LiveStageDirector {
       topic: topic.title,
       ttlMs: 20_000,
       interrupt: "none",
-      metadata: { source: "live_program", phase: topic.phase },
+      metadata: { source: "stage_director", phase: topic.phase },
     });
   }
 
@@ -352,7 +356,7 @@ export class LiveStageDirector {
 
     // Output a proposal event instead of direct arbiter call
     this.deps.eventBus.publish({
-      type: "live.output.proposal",
+      type: "program.output.proposal",
       source: "stage_director",
       id: `prop-${this.deps.now()}-${Math.random().toString(36).slice(2, 7)}`,
       timestamp: this.deps.now(),
@@ -362,7 +366,7 @@ export class LiveStageDirector {
           text,
           summary: text,
         },
-        cursorId: "live_stage_director",
+        cursorId: "program.stage_director",
       },
     } as any);
   }
@@ -401,15 +405,15 @@ export class LiveStageDirector {
       console.warn("[StageDirector] renderer update failed:", error),
     );
     this.deps.eventBus.publish({
-      type: "live.program.updated",
-      source: "live_stage_director",
-      id: `live-prog-${now}-${Math.random().toString(36).slice(2, 7)}`,
+      type: "program.updated",
+      source: "program.stage_director",
+      id: `program-${now}-${Math.random().toString(36).slice(2, 7)}`,
       timestamp: now,
       payload: { reason, ...snapshot },
     } as any);
   }
 
-  private async publishRendererState(snapshot: LiveStageDirectorSnapshot): Promise<void> {
+  private async publishRendererState(snapshot: StageDirectorSnapshot): Promise<void> {
     if (!this.deps.stageView) return;
     const { topic, widgets } = snapshot;
 
@@ -533,4 +537,8 @@ function clusterTitle(label: string): string {
     other: "其他",
   };
   return titles[label] ?? label;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }

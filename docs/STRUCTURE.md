@@ -26,7 +26,7 @@
 | ------------------- | ------------------------------------------------------------------------------------------ |
 | `src/start.ts`      | CLI 入口，选择 `runtime`、`discord`、`live` 模式。                                         |
 | `src/core/`         | 通用协议、Component registry/loader、DataPlane、watchdog、安全原语。                       |
-| `src/runtime/`      | 应用启动、依赖容器、调度器、模块注册和 legacy cursor runtime host。                        |
+| `src/runtime/`      | RuntimeHost、模式选择和 bootstrap service 注册。                                           |
 | `src/capabilities/` | 可复用能力：RuntimeKernel、stage output、memory、reflection、program、perception、action。 |
 | `src/windows/`      | 平台/场景组合层：live、discord、browser、desktop input、renderer bridge 和 adapters。      |
 | `src/debug/`        | Debug server shell、认证、命令风险规则、DebugProvider contract。                           |

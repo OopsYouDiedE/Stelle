@@ -5,18 +5,18 @@
 ## First Files To Read
 
 - `src/start.ts`：CLI 入口，选择 `runtime`、`discord` 或 `live` 启动模式。
-- `src/runtime/application.ts`：运行时生命周期，启动 renderer、初始化窗口/能力 owned legacy cursors、注册 modules、连接 Discord。
-- `src/runtime/container.ts`：共享服务装配点，创建 LLM、Memory、EventBus、ToolRegistry、Stage/Device arbiters。
-- `src/runtime/modules/*.ts`：领域模块注册点，把 Core、Discord、Live、Action 接入应用生命周期。
-- `src/utils/event_schema.ts`：跨模块事件协议。新增事件先在这里定义，再让生产者和消费者对齐。
-- `src/runtime/cursor/types.ts`：legacy cursor runtime 上下文、快照和通用接口。
+- `src/runtime/host.ts`：RuntimeHost，按模式选择并启动 `ComponentPackage`。
+- `src/core/protocol/*.ts`：Core contract，包括 package、event、intent、execution、DataPlane refs。
+- `src/core/runtime/*.ts`：Component registry/loader、DataPlane、Resource/Stream registry。
+- `src/utils/event_schema.ts`：只校验事件 envelope；payload schema 由 package 自己拥有。
+- `src/capabilities/cognition/runtime_kernel/*`：感知事件到 Intent 的 pipeline。
 
 ## Directory Responsibilities
 
 | Path                | Responsibility                                                               |
 | ------------------- | ---------------------------------------------------------------------------- |
 | `src/core/`         | 通用协议、Component registry/loader、DataPlane、watchdog、安全原语。         |
-| `src/runtime/`      | 应用启动、依赖容器、调度器、模块注册和 legacy cursor runtime host。          |
+| `src/runtime/`      | RuntimeHost、模式选择、bootstrap service 注册。                              |
 | `src/capabilities/` | 可复用能力实现：cognition、expression、memory、program、perception、action。 |
 | `src/windows/`      | 场景/平台组合层：live、discord、browser、desktop input、renderer bridge。    |
 | `src/debug/`        | Debug server shell、auth、命令风险规则和 DebugProvider contract。            |
@@ -27,43 +27,40 @@
 
 ## Runtime Startup Flow
 
-1. `src/start.ts` 解析启动模式并创建 `StelleApplication`。
-2. `StelleApplication` 读取配置，调用 `StelleContainer.createServices()` 创建共享服务。
-3. `runtime` 或 `live` 模式启动 `LiveRendererServer`，并把 renderer bridge 注入 `LiveRuntime` 与 `SceneObserver`。
-4. `selectCursorModules()` 根据模式选择 Cursor manifest，并使用 `CursorContext` 创建实例。
-5. `CoreModule`、`ActuatorModule`、`DiscordModule`、`LiveModule` 注册事件监听与领域服务。
-6. 模块 `start()` 后，`StelleScheduler` 开始 tick，运行时写入 `RuntimeState`。
+1. `src/start.ts` 解析启动模式并创建 `RuntimeHost`。
+2. `RuntimeHost` 读取配置，创建 EventBus、Registry、ComponentLoader、DataPlane 和 DebugServer。
+3. Host 注册 bootstrap services，例如 Discord/Live runtime、LLM、Memory、ToolRegistry、SceneObserver。
+4. Host 按模式选择 packages，并依次 `load()` / `start()`。
+5. Window packages 只负责平台接入和事件转换；Capability packages 负责 cognition、program、expression、action。
 
 ## Live Event Flow
 
 直播平台事件从 `src/windows/live/adapters/` 进入：
 
 1. platform adapter 产生原始平台事件。
-2. ingress helpers 去重、聚合并发布 `live.event.*` 或 `live.danmaku.received`。
-3. `program.stage_director`、`windows/live/legacy_cursor`、健康检查、事件日志等服务订阅事件。
-4. 需要输出时，业务层提交 `live.output.proposal` 或直接向 `StageOutputArbiter` 提交 `OutputIntent`。
+2. Window 去重、归一化为 `PerceptualEvent`，发布 `perceptual.event`。
+3. `RuntimeKernel` 订阅 `perceptual.event`，发布 `cognition.intent`。
+4. `StageOutputCapability` 订阅 `cognition.intent` / `program.output.proposal`，提交给内部 arbiter。
 5. `StageOutputArbiter` 根据 lane、priority、TTL、interrupt、预算和队列状态决定接受、排队或丢弃。
-6. `StageOutputRenderer` 通过 `ToolRegistry` 调用字幕、TTS、动作、表情或 Discord reply 工具。
+6. `StageWindowOutputRenderer` 把已接受输出映射到 stage renderer server。
 
-## Cursor Pattern
+## Package Pattern
 
-新 Cursor 或重构 Cursor 时，优先沿用 Gateway -> Router -> Executor -> Responder：
+新增或重构功能时，优先按 Package -> Service Contract -> Event/Intent Flow 划边界：
 
-- Gateway：把外部事件或平台回调转成领域输入。
-- Router：选择策略、判断是否回应、决定交给哪个 executor。
-- Executor：调用 LLM、Memory、Tools 或 Arbiter，生成可执行结果。
-- Responder：把结果转为领域输出、事件或 snapshot 更新。
-
-共享生命周期放在 `BaseStatefulCursor`，策略覆盖通过 `PolicyOverlayStore` 从 `cursor.directive` 事件进入。
+- Package：声明 `id/kind/requires/provides/register/start/stop`。
+- Service contract：跨包同步读或狭窄服务调用只依赖公开接口。
+- Event/Intent flow：写状态、副作用和跨域行为通过 EventBus、Intent 或 ExecutionCommand 表达。
+- DebugProvider：调试面只暴露 metadata、snapshot 和 risk-tagged commands。
 
 ## Adding A Feature
 
 ### New Event
 
-1. 在 `src/utils/event_schema.ts` 添加 schema 和类型。
-2. 让生产者使用 `eventBus.publish()` 发布完整 metadata。
+1. 事件 envelope 使用 `type/source/id/timestamp/payload/metadata`。
+2. payload 类型放在拥有该事件的 package 中。
 3. 让消费者通过 EventBus 订阅，不直接调用生产者。
-4. 添加最小单元测试，覆盖 payload 形状和关键分支。
+4. 添加最小单元测试，覆盖 payload 收窄和关键分支。
 
 ### New Tool
 
@@ -75,7 +72,7 @@
 ### New Live Platform Adapter
 
 1. 在 `src/windows/live/adapters/` 添加 adapter 和类型映射。
-2. 归一化为 `LiveEventReceivedSchema` 支持的事件。
+2. 归一化为 `PerceptualEvent`。
 3. 接入 `LivePlatformManager`。
 4. 添加平台状态、错误和 dry-run 测试。
 
@@ -83,7 +80,7 @@
 
 1. 先确认是否属于 stage output 还是 device action。
 2. 在对应 types/policy/allowlist 中声明能力边界。
-3. 所有执行路径经过 `StageOutputArbiter` 或 `DeviceActionArbiter`。
+3. 跨包路径通过 `cognition.intent`、`program.output.proposal` 或 action service contract 进入 capability。
 4. renderer/driver 只做执行，不做高层决策。
 
 ## Migration Notes

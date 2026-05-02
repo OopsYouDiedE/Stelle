@@ -28,6 +28,8 @@ export class StreamRegistry {
     maxQueueSize?: number;
     overflow?: QueueOverflowPolicy;
     metadata?: Record<string, unknown>;
+    allowedPackageIds?: string[];
+    debugReadable?: boolean;
   }): StreamRef {
     const id = `str_${Math.random().toString(36).substring(2, 11)}_${Date.now()}`;
     const ref: StreamRef = {
@@ -38,6 +40,8 @@ export class StreamRegistry {
       transport: input.transport || "memory_ring",
       latestOnly: !!input.latestOnly,
       metadata: input.metadata,
+      allowedPackageIds: input.allowedPackageIds,
+      debugReadable: input.debugReadable,
     };
 
     const entry = {

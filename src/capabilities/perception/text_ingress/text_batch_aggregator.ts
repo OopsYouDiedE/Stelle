@@ -2,7 +2,7 @@
 import type { TextIngressEvent } from "../../../core/protocol/text_ingress_event.js";
 
 // === Types ===
-export interface LiveBatchAggregatorPolicy {
+export interface TextBatchAggregatorPolicy {
   flushIntervalMs: number;
   maxWaitMs: number;
   urgentDelayMs: number;
@@ -15,14 +15,14 @@ export type DropReason = "buffer_overflow" | "expired" | "moderation_rejected" |
 export type FlushReason = "timer" | "urgent" | "max_batch_size" | "max_wait" | "drain";
 
 // === Main Class ===
-export class LiveBatchAggregator {
+export class TextBatchAggregator {
   private buffer: TextIngressEvent[] = [];
   private timer?: NodeJS.Timeout;
   private timerDueAt = 0;
   private firstBufferedAt = 0;
 
   constructor(
-    private readonly policy: LiveBatchAggregatorPolicy,
+    private readonly policy: TextBatchAggregatorPolicy,
     private readonly now: () => number,
     private readonly onFlush: (batch: TextIngressEvent[], reason: FlushReason) => void,
     private readonly onDrop: (event: TextIngressEvent, reason: DropReason) => void,

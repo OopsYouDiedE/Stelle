@@ -120,8 +120,8 @@ export class ComponentLoader {
 
   async unload(packageId: string): Promise<void> {
     const pkg = this.options.registry.getPackage(packageId);
-    const snapshot = await pkg?.snapshotState?.();
     await this.stop(packageId);
+    const snapshot = await pkg?.snapshotState?.();
     this.options.registry.unregister(packageId);
     if (snapshot !== undefined) {
       this.options.registry.rememberStateSnapshot(packageId, snapshot);

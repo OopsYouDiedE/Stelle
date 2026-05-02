@@ -85,7 +85,7 @@ export class ToolRegistry {
       } else {
         return fail(
           "stage_output_required",
-          `Caller ${context.caller} must submit OutputIntent to StageOutputArbiter instead of calling ${tool.name} directly.`,
+          `Caller ${context.caller} must submit a stage output intent/proposal instead of calling ${tool.name} directly.`,
         );
       }
     }

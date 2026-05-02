@@ -18,6 +18,9 @@ import { viewerProfileCapability } from "../capabilities/memory/viewer_profile/p
 import { runtimeKernelCapability } from "../capabilities/cognition/runtime_kernel/package.js";
 import { stageOutputCapability } from "../capabilities/expression/stage_output/package.js";
 import { deviceActionCapability } from "../capabilities/action/device_action/package.js";
+import { browserControlCapability } from "../capabilities/action/browser_control/package.js";
+import { desktopInputCapability } from "../capabilities/action/desktop_input/package.js";
+import { androidDeviceCapability } from "../capabilities/action/android_device/package.js";
 import { sceneObservationPackage } from "../capabilities/perception/scene_observation/package.js";
 import { stageDirectorCapability } from "../capabilities/program/stage_director/package.js";
 import { topicScriptCapability } from "../capabilities/program/topic_script/package.js";
@@ -153,13 +156,23 @@ export class RuntimeHost {
       memoryStoreCapability,
       viewerProfileCapability,
       runtimeKernelCapability,
+      browserControlCapability,
+      desktopInputCapability,
+      androidDeviceCapability,
       deviceActionCapability,
       sceneObservationPackage,
-      stageOutputCapability,
     ];
 
     if (this.mode === "runtime" || this.mode === "live") {
-      packages.push(stageWindowPackage, liveWindowPackage, stageDirectorCapability, topicScriptCapability);
+      packages.push(
+        stageWindowPackage,
+        stageOutputCapability,
+        liveWindowPackage,
+        stageDirectorCapability,
+        topicScriptCapability,
+      );
+    } else {
+      packages.push(stageOutputCapability);
     }
     if ((this.mode === "runtime" || this.mode === "discord") && this.config.discord.enabled) {
       packages.push(discordWindowPackage);

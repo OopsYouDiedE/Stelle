@@ -1,10 +1,8 @@
-import { LiveRuntime, LocalLiveRendererBridge } from "../../utils/live.js";
-import { LiveRendererServer } from "../live/renderer/renderer_server.js";
+import { LiveRendererServer } from "./renderer/renderer_server.js";
 import type { RuntimeConfig } from "../../config/index.js";
 
 export interface StageWindowOptions {
   config: RuntimeConfig;
-  live: LiveRuntime;
   logger: Pick<Console, "info" | "warn" | "error">;
   getDebugSnapshot?: () => Record<string, unknown>;
 }
@@ -35,14 +33,11 @@ export class StageWindow {
         : undefined,
     });
     this.url = await this.renderer.start();
-    this.options.live.setRendererBridge(new LocalLiveRendererBridge(this.renderer));
-    await this.options.live.start();
     process.env.LIVE_RENDERER_URL = this.url;
     this.options.logger.info(`Stage Window ready: ${this.url}/live`);
   }
 
   async stop(): Promise<void> {
-    await this.options.live.stop();
     await this.renderer?.stop();
     this.renderer = undefined;
     this.url = undefined;
@@ -54,5 +49,9 @@ export class StageWindow {
       renderer: this.renderer?.getStatus() ?? { connected: false, url: this.url ?? "" },
       liveUrl: this.url ? `${this.url}/live` : undefined,
     };
+  }
+
+  getRendererServer(): LiveRendererServer | undefined {
+    return this.renderer;
   }
 }

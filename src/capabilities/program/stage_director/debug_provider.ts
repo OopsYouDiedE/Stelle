@@ -1,7 +1,7 @@
 import type { DebugProvider } from "../../../debug/contracts/debug_provider.js";
-import type { LiveStageDirector } from "./stage_director.js";
+import type { StageDirector } from "./stage_director.js";
 
-export function createStageDirectorDebugProvider(director: LiveStageDirector): DebugProvider {
+export function createStageDirectorDebugProvider(director: StageDirector): DebugProvider {
   return {
     id: "program.stage_director.debug",
     title: "Stage Director",

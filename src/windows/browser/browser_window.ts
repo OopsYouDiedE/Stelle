@@ -1,7 +1,7 @@
 import type { DataPlane } from "../../core/runtime/data_plane.js";
 import type { ResourceRef } from "../../core/protocol/data_ref.js";
-import type { DeviceActionArbiter } from "../../capabilities/action/device_action/arbiter.js";
 import type { ComponentRegistry } from "../../core/protocol/component.js";
+import type { DeviceActionService } from "../../capabilities/action/device_action/types.js";
 
 export class BrowserWindow {
   constructor(
@@ -22,7 +22,7 @@ export class BrowserWindow {
   }
 
   async proposeAction(input: unknown) {
-    return this.registry.resolve<DeviceActionArbiter>("action.device_action")?.propose(input);
+    return this.registry.resolve<DeviceActionService>("action.device_action")?.propose(input);
   }
 
   snapshot() {

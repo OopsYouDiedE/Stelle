@@ -7,13 +7,13 @@ import type {
 } from "../../../core/protocol/text_ingress_event.js";
 
 // === Types ===
-export interface LiveEventIdentity {
+export interface TextEventIdentity {
   id: string;
   platformEventId?: string;
   fingerprint: string;
 }
 
-export interface LiveEventIdentityInput {
+export interface TextEventIdentityInput {
   platform: TextIngressSource;
   roomId?: string;
   kind: TextIngressKind;
@@ -26,7 +26,7 @@ export interface LiveEventIdentityInput {
 }
 
 // === Core Logic ===
-export function buildLiveEventIdentity(input: LiveEventIdentityInput): LiveEventIdentity {
+export function buildTextEventIdentity(input: TextEventIdentityInput): TextEventIdentity {
   const platformEventId = clean(input.platformEventId);
   const roomId = input.roomId ?? "unknown";
   const timeBucket = Math.floor(input.receivedAt / 1000);
@@ -49,11 +49,11 @@ export function buildLiveEventIdentity(input: LiveEventIdentityInput): LiveEvent
   return { id, platformEventId, fingerprint };
 }
 
-export function applyLiveEventIdentity<T extends Record<string, any>>(
+export function applyTextEventIdentity<T extends Record<string, any>>(
   event: T,
   platformEventId = event.platformEventId,
 ): T {
-  const identity = buildLiveEventIdentity({
+  const identity = buildTextEventIdentity({
     platform: event.source,
     roomId: event.roomId,
     kind: event.kind,

@@ -13,7 +13,14 @@ Current architecture status:
 - Debug runtime snapshots expose packages, windows, capabilities, providers, DataPlane metadata, backpressure, security mode, and audit entries.
 - Live ingress backpressure preserves paid/high-priority events while dropping or sampling low-priority ordinary chat.
 
-Remaining compatibility areas:
+Removed legacy areas:
 
-- Legacy cursor code remains only as a compatibility surface for older flows and tests.
-- Replay helpers replace direct private-method testing during the compatibility period.
+- Legacy cursor runtime, legacy cursor windows, old debug controller, live-specific debug HTTP APIs, cursor tests,
+  and private replay helpers have been removed.
+- Remaining runtime entrypoints route through RuntimeHost and ComponentPackage assembly.
+
+Remaining cleanup areas:
+
+- Live-facing tool names still exist for operator tools, but runtime stage output is now event/provider driven.
+- RuntimeKernel's default policy is intentionally small and replaceable; production policy can be swapped through the
+  pipeline contract.

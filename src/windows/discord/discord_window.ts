@@ -1,7 +1,5 @@
-import type { ComponentRegistry } from "../../core/protocol/component.js";
 import type { PerceptualEvent } from "../../core/protocol/perceptual_event.js";
 import type { Intent } from "../../core/protocol/intent.js";
-import type { RuntimeKernel } from "../../capabilities/cognition/runtime_kernel/kernel.js";
 import type { RuntimeConfig } from "../../config/index.js";
 import { DiscordRuntime, type DiscordMessageSummary } from "../../utils/discord.js";
 import type { StelleEventBus } from "../../utils/event_bus.js";
@@ -10,17 +8,24 @@ export interface DiscordWindowOptions {
   config: RuntimeConfig;
   discord: DiscordRuntime;
   events: StelleEventBus;
-  registry: ComponentRegistry;
   logger: Pick<Console, "info" | "warn" | "error">;
 }
 
 export class DiscordWindow {
   private unsubscribe?: () => void;
+  private intentUnsubscribe?: () => void;
 
   constructor(private readonly options: DiscordWindowOptions) {}
 
   async start(): Promise<void> {
     this.unsubscribe = this.options.discord.onMessage((message) => this.receiveMessage(message));
+    this.intentUnsubscribe = this.options.events.subscribe("cognition.intent", (event) => {
+      const intent = isIntent(event.payload) ? event.payload : undefined;
+      if (!intent) return;
+      void this.receiveIntent(intent).catch((error) => {
+        this.options.logger.error("DiscordWindow failed to handle cognition intent", error);
+      });
+    });
     if (this.options.config.discord.token) {
       await this.options.discord.login(this.options.config.discord.token);
       await this.options.discord.setBotPresence({ window: "window.discord", detail: "runtime" }).catch(() => undefined);
@@ -30,7 +35,9 @@ export class DiscordWindow {
 
   async stop(): Promise<void> {
     this.unsubscribe?.();
+    this.intentUnsubscribe?.();
     this.unsubscribe = undefined;
+    this.intentUnsubscribe = undefined;
     await this.options.discord.destroy();
     this.options.logger.info("Discord Window stopped");
   }
@@ -43,39 +50,40 @@ export class DiscordWindow {
       source: "window.discord",
       payload: event,
     } as never);
-    await this.processPerceptualEvent(event, message);
   }
 
-  async processPerceptualEvent(event: PerceptualEvent, sourceMessage?: DiscordMessageSummary): Promise<void> {
-    const kernel = this.options.registry.resolve<RuntimeKernel>("cognition.kernel");
-    if (!kernel) {
-      this.options.logger.warn("RuntimeKernel is not available for DiscordWindow");
-      return;
-    }
-
-    const decisions = await kernel.step(event);
-    for (const decision of decisions) {
-      if (decision.kind === "intent" && decision.intent.type === "respond") {
-        await this.sendIntent(decision.intent, sourceMessage);
-      }
-    }
+  async receiveIntent(intent: Intent): Promise<void> {
+    if (intent.type !== "respond") return;
+    const payload = (intent.payload ?? {}) as { sourceWindow?: unknown };
+    if (payload.sourceWindow !== "window.discord") return;
+    await this.sendIntent(intent);
   }
 
   snapshot() {
     return this.options.discord.getStatusSync();
   }
 
-  private async sendIntent(intent: Intent, sourceMessage?: DiscordMessageSummary): Promise<void> {
+  private async sendIntent(intent: Intent): Promise<void> {
     const payload = (intent.payload ?? {}) as { text?: unknown; channelId?: unknown; replyToMessageId?: unknown };
-    const channelId = String(payload.channelId ?? sourceMessage?.channelId ?? "");
+    const channelId = String(payload.channelId ?? "");
     const text = String(payload.text ?? "").trim();
     if (!channelId || !text) return;
     await this.options.discord.sendMessage({
       channelId,
       content: text,
-      replyToMessageId: String(payload.replyToMessageId ?? sourceMessage?.id ?? ""),
+      replyToMessageId: String(payload.replyToMessageId ?? ""),
     });
   }
+}
+
+function isIntent(value: unknown): value is Intent {
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    typeof (value as { id?: unknown }).id === "string" &&
+    typeof (value as { type?: unknown }).type === "string",
+  );
 }
 
 function discordMessageToPerceptualEvent(message: DiscordMessageSummary): PerceptualEvent {

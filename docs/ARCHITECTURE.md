@@ -17,7 +17,7 @@ For a practical code navigation map, read [`CODEBASE_GUIDE.md`](CODEBASE_GUIDE.m
 | Layer               | Owns                                                                                                         | Must Not Own                                          |
 | ------------------- | ------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------- |
 | `src/core/`         | Protocol contracts, component registry/loader, DataPlane, scheduler/watchdog, security primitives.           | Concrete Capability, Window, Debug panel logic.       |
-| `src/runtime/`      | Application boot, service container, static package/module wiring, legacy cursor runtime host.               | Domain policy decisions.                              |
+| `src/runtime/`      | RuntimeHost bootstrapping, package selection, bootstrap service registration.                                | Domain policy decisions or package internals.         |
 | `src/capabilities/` | RuntimeKernel, stage output, memory, reflection, program, perception, and action capability implementations. | Platform adapter lifecycle.                           |
 | `src/windows/`      | Live/Discord/browser/desktop window surfaces, platform adapters, renderer bridge, platform event mapping.    | Reusable cognition, memory, output, or action policy. |
 | `src/debug/`        | Debug server shell, auth, command risk rules, provider contracts.                                            | Package internals or platform-specific panels.        |
@@ -25,34 +25,34 @@ For a practical code navigation map, read [`CODEBASE_GUIDE.md`](CODEBASE_GUIDE.m
 
 ## Runtime Lifecycle
 
-`StelleApplication` in `src/runtime/application.ts` orchestrates startup:
+`RuntimeHost` in `src/runtime/host.ts` orchestrates startup:
 
 1. Load runtime config.
-2. `StelleContainer.createServices()` creates shared services: LLM, memory, event bus, live runtime, Discord runtime, tools, arbiters, viewer profiles, scene observer.
-3. In `runtime` or `live` mode, start `LiveRendererServer` and attach a local renderer bridge.
-4. `selectCursorModules()` chooses window/capability-owned legacy cursor manifests for the current mode and initializes each Cursor with an immutable `CursorContext`.
-5. Module registrars wire domain event listeners and services.
-6. Optional Discord connection starts when a token is available and the mode allows it.
-7. Module `start()` hooks run, then `StelleScheduler` starts ticks.
+2. Create Core services: `ComponentRegistry`, `ComponentLoader`, `DataPlane`, `StelleEventBus`, and `DebugServer`.
+3. Register bootstrap services such as platform runtimes, tools, memory, model client, and scene observer.
+4. Select `ComponentPackage`s for the requested mode.
+5. Load packages into the registry, then start package lifecycle hooks in order.
+6. Windows publish platform-neutral events; capabilities subscribe, decide, arbitrate, and emit audit events.
 
-Shutdown reverses the lifecycle: stop scheduler, cursors, modules, Discord, and renderer, then update runtime state.
+Shutdown stops packages in reverse order, then releases platform runtimes.
 
 ## Event Protocol
 
-Cross-domain messages must be represented in `src/utils/event_schema.ts`.
+Cross-domain messages use a generic event envelope in `src/utils/event_schema.ts`.
+The EventBus validates only the envelope and payload size; package-owned payloads are validated by the producing or
+consuming package.
 
 Common event families:
 
-- `core.tick`, `inner.tick`, `live.tick`, `presence.tick`: scheduled heartbeat events.
-- `discord.*.received`: Discord ingress.
-- `live.event.*`, `live.danmaku.received`, `live.batch.flushed`: live ingress and batching.
-- `live.output.proposal`: live business logic proposing stage output.
+- `perceptual.event`: platform/window ingress converted to `PerceptualEvent`.
+- `cognition.intent`: RuntimeKernel output as Core `Intent`.
+- `program.interaction.received`, `program.batch.flushed`, `program.tick`: platform-neutral program orchestration events.
+- `program.output.proposal`: program capability requests for stage output.
 - `stage.output.*`: stage arbiter lifecycle events.
 - `device.action.*`: device action arbiter lifecycle events.
-- `cursor.directive`: runtime policy overlays sent to Cursors.
 - `topic_script.*`: Topic Script generation, approval, runtime, and fallback events.
 
-When adding an event, update schema first, then producers, then consumers, then tests.
+When adding an event, keep the envelope generic; define and test payload contracts in the owning package.
 
 ## Capability And Window Contract
 
@@ -65,7 +65,8 @@ Capabilities must not:
 - push heavy image/audio/video payloads through the EventBus;
 - perform long-running work without a clear timeout or queue boundary.
 
-Windows may compose capabilities, but should not reimplement cognition, memory, stage output, or device action policy.
+Windows may publish and consume Core events, but should not import concrete cognition, memory, stage output, or device
+action implementation classes.
 
 ## Output And Device Ownership
 
@@ -74,32 +75,45 @@ All external actions flow through arbiters.
 Stage output path:
 
 ```text
-Cursor/LiveStageDirector
-  -> live.output.proposal or OutputIntent
+Window
+  -> perceptual.event
+  -> RuntimeKernel
+  -> cognition.intent
+  -> StageOutputCapability
   -> StageOutputArbiter
   -> StageOutputRenderer
-  -> ToolRegistry
-  -> LiveRuntime / renderer / Discord reply
+  -> StageWindow renderer bridge
+
+Program capability
+  -> program.output.proposal
+  -> StageOutputCapability
+  -> StageOutputArbiter
+  -> StageOutputRenderer
+  -> StageWindow renderer bridge
 ```
 
 Device action path:
 
 ```text
-Cursor
+Window or capability
+  -> action intent/service contract
+  -> DeviceActionCapability
   -> DeviceActionArbiter
   -> DeviceActionRenderer
-  -> BrowserCdpDriver / DesktopInputDriver / AndroidAdbDriver
+  -> driver service provided by browser_control / desktop_input / android_device package
 ```
 
 Arbiters publish accepted, queued, rejected/dropped, started, completed, interrupted, or failed events. Consumers should observe those events instead of inferring execution state from direct calls.
 
-## Module Registration
+## Package Registration
 
-Each domain module implements `ModuleRegistrar`:
+Each package implements `ComponentPackage`:
 
-- `register(services)`: wire event listeners and create domain services.
-- `start()`: start background loops, platform bridges, journals, or runtime services.
-- `stop()`: release subscriptions, timers, sockets, and files.
+- `register(context)`: expose service contracts, read models, debug providers, or package-owned adapters.
+- `start(context)`: subscribe to events and start background work.
+- `stop(context)`: release subscriptions, timers, sockets, and external handles.
+- `snapshotState()` / `hydrateState(state)`: transfer package-owned state across unload/reload.
+- `prepareUnload()`: describe drain/cancel behavior before unload.
 
 Keep constructors cheap. Expensive I/O belongs in `start()`, not `register()`.
 

@@ -12,6 +12,8 @@ export class ResourceRegistry {
     accessScope: ResourceRef["accessScope"] = "private",
     mediaType?: string,
     metadata?: Record<string, unknown>,
+    allowedPackageIds?: string[],
+    debugReadable?: boolean,
   ): ResourceRef {
     const id = `res_${Math.random().toString(36).substring(2, 11)}_${Date.now()}`;
     const sizeBytes = this.calculateSize(data);
@@ -25,6 +27,8 @@ export class ResourceRegistry {
       ttlMs,
       sizeBytes,
       accessScope,
+      allowedPackageIds,
+      debugReadable,
       metadata,
     };
 

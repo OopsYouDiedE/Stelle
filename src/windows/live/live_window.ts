@@ -1,17 +1,12 @@
 import type { StelleEventBus as EventBus } from "../../utils/event_bus.js";
 import type { PerceptualEvent } from "../../core/protocol/perceptual_event.js";
-import type { RuntimeKernel } from "../../capabilities/cognition/runtime_kernel/kernel.js";
-import type { StageOutputArbiter } from "../../capabilities/expression/stage_output/arbiter.js";
-import type { ComponentRegistry } from "../../core/protocol/component.js";
 import { LivePlatformSupervisor } from "./adapters/supervisor.js";
 import { BilibiliPlatformBridge } from "./adapters/bilibili_adapter.js";
 import type { RuntimeConfig } from "../../config/index.js";
-import type { OutputIntent } from "../../capabilities/expression/stage_output/types.js";
 import type { NormalizedLiveEvent } from "../../utils/live_event.js";
 
 export interface LiveWindowOptions {
   eventBus: EventBus;
-  registry: ComponentRegistry;
   config: RuntimeConfig;
   logger: any;
 }
@@ -46,25 +41,6 @@ export class LiveWindow {
   async receivePlatformEvent(event: NormalizedLiveEvent): Promise<void> {
     const perceptualEvent = liveEventToPerceptualEvent(event);
     this.emitPerceptualEvent(perceptualEvent);
-    await this.processPerceptualEvent(perceptualEvent);
-  }
-
-  async processPerceptualEvent(event: PerceptualEvent): Promise<void> {
-    const kernel = this.options.registry.resolve<RuntimeKernel>("cognition.kernel");
-    const stageOutput = this.options.registry.resolve<StageOutputArbiter>("expression.stage_output");
-
-    if (!kernel || !stageOutput) {
-      this.options.logger.warn("Kernel or StageOutput not available in LiveWindow");
-      return;
-    }
-
-    const decisions = await kernel.step(event);
-
-    for (const decision of decisions) {
-      if (decision.kind === "intent" && decision.intent.type === "respond") {
-        await stageOutput.propose(toStageOutputIntent(decision.intent, event.id));
-      }
-    }
   }
 
   protected emitPerceptualEvent(event: PerceptualEvent): void {
@@ -108,27 +84,7 @@ function liveEventToPerceptualEvent(event: NormalizedLiveEvent): PerceptualEvent
 }
 
 function liveEventKindToPerceptualType(kind: NormalizedLiveEvent["kind"]): string {
-  if (kind === "danmaku") return "live.text_message";
-  if (kind === "gift" || kind === "super_chat" || kind === "guard") return "live.priority_event";
-  return "live.platform_event";
-}
-
-function toStageOutputIntent(
-  intent: { id: string; priority: number; payload: unknown },
-  sourceEventId: string,
-): OutputIntent {
-  const payload = (intent.payload ?? {}) as Partial<OutputIntent> & { text?: string };
-  return {
-    id: payload.id ?? intent.id,
-    cursorId: payload.cursorId ?? "live_window",
-    sourceEventId: payload.sourceEventId ?? sourceEventId,
-    lane: payload.lane ?? "direct_response",
-    priority: payload.priority ?? intent.priority,
-    salience: payload.salience ?? "medium",
-    text: payload.text ?? "",
-    ttlMs: payload.ttlMs ?? 30_000,
-    interrupt: payload.interrupt ?? "soft",
-    output: payload.output ?? { caption: true, tts: true },
-    metadata: payload.metadata,
-  };
+  if (kind === "danmaku") return "text.message";
+  if (kind === "gift" || kind === "super_chat" || kind === "guard") return "priority.event";
+  return "platform.event";
 }

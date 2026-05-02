@@ -18,6 +18,8 @@ export interface ResourceRef {
   sizeBytes?: number;
   checksum?: string;
   accessScope: "private" | "runtime" | "debug" | "public";
+  allowedPackageIds?: string[];
+  debugReadable?: boolean;
   metadata?: Record<string, unknown>;
 }
 
@@ -31,4 +33,6 @@ export interface StreamRef {
   sampleRateHz?: number;
   fps?: number;
   metadata?: Record<string, unknown>;
+  allowedPackageIds?: string[];
+  debugReadable?: boolean;
 }

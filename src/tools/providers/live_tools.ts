@@ -150,7 +150,7 @@ export function createLiveTools(deps: ToolRegistryDeps): ToolDefinition[] {
       sideEffects: sideEffects({ externalVisible: true, affectsUserState: true }),
       async execute(input) {
         deps.eventBus?.publish({
-          type: "live.control.command",
+          type: "program.control.command",
           source: "tool_executor",
           id: `tool-topic-${Date.now()}`,
           timestamp: Date.now(),

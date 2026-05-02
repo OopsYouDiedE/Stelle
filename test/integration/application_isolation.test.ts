@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { RuntimeHost } from "../../src/runtime/host.js";
 import { DiscordRuntime } from "../../src/utils/discord.js";
 
-vi.mock("../../src/windows/live/renderer/renderer_server.js", () => ({
+vi.mock("../../src/windows/stage/renderer/renderer_server.js", () => ({
   LiveRendererServer: class {
     start = vi.fn().mockResolvedValue("http://127.0.0.1:8787");
     stop = vi.fn().mockResolvedValue(undefined);

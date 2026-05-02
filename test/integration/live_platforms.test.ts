@@ -95,7 +95,7 @@ describe("live platform normalization", () => {
     });
   });
 
-  it("publishes typed live events and keeps legacy danmaku compatibility", () => {
+  it("publishes generic perceptual and program interaction events", () => {
     const eventBus = new StelleEventBus();
     const manager = new LivePlatformManager(disabledConfig(), eventBus);
 
@@ -103,10 +103,8 @@ describe("live platform normalization", () => {
     manager.publishFixtureEvent(event("danmaku-1", "danmaku"));
 
     const types = eventBus.getHistory().map((event) => event.type);
-    expect(types).toContain("live.event.received");
-    expect(types).toContain("live.event.gift");
-    expect(types).toContain("live.event.danmaku");
-    expect(types.filter((type) => type === "live.danmaku.received")).toHaveLength(1);
+    expect(types.filter((type) => type === "perceptual.event")).toHaveLength(2);
+    expect(types.filter((type) => type === "program.interaction.received")).toHaveLength(2);
   });
 
   it("drops duplicate live events by fingerprint", () => {
@@ -118,8 +116,8 @@ describe("live platform normalization", () => {
     manager.publishFixtureEvent({ ...duplicate });
 
     const types = eventBus.getHistory().map((event) => event.type);
-    expect(types.filter((type) => type === "live.event.danmaku")).toHaveLength(1);
-    expect(types).toContain("live.ingress.dropped");
+    expect(types.filter((type) => type === "perceptual.event")).toHaveLength(1);
+    expect(types).toContain("perception.ingress.dropped");
   });
 });
 

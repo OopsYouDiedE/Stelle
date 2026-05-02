@@ -4,7 +4,7 @@
 
 // === Imports ===
 import crypto from "node:crypto";
-import type { LiveRendererCommand, LiveRendererServer } from "../windows/live/renderer/renderer_server.js";
+import type { LiveRendererCommand, LiveRendererServer } from "../windows/stage/renderer/renderer_server.js";
 import { sanitizeExternalText } from "./text.js";
 import { buildLiveTtsRequest } from "./tts.js";
 import type { StelleEventBus } from "./event_bus.js";

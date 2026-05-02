@@ -6,7 +6,6 @@ import { runtimeKernelCapability } from "../../src/capabilities/cognition/runtim
 import { stageOutputCapability } from "../../src/capabilities/expression/stage_output/package.js";
 import { liveWindowPackage } from "../../src/windows/live/package.js";
 import { LiveWindow } from "../../src/windows/live/live_window.js";
-import { StageOutputArbiter } from "../../src/capabilities/expression/stage_output/arbiter.js";
 import type { RuntimeConfig } from "../../src/config/index.js";
 
 describe("Live V2 Flow Integration", () => {
@@ -19,12 +18,6 @@ describe("Live V2 Flow Integration", () => {
     } as RuntimeConfig;
     const loader = new ComponentLoader({ registry, events, config: config as never });
 
-    // 1. Mock the tool registry which is required by stage output
-    registry.provide("tools.registry", {
-      execute: vi.fn().mockResolvedValue({ status: "success" }),
-    });
-
-    // 2. Load and start all components
     await loader.load(runtimeKernelCapability);
     await loader.load(stageOutputCapability);
 
@@ -35,8 +28,6 @@ describe("Live V2 Flow Integration", () => {
     await loader.start(liveWindowPackage.id);
 
     const liveWindow = registry.resolve<LiveWindow>("window.live")!;
-    const arbiter = registry.resolve<StageOutputArbiter>("expression.stage_output")!;
-    const proposeSpy = vi.spyOn(arbiter, "propose");
 
     await liveWindow.receivePlatformEvent({
       id: "evt_live_1",
@@ -48,9 +39,12 @@ describe("Live V2 Flow Integration", () => {
       text: "Hello Stelle?",
     });
 
-    expect(proposeSpy).toHaveBeenCalled();
-    const decision = await proposeSpy.mock.results[0].value;
-    expect(decision.status).toBe("accepted");
-    expect(decision.intent.text).toContain("Hello Stelle?");
+    await vi.waitFor(() => {
+      expect(events.getHistory().map((event) => event.type)).toEqual(
+        expect.arrayContaining(["perceptual.event", "cognition.intent", "stage.output.accepted"]),
+      );
+    });
+    const accepted = events.getHistory().find((event) => event.type === "stage.output.accepted");
+    expect((accepted?.payload as any).intent.text).toContain("Hello Stelle?");
   });
 });

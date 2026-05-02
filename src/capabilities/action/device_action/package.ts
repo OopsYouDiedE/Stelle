@@ -5,11 +5,9 @@ import type {
 } from "../../../core/protocol/component.js";
 import { DeviceActionArbiter } from "./arbiter.js";
 import { createDeviceActionDebugProvider } from "./debug_provider.js";
-import { BrowserCdpDriver } from "../browser_control/browser_driver.js";
-import { DesktopInputDriver } from "../desktop_input/desktop_driver.js";
-import { AndroidAdbDriver } from "../android_device/adb_driver.js";
 import { buildDeviceActionAllowlist } from "./allowlist.js";
 import type { RuntimeConfig } from "../../../config/index.js";
+import type { DeviceActionDriver } from "./types.js";
 
 export const deviceActionCapability: ComponentPackage = {
   id: "capability.action.device_action",
@@ -24,10 +22,15 @@ export const deviceActionCapability: ComponentPackage = {
 
   register(ctx: ComponentRegisterContext) {
     const config = ctx.config as RuntimeConfig;
+    const drivers = [
+      ctx.registry.resolve<DeviceActionDriver>("action.driver.browser_control"),
+      ctx.registry.resolve<DeviceActionDriver>("action.driver.desktop_input"),
+      ctx.registry.resolve<DeviceActionDriver>("action.driver.android_device"),
+    ].filter((driver): driver is DeviceActionDriver => Boolean(driver));
     const arbiter = new DeviceActionArbiter({
       eventBus: ctx.events as never,
       now: () => Date.now(),
-      drivers: [new BrowserCdpDriver(), new DesktopInputDriver(), new AndroidAdbDriver()],
+      drivers,
       allowlist: buildDeviceActionAllowlist(config),
     });
 

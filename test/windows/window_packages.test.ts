@@ -11,35 +11,12 @@ import { BrowserWindow } from "../../src/windows/browser/browser_window.js";
 import { DesktopInputWindow } from "../../src/windows/desktop_input/desktop_input_window.js";
 
 describe("Window packages", () => {
-  it("loads live and discord windows only after the runtime kernel is active", async () => {
+  it("loads live and discord windows without direct kernel or stage-output dependencies", async () => {
     const registry = new ComponentRegistry();
     const events = new StelleEventBus();
     const loader = new ComponentLoader({ registry, events, dataPlane: new DataPlane(), config: config() as never });
 
     await loader.load(liveWindowPackage);
-    await expect(loader.start(liveWindowPackage.id)).rejects.toThrow(/runtime_kernel/);
-
-    registry.register({
-      id: "capability.cognition.runtime_kernel",
-      kind: "capability",
-      version: "1.0.0",
-      displayName: "Kernel",
-      register(ctx) {
-        ctx.registry.provide("cognition.kernel", { step: vi.fn().mockResolvedValue([]) });
-      },
-    });
-    registry.markActive("capability.cognition.runtime_kernel");
-    registry.register({
-      id: "capability.expression.stage_output",
-      kind: "capability",
-      version: "1.0.0",
-      displayName: "Stage Output",
-      register(ctx) {
-        ctx.registry.provide("expression.stage_output", { propose: vi.fn() });
-      },
-    });
-    registry.markActive("capability.expression.stage_output");
-
     await loader.start(liveWindowPackage.id);
     await loader.load(discordWindowPackage);
     await loader.start(discordWindowPackage.id);

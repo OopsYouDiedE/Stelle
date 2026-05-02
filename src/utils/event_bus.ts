@@ -32,7 +32,7 @@ export class StelleEventBus {
   /**
    * 发布一个事件 (带元数据注入和校验)
    */
-  public publish(input: { type: StelleEventType; source: string } & Record<string, unknown>): void {
+  public publish(input: { type: string; source: string } & Record<string, unknown>): void {
     const payloadBytes = estimatePayloadBytes(input.payload);
     if (payloadBytes > this.maxPayloadBytes) {
       this.droppedItems += 1;
@@ -77,11 +77,8 @@ export class StelleEventBus {
   /**
    * 订阅特定类型的事件
    */
-  public subscribe<T extends StelleEventType>(
-    type: T | "*",
-    listener: (event: T extends StelleEventType ? Extract<StelleEvent, { type: T }> : StelleEvent) => void,
-  ): () => void {
-    const wrapper = (event: StelleEvent) => listener(event as any);
+  public subscribe(type: StelleEventType | "*", listener: (event: StelleEvent) => void): () => void {
+    const wrapper = (event: StelleEvent) => listener(event);
     this.emitter.on(type, wrapper);
     return () => {
       this.emitter.off(type, wrapper);
