@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { DefaultMemoryWriter } from "../../src/cursor/inner/memory_writer.js";
+import { DefaultMemoryWriter } from "../../src/capabilities/cognition/reflection/memory_writer.js";
 
 describe("DefaultMemoryWriter", () => {
   it("persists self state and identity proposals", async () => {

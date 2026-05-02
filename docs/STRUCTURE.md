@@ -22,18 +22,16 @@
 
 ## Runtime Source
 
-| Path            | Role                                                                  |
-| --------------- | --------------------------------------------------------------------- |
-| `src/start.ts`  | CLI 入口，选择 `runtime`、`discord`、`live` 模式。                    |
-| `src/core/`     | 应用生命周期、依赖容器、调度器、模块注册和控制器 glue code。          |
-| `src/cursor/`   | 决策层。按 domain 拆为 inner、discord、live 和设备观察 cursor。       |
-| `src/actuator/` | 仲裁层。统一处理 stage output 与 device action 的接受、排队和审计。   |
-| `src/stage/`    | 舞台输出预算、策略、队列、渲染调用层。                                |
-| `src/device/`   | 设备动作类型、allowlist、策略、driver 和 action renderer。            |
-| `src/live/`     | 直播平台 adapters、业务 controller、renderer server 等基础设施。      |
-| `src/memory/`   | LLM client、MemoryStore、记忆类型、文件 helper 和 relevance scoring。 |
-| `src/tools/`    | ToolRegistry、工具 schema、安全策略和按域拆分的默认工具 provider。    |
-| `src/utils/`    | EventBus、事件 schema、平台 runtime、JSON/text/TTS/live helpers。     |
+| Path                | Role                                                                                       |
+| ------------------- | ------------------------------------------------------------------------------------------ |
+| `src/start.ts`      | CLI 入口，选择 `runtime`、`discord`、`live` 模式。                                         |
+| `src/core/`         | 通用协议、Component registry/loader、DataPlane、watchdog、安全原语。                       |
+| `src/runtime/`      | 应用启动、依赖容器、调度器、模块注册和 legacy cursor runtime host。                        |
+| `src/capabilities/` | 可复用能力：RuntimeKernel、stage output、memory、reflection、program、perception、action。 |
+| `src/windows/`      | 平台/场景组合层：live、discord、browser、desktop input、renderer bridge 和 adapters。      |
+| `src/debug/`        | Debug server shell、认证、命令风险规则、DebugProvider contract。                           |
+| `src/tools/`        | ToolRegistry、工具 schema、安全策略和按域拆分的默认工具 provider。                         |
+| `src/utils/`        | EventBus、事件 schema、平台 runtime、JSON/text/TTS/live helpers。                          |
 
 ## Live Renderer
 

@@ -71,16 +71,15 @@ npm test
 npm run build
 ```
 
-重构公共入口时，注意这些兼容层：
+重构公共入口时，注意这些仍作为公共入口存在的文件：
 
 - `src/tool.ts`
 - `src/tools/index.ts`
 - `src/tools/providers/default_tools.ts`
-- `src/memory/memory.ts`
 
 ## Memory Tests
 
-修改 `src/memory/` 时至少覆盖：
+修改 `src/capabilities/memory/` 时至少覆盖：
 
 - recent JSONL 读写和 corrupt line 忽略。
 - checkpoint 压缩和恢复。
@@ -96,10 +95,10 @@ npx vitest run test/brain/memory_rag.test.ts
 
 ## Common Failures
 
-- Type failures after moving files usually mean a compatibility export is missing.
+- Type failures after moving files usually mean an import still points at an old boundary.
 - Event failures usually mean payload does not match `src/utils/event_schema.ts`.
 - Tool failures usually mean missing `allowedTools`, wrong authority tier, or bypassed ToolRegistry.
 - Live output failures usually mean code bypassed `StageOutputArbiter`.
 - Device action failures usually mean action allowlist or `DeviceActionArbiter` was bypassed.
 - Memory search failures usually mean scoring became too keyword-heavy or filtered valid single-keyword queries completely.
-- Live platform failures after refactors usually mean an old path should now point to `src/live/adapters/*` or `src/live/controller/*`.
+- Live platform failures after refactors usually mean an old path should now point to `src/windows/live/*` or the relevant `src/capabilities/*` package.

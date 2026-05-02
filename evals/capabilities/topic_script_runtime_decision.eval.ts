@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   TopicScriptRuntimeDecisionSchema,
   topicScriptRuntimeDecisionValues,
-} from "../../src/live/controller/topic_script_schema.js";
+} from "../../src/capabilities/program/topic_script/topic_script_schema.js";
 import { loadEvalCases } from "../utils/dataset.js";
 import { evalModelLabel, hasEvalLlmKeys, makeEvalLlm } from "../utils/env.js";
 import { recordEvalCase } from "../utils/report.js";

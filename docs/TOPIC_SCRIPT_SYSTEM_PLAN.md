@@ -14,7 +14,7 @@
 
 ### 1.2 工程目标
 
-- 复用现有 `src/live/program` 的模板、阶段、问题队列、结论板和公共记忆。
+- 复用现有 `src/capabilities/program/topic_script` 与 `src/capabilities/program/stage_director` 的模板、阶段、问题队列、结论板和公共记忆。
 - 通过 `StelleEventBus` 与现有模块通信。
 - 所有舞台输出继续由 `StageOutputArbiter` 和 `StageOutputRenderer` 仲裁执行。
 - 不让剧本生成器或 LLM provider 直接调用字幕、TTS、动作、表情等 live 工具。
@@ -47,14 +47,14 @@
 ## 3. 建议目录
 
 ```text
-src/live/program/
+src/capabilities/program/topic_script/
   topic_script_schema.ts
-  topic_script_compiler.ts
-  topic_script_repository.ts
+  compiler.ts
+  repository.ts
   topic_script_service.ts
-  topic_script_runtime.ts
+  runtime.ts
   topic_script_events.ts
-  topic_script_review.ts
+  review.ts
 
 src/utils/
   openai_responses_client.ts
@@ -380,7 +380,7 @@ Git：
 
 ```bash
 git switch -c codex/topic-script-stage-1-schema
-git add src/live/program/topic_script_schema.ts src/live/program/topic_script_compiler.ts docs/TOPIC_SCRIPT_FORMAT.md test/live/program/
+git add src/capabilities/program/topic_script/topic_script_schema.ts src/capabilities/program/topic_script/compiler.ts docs/TOPIC_SCRIPT_FORMAT.md test/live/
 git commit -m "feat: add topic script schema and compiler"
 git push -u origin codex/topic-script-stage-1-schema
 gh pr create --draft --title "Stage 1: Add topic script schema and compiler" --body "Adds schema validation and Markdown compilation for topic scripts."
@@ -414,7 +414,7 @@ Git：
 
 ```bash
 git switch -c codex/topic-script-stage-2-generation
-git add src/live/program/topic_script_repository.ts src/live/program/topic_script_service.ts src/utils/ data/topic_scripts/ test/live/program/
+git add src/capabilities/program/topic_script/repository.ts src/capabilities/program/topic_script/topic_script_service.ts src/utils/ data/topic_scripts/ test/live/
 git commit -m "feat: add topic script repository and service"
 git push -u origin codex/topic-script-stage-2-generation
 gh pr create --draft --title "Stage 2: Add topic script repository and generation service" --body "Adds persistence and draft generation flow for topic scripts."
@@ -449,7 +449,7 @@ Git：
 
 ```bash
 git switch -c codex/topic-script-stage-3-runtime
-git add src/live/program/topic_script_runtime.ts src/live/program/topic_script_events.ts src/core/application.ts test/
+git add src/capabilities/program/topic_script/runtime.ts src/capabilities/program/topic_script/topic_script_events.ts src/runtime/application.ts test/
 git commit -m "feat: wire topic script runtime into live program flow"
 git push -u origin codex/topic-script-stage-3-runtime
 gh pr create --draft --title "Stage 3: Wire topic script runtime into live program flow" --body "Connects approved topic scripts to the live program runtime without bypassing the stage arbiter."
@@ -482,7 +482,7 @@ Git：
 
 ```bash
 git switch -c codex/topic-script-stage-4-console-review
-git add src/live/program/topic_script_review.ts src/ assets/renderer/client/ test/
+git add src/capabilities/program/topic_script/review.ts src/ assets/renderer/client/ test/
 git commit -m "feat: add topic script review controls"
 git push -u origin codex/topic-script-stage-4-console-review
 gh pr create --draft --title "Stage 4: Add review and operator controls" --body "Adds review state and operator controls for topic scripts."

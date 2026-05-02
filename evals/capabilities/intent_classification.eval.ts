@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { hasEvalLlmKeys, evalModelLabel, makeEvalLlm } from "../utils/env.js";
 import { recordEvalCase } from "../utils/report.js";
 import { maybeAssertScore, summarizeChecks } from "../utils/scoring.js";
-import { LiveGateway } from "../../src/cursor/live/gateway.js";
+import { LiveGateway } from "../../src/windows/live/legacy_cursor/gateway.js";
 
 /**
  * Capability Eval: Live Intent Classification

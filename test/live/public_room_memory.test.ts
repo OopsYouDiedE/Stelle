@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { PublicRoomMemoryStore } from "../../src/live/controller/public_memory.js";
+import { PublicRoomMemoryStore } from "../../src/capabilities/program/stage_director/public_memory.js";
 
 describe("PublicRoomMemoryStore", () => {
   it("stores only public room memories", async () => {

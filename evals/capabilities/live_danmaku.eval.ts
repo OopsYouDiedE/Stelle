@@ -12,7 +12,7 @@ import {
   requiredFields,
   summarizeChecks,
 } from "../utils/scoring.js";
-import { LIVE_PERSONA } from "../../src/cursor/live/cursor.js";
+import { LIVE_PERSONA } from "../../src/windows/live/legacy_cursor/cursor.js";
 
 describe.skipIf(!hasEvalLlmKeys())("Live Danmaku Capability Eval", () => {
   it("scores live action, personality consistency, and prompt alignment", async () => {

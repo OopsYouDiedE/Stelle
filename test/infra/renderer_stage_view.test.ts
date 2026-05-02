@@ -10,8 +10,8 @@ describe("formal live renderer view", () => {
     expect(css).toContain('body[data-scene="standalone"] .stage-topbar');
     expect(css).toContain('body[data-scene="standalone"] .program-layer');
     expect(css).toMatch(/body\[data-scene="standalone"\]\s+\.panel\s*\{[^}]*display:\s*none/s);
-    expect(css).toMatch(/body\[data-scene="standalone"\]\s+\.stage-topbar\s*\{[^}]*display:\s*none/s);
-    expect(css).toMatch(/body\[data-scene="standalone"\]\s+\.program-layer\s*\{[^}]*display:\s*none/s);
+    expect(css).toMatch(/body\[data-scene="standalone"\]\s+\.stage-topbar\s*\{[^}]*display:\s*flex/s);
+    expect(css).toMatch(/body\[data-scene="standalone"\]\s+\.program-layer\s*\{[^}]*display:\s*block/s);
   });
 
   it("does not ship a hard-coded live topic as the renderer empty state", async () => {

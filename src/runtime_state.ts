@@ -2,16 +2,13 @@
  * 模块：运行时状态快照
  *
  * 运行逻辑：
- * - Runtime 直接持有该对象，用它记录最近事件、错误、Cursor 状态和 StelleCore 状态。
- * - Cursor 不直接访问 RuntimeState，避免被动响应层依赖调试/宿主状态。
+ * - Runtime 直接持有该对象，用它记录最近事件、错误、Package 状态和 StelleCore 状态。
  *
  * 主要方法：
  * - `record()`：写入滚动事件日志。
  * - `recordError()`：记录错误并保留 lastError。
  * - `snapshot()`：给 debug console 返回稳定结构。
  */
-import type { CursorSnapshot } from "./cursor/types.js";
-
 // 模块：Runtime 事件与 snapshot DTO。
 export interface RuntimeEvent {
   id: string;
@@ -21,8 +18,16 @@ export interface RuntimeEvent {
   payload?: Record<string, unknown>;
 }
 
+export interface RuntimePackageSnapshot {
+  id: string;
+  kind: string;
+  status: "idle" | "active" | "stopped" | "error";
+  updatedAt: number;
+  detail?: Record<string, unknown>;
+}
+
 export interface RuntimeStateSnapshot {
-  cursors: Record<string, CursorSnapshot>;
+  packages: Record<string, RuntimePackageSnapshot>;
   recentEvents: RuntimeEvent[];
   lastError?: string;
   stelleCore: {
@@ -41,7 +46,7 @@ export interface RuntimeStateSnapshot {
 export class RuntimeState {
   private readonly events: RuntimeEvent[] = [];
   private lastError?: string;
-  private cursors: Record<string, CursorSnapshot> = {};
+  private packages: Record<string, RuntimePackageSnapshot> = {};
   private stelleCore: RuntimeStateSnapshot["stelleCore"] = {};
   private memory: RuntimeStateSnapshot["memory"] = { channelRecentCounts: {}, researchLogCount: 0 };
   private discord: RuntimeStateSnapshot["discord"] = { connected: false };
@@ -65,8 +70,8 @@ export class RuntimeState {
     this.record("error", this.lastError);
   }
 
-  updateCursors(snapshots: CursorSnapshot[]): void {
-    this.cursors = Object.fromEntries(snapshots.map((snapshot) => [snapshot.id, snapshot]));
+  updatePackages(snapshots: RuntimePackageSnapshot[]): void {
+    this.packages = Object.fromEntries(snapshots.map((snapshot) => [snapshot.id, snapshot]));
   }
 
   updateStelleCore(snapshot: RuntimeStateSnapshot["stelleCore"]): void {
@@ -87,7 +92,7 @@ export class RuntimeState {
 
   snapshot(): RuntimeStateSnapshot {
     return {
-      cursors: this.cursors,
+      packages: this.packages,
       recentEvents: [...this.events].reverse().slice(0, 50),
       lastError: this.lastError,
       stelleCore: this.stelleCore,

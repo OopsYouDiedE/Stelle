@@ -3,7 +3,7 @@ import {
   LiveBatchAggregator,
   type DropReason,
   type FlushReason,
-} from "../../src/live/adapters/live_batch_aggregator.js";
+} from "../../src/capabilities/perception/text_ingress/live_batch_aggregator.js";
 import type { NormalizedLiveEvent } from "../../src/utils/live_event.js";
 
 describe("LiveBatchAggregator", () => {

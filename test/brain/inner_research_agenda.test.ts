@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import { DefaultResearchAgenda } from "../../src/cursor/inner/research_agenda.js";
-import type { CognitiveSignal, SelfModelSnapshot } from "../../src/cursor/inner/types.js";
+import { DefaultResearchAgenda } from "../../src/capabilities/cognition/reflection/research_agenda.js";
+import type { CognitiveSignal, SelfModelSnapshot } from "../../src/capabilities/cognition/reflection/types.js";
 
 describe("DefaultResearchAgenda", () => {
   const mockSelf: SelfModelSnapshot = {

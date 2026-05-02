@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { TopicScriptService } from "../../src/live/controller/topic_script_service.js";
-import type { TopicScriptDraft } from "../../src/live/controller/topic_script_schema.js";
-import { compileTopicScriptDraft } from "../../src/live/controller/topic_script_compiler.js";
+import { TopicScriptService } from "../../src/capabilities/program/topic_script/topic_script_service.js";
+import type { TopicScriptDraft } from "../../src/capabilities/program/topic_script/topic_script_schema.js";
+import { compileTopicScriptDraft } from "../../src/capabilities/program/topic_script/compiler.js";
 import { loadEvalCases } from "../utils/dataset.js";
 import { evalModelLabel, hasEvalLlmKeys, makeEvalLlm } from "../utils/env.js";
 import { recordEvalCase } from "../utils/report.js";

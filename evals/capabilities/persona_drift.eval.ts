@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { hasEvalLlmKeys, evalModelLabel, makeEvalLlm } from "../utils/env.js";
 import { recordEvalCase } from "../utils/report.js";
 import { forbiddenStrings, gradePersonality, maybeAssertScore, summarizeChecks } from "../utils/scoring.js";
-import { LIVE_PERSONA } from "../../src/cursor/live/cursor.js";
+import { LIVE_PERSONA } from "../../src/windows/live/legacy_cursor/cursor.js";
 
 /**
  * Capability Eval: Persona Drift Prevention

@@ -1,38 +1,36 @@
 # Stelle Architecture (V2 Modular)
 
-Stelle is a modular, event-driven VTuber/Streamer AI runtime. It uses multi-cursor decision making, unified actuators, and domain-isolated modules to create a persistent "living presence".
+Stelle is a modular, event-driven VTuber/Streamer AI runtime. It is organized around Core, Debug, Capability, and Window boundaries so reusable abilities stay separate from platform surfaces.
 
 For a practical code navigation map, read [`CODEBASE_GUIDE.md`](CODEBASE_GUIDE.md). This document is the architectural contract.
 
 ## Core Pillars
 
 1. **Event-driven decoupling**: major domains communicate through `StelleEventBus` and `StelleEventSchema`.
-2. **Domain isolation**: Core, Discord, Live, and Actuator wiring lives behind `ModuleRegistrar` implementations.
-3. **Cursor autonomy**: Cursor modules own domain decisions and expose lifecycle/snapshot methods through shared Cursor interfaces.
-4. **Unified actuators**: stage output and device actions are proposed as intents, then accepted, queued, rejected, executed, and audited by arbiters.
+2. **Hard ownership boundaries**: `src/core/` owns contracts and runtime substrate; `src/capabilities/` owns reusable abilities; `src/windows/` owns platform/window composition; `src/debug/` owns the control-plane shell.
+3. **Capability lifecycle**: packages expose services, read models, debug providers, and optional snapshot/hydrate hooks through `ComponentPackage`.
+4. **Unified arbiters**: stage output and device actions are proposed as intents, then accepted, queued, rejected, executed, and audited by capability arbiters.
 5. **Tool-mediated side effects**: external effects go through `ToolRegistry` or explicit device/stage renderers.
 
 ## Ownership Boundaries
 
-| Layer                  | Owns                                                                                                       | Must Not Own                                      |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| `src/core/`            | Application lifecycle, shared service creation, module registration, scheduler, debug/control composition. | Domain policy decisions.                          |
-| `src/cursor/`          | Per-domain perception, routing, LLM/tool planning, snapshots, reflections.                                 | Direct renderer/device/platform side effects.     |
-| `src/live/adapters/`   | Platform connections and ingress normalization.                                                            | Stage policy, LLM decisions, topic orchestration. |
-| `src/live/controller/` | Live room business state: director, journal, health, relationships, Topic Script runtime.                  | Low-level renderer server details.                |
-| `src/actuator/`        | Intent arbitration and audit event publication.                                                            | Platform-specific driver code.                    |
-| `src/stage/`           | Output policy, budget, queue, and final stage rendering.                                                   | Cursor decisions or platform ingress.             |
-| `src/device/`          | Device action policy, allowlist, renderer, drivers.                                                        | Cursor routing or live room logic.                |
-| `src/tools/`           | Tool schema, authority tier, registration, safe execution.                                                 | Feature-specific orchestration.                   |
+| Layer               | Owns                                                                                                         | Must Not Own                                          |
+| ------------------- | ------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------- |
+| `src/core/`         | Protocol contracts, component registry/loader, DataPlane, scheduler/watchdog, security primitives.           | Concrete Capability, Window, Debug panel logic.       |
+| `src/runtime/`      | Application boot, service container, static package/module wiring, legacy cursor runtime host.               | Domain policy decisions.                              |
+| `src/capabilities/` | RuntimeKernel, stage output, memory, reflection, program, perception, and action capability implementations. | Platform adapter lifecycle.                           |
+| `src/windows/`      | Live/Discord/browser/desktop window surfaces, platform adapters, renderer bridge, platform event mapping.    | Reusable cognition, memory, output, or action policy. |
+| `src/debug/`        | Debug server shell, auth, command risk rules, provider contracts.                                            | Package internals or platform-specific panels.        |
+| `src/tools/`        | Tool schema, authority tier, registration, safe execution.                                                   | Feature-specific orchestration.                       |
 
 ## Runtime Lifecycle
 
-`StelleApplication` in `src/core/application.ts` orchestrates startup:
+`StelleApplication` in `src/runtime/application.ts` orchestrates startup:
 
 1. Load runtime config.
 2. `StelleContainer.createServices()` creates shared services: LLM, memory, event bus, live runtime, Discord runtime, tools, arbiters, viewer profiles, scene observer.
 3. In `runtime` or `live` mode, start `LiveRendererServer` and attach a local renderer bridge.
-4. `selectCursorModules()` chooses Cursor manifests for the current mode and initializes each Cursor with an immutable `CursorContext`.
+4. `selectCursorModules()` chooses window/capability-owned legacy cursor manifests for the current mode and initializes each Cursor with an immutable `CursorContext`.
 5. Module registrars wire domain event listeners and services.
 6. Optional Discord connection starts when a token is available and the mode allows it.
 7. Module `start()` hooks run, then `StelleScheduler` starts ticks.
@@ -56,19 +54,18 @@ Common event families:
 
 When adding an event, update schema first, then producers, then consumers, then tests.
 
-## Cursor Contract
+## Capability And Window Contract
 
-Cursors may read from `CursorContext` and publish events, propose stage output, propose device actions, call tools through the registry, and update their own state.
+Capabilities own reusable policy and execution logic. Windows own platform ingress, adapter lifecycle, renderer bridges, and conversion into core protocol events.
 
-Cursors must not:
+Capabilities must not:
 
-- call another Cursor instance directly;
-- mutate `CursorContext`;
-- bypass `ToolRegistry`;
-- call `StageOutputRenderer`, platform adapters, or device drivers directly;
+- import concrete Window implementations;
+- depend on platform adapter details;
+- push heavy image/audio/video payloads through the EventBus;
 - perform long-running work without a clear timeout or queue boundary.
 
-The preferred internal decomposition is Gateway -> Router -> Executor -> Responder. `BaseStatefulCursor` provides common lifecycle and policy overlay plumbing for cursors that use this pattern.
+Windows may compose capabilities, but should not reimplement cognition, memory, stage output, or device action policy.
 
 ## Output And Device Ownership
 
@@ -110,6 +107,6 @@ Keep constructors cheap. Expensive I/O belongs in `start()`, not `register()`.
 
 - Use `StelleEventBus` for cross-domain communication.
 - Use `.js` extensions in TypeScript ESM imports.
-- Keep compatibility exports only when tests or public imports still need them.
+- Do not keep old structural compatibility exports for moved implementation files; update imports to the owning package.
 - Put secrets in `.env`; committed config files must not contain tokens.
 - Add or update deterministic tests for structural changes. Use evals only for model-behavior changes.

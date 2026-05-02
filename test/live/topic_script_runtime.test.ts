@@ -2,12 +2,12 @@ import os from "node:os";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import type { StageOutputArbiter } from "../../src/actuator/output_arbiter.js";
-import type { OutputIntent } from "../../src/stage/output_types.js";
+import type { StageOutputArbiter } from "../../src/capabilities/expression/stage_output/arbiter.js";
+import type { OutputIntent } from "../../src/capabilities/expression/stage_output/types.js";
 import { StelleEventBus } from "../../src/utils/event_bus.js";
-import { TopicScriptRepository } from "../../src/live/controller/topic_script_repository.js";
-import { TopicScriptService } from "../../src/live/controller/topic_script_service.js";
-import { TopicScriptRuntimeService } from "../../src/live/controller/topic_script_runtime.js";
+import { TopicScriptRepository } from "../../src/capabilities/program/topic_script/repository.js";
+import { TopicScriptService } from "../../src/capabilities/program/topic_script/topic_script_service.js";
+import { TopicScriptRuntimeService } from "../../src/capabilities/program/topic_script/runtime.js";
 
 describe("topic script runtime", () => {
   it("stays idle without output when no approved script exists", async () => {

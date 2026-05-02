@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { DefaultFieldSampler } from "../../src/cursor/inner/field_sampler.js";
-import type { ResearchTopic, CognitiveSignal, SelfModelSnapshot } from "../../src/cursor/inner/types.js";
+import { DefaultFieldSampler } from "../../src/capabilities/cognition/reflection/field_sampler.js";
+import type {
+  ResearchTopic,
+  CognitiveSignal,
+  SelfModelSnapshot,
+} from "../../src/capabilities/cognition/reflection/types.js";
 
 describe("DefaultFieldSampler", () => {
   const sampler = new DefaultFieldSampler({ maxNotes: 5 });

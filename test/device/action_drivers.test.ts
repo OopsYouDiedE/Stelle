@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { DeviceActionIntent } from "../../src/device/action_types.js";
+import type { DeviceActionIntent } from "../../src/capabilities/action/device_action/types.js";
 
 const execFileMock = vi.fn();
 
@@ -15,7 +15,7 @@ describe("real device action drivers", () => {
   });
 
   it("executes browser navigation through Chrome DevTools Protocol", async () => {
-    const { BrowserCdpDriver } = await import("../../src/device/drivers/browser_cdp_driver.js");
+    const { BrowserCdpDriver } = await import("../../src/capabilities/action/browser_control/browser_driver.js");
     const sent: any[] = [];
 
     vi.stubGlobal(
@@ -56,7 +56,7 @@ describe("real device action drivers", () => {
   });
 
   it("reports browser CDP setup failures instead of pretending success", async () => {
-    const { BrowserCdpDriver } = await import("../../src/device/drivers/browser_cdp_driver.js");
+    const { BrowserCdpDriver } = await import("../../src/capabilities/action/browser_control/browser_driver.js");
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 404, statusText: "nope" }));
 
     const result = await new BrowserCdpDriver().execute(
@@ -73,7 +73,7 @@ describe("real device action drivers", () => {
   });
 
   it("executes desktop hotkeys through the Windows PowerShell driver", async () => {
-    const { DesktopInputDriver } = await import("../../src/device/drivers/desktop_input_driver.js");
+    const { DesktopInputDriver } = await import("../../src/capabilities/action/desktop_input/desktop_driver.js");
     execFileMock.mockImplementation((_file, _args, _options, callback) => callback(null, "", ""));
 
     const result = await new DesktopInputDriver().execute(
@@ -95,7 +95,7 @@ describe("real device action drivers", () => {
   });
 
   it("executes Android taps through adb", async () => {
-    const { AndroidAdbDriver } = await import("../../src/device/drivers/android_adb_driver.js");
+    const { AndroidAdbDriver } = await import("../../src/capabilities/action/android_device/adb_driver.js");
     execFileMock.mockImplementation((_file, _args, _options, callback) => callback(null, "", ""));
 
     const result = await new AndroidAdbDriver({ adbPath: "adb" }).execute(

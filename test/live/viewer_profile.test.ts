@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { ViewerProfileStore } from "../../src/live/controller/viewer_profile.js";
+import { ViewerProfileStore } from "../../src/capabilities/memory/viewer_profile/viewer_profile_store.js";
 import type { NormalizedLiveEvent } from "../../src/utils/live_event.js";
 
 describe("ViewerProfileStore", () => {

@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { WorldCanonStore } from "../../src/live/controller/world_canon.js";
+import { WorldCanonStore } from "../../src/capabilities/program/stage_director/world_canon.js";
 
 describe("WorldCanonStore", () => {
   it("keeps danmaku proposals out of confirmed canon", async () => {

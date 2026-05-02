@@ -3,8 +3,8 @@ import {
   compileTopicScriptDraft,
   compileTopicScriptMarkdown,
   TopicScriptCompileError,
-} from "../../src/live/controller/topic_script_compiler.js";
-import type { TopicScriptDraft } from "../../src/live/controller/topic_script_schema.js";
+} from "../../src/capabilities/program/topic_script/compiler.js";
+import type { TopicScriptDraft } from "../../src/capabilities/program/topic_script/topic_script_schema.js";
 
 describe("topic script compiler", () => {
   it("compiles markdown frontmatter and sections into runtime AST", () => {

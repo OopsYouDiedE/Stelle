@@ -13,15 +13,15 @@
 
 - TypeScript 使用 ESM，源文件 import 需要写 `.js` 后缀。
 - 优先使用明确类型、Zod schema 和现有 helper，不用临时字符串解析替代结构化接口。
-- 公共入口移动时保留兼容 re-export，除非同步更新所有调用方和测试。
-- 不绕过 `src/tool.ts`、`src/tools/index.ts`、`src/memory/memory.ts` 等兼容入口。
+- 公共入口移动时同步更新所有调用方和测试，不为旧结构留下临时 re-export。
+- 不绕过 `src/tool.ts`、`src/tools/index.ts` 等稳定公共入口。
 
 ## Module Boundaries
 
-- 跨 domain 通信用 `StelleEventBus` 和 `src/utils/event_schema.ts`。
-- Cursor 不直接调用其他 Cursor。
-- Stage 输出必须经过 `StageOutputArbiter`。
-- 设备动作必须经过 `DeviceActionArbiter`。
+- 跨 package 通信用 `StelleEventBus`、Core protocol、DataPlane 和 package service contract。
+- Capability 不 import 具体 Window；Window 不重写可复用能力逻辑。
+- Stage 输出必须经过 `src/capabilities/expression/stage_output`。
+- 设备动作必须经过 `src/capabilities/action/device_action`。
 - 工具调用必须经过 `ToolRegistry`，不要直接调用 provider 实现绕过权限与审计。
 - Renderer server 负责 HTTP/socket/control glue，不承载高层业务决策。
 

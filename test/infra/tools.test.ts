@@ -1,27 +1,32 @@
 import { describe, it, expect, vi } from "vitest";
 import { createDefaultToolRegistry, ToolRegistry } from "../../src/tool.js";
+import { z } from "zod";
+import type { ToolDefinition } from "../../src/tools/types.js";
 
 describe("ToolRegistry & Single Call Test", () => {
   it("should correctly register and find tools", () => {
     const registry = new ToolRegistry();
-    const mockTool = {
+    const mockTool: ToolDefinition = {
       name: "test_tool",
+      authority: "readonly",
       description: "A test tool",
+      inputSchema: z.object({}),
       execute: vi.fn().mockResolvedValue({ ok: true, summary: "done" }),
     };
-    (registry as any).register(mockTool as any);
+    registry.register(mockTool);
     expect(registry.get("test_tool")).toBeDefined();
   });
 
   it("should prevent unauthorized tool execution", async () => {
     const registry = new ToolRegistry();
-    const mockTool = {
+    const mockTool: ToolDefinition = {
       name: "restricted_tool",
       authority: "external_write",
       description: "...",
+      inputSchema: z.object({}),
       execute: vi.fn().mockResolvedValue({ ok: true, summary: "done" }),
     };
-    (registry as any).register(mockTool as any);
+    registry.register(mockTool);
 
     // 仅允许 readonly 权限，尝试执行 external_write 工具
     const context = { caller: "test", allowedAuthority: ["readonly"], allowedTools: ["restricted_tool"] };

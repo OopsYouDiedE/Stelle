@@ -2,10 +2,10 @@ import os from "node:os";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { compileTopicScriptMarkdown } from "../../src/live/controller/topic_script_compiler.js";
-import { TopicScriptRepository } from "../../src/live/controller/topic_script_repository.js";
-import { TopicScriptReviewService } from "../../src/live/controller/topic_script_review.js";
-import { TopicScriptService } from "../../src/live/controller/topic_script_service.js";
+import { compileTopicScriptMarkdown } from "../../src/capabilities/program/topic_script/compiler.js";
+import { TopicScriptRepository } from "../../src/capabilities/program/topic_script/repository.js";
+import { TopicScriptReviewService } from "../../src/capabilities/program/topic_script/review.js";
+import { TopicScriptService } from "../../src/capabilities/program/topic_script/topic_script_service.js";
 
 describe("topic script review", () => {
   it("locks draft sections and preserves the revision", async () => {

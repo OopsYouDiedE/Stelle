@@ -4,10 +4,10 @@
 
 Stelle is a modular, event-driven VTuber/Streamer AI runtime (V2 Architecture). It focuses on creating a "living presence" rather than a simple chatbot.
 
-- **Core Architecture**: Based on a modular multi-cursor design handled by a central `StelleApplication` and domain-isolated `ModuleRegistrars`.
+- **Core Architecture**: Based on strict Core / Debug / Capability / Window boundaries handled by a runtime `StelleApplication` and package/module lifecycle.
 - **Communication**: Uses a global `StelleEventBus` (EventEmitter) for internal decoupling and **Express + Socket.io** for real-time frontend-backend communication.
 - **Identity**: Personas evolve based on "Reflection Pressure Valves" (impact and salience-driven reflection) and long-term memory.
-- **Unified Actuators**: All speech and actions flow through standard `Arbiters` for coordination and safety.
+- **Unified Capabilities**: Speech, memory, reflection, program flow, perception, and actions live in capability packages with explicit boundaries.
 
 ## Building and Running
 
@@ -29,13 +29,13 @@ The project maintains two distinct testing environments:
 
 ## Development Conventions
 
-- **Event-Driven**: Avoid direct calls between domains or cursors. Use `eventBus.publish(StelleEvent)` and `eventBus.subscribe(type, listener)`.
-- **Domain Isolation**: Logic is grouped into `src/memory`, `src/actuator`, `src/cursor`, and `src/live`.
-- **Modular Lifecycle**: Major components are managed via `ModuleRegistrar` implementations in `src/core/modules/`.
-- **Base Cursor**: New cursors should extend `BaseStatefulCursor` to benefit from the standardized thinking lifecycle.
+- **Event-Driven**: Avoid direct writes across packages. Use `eventBus.publish(StelleEvent)`, Core protocol objects, package services, and DataPlane refs.
+- **Domain Isolation**: Logic is grouped into `src/core`, `src/runtime`, `src/capabilities`, `src/windows`, and `src/debug`.
+- **Modular Lifecycle**: Major components are managed via `ComponentPackage` and runtime `ModuleRegistrar` implementations in `src/runtime/modules/`.
+- **Legacy Cursor Host**: Remaining cursor runtime primitives live under `src/runtime/cursor`; platform-specific legacy cursors live under the owning Window.
 - **Config**: Static settings in `config.yaml`, sensitive keys in `.env`. Access via `src/config/index.ts`.
 
 ## Research & Memory
 
 - **Research Topics**: Stelle can set individuals or behaviors as "Research Topics" in `ResearchLog` to build deep personality profiles over time.
-- **Memory Store**: Unified access to recent (JSONL) and long-term (Markdown) storage via `src/memory/memory.ts`.
+- **Memory Store**: Unified access to recent (JSONL) and long-term (Markdown) storage via `src/capabilities/memory/store/memory_store.ts`.

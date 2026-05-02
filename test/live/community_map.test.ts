@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildAnonymousCommunityMap } from "../../src/live/controller/community_map.js";
+import { buildAnonymousCommunityMap } from "../../src/capabilities/program/stage_director/community_map.js";
 
 describe("AnonymousCommunityMap", () => {
   it("uses only aggregate labels and counts", () => {

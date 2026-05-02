@@ -1,70 +1,45 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { StelleApplication } from "../../src/core/application.js";
+import { describe, expect, it, vi } from "vitest";
+import { RuntimeHost } from "../../src/runtime/host.js";
 import { DiscordRuntime } from "../../src/utils/discord.js";
 
-// Mock entire modules that start servers or have side effects
-vi.mock("../../src/live/infra/renderer_server.js", () => ({
+vi.mock("../../src/windows/live/renderer/renderer_server.js", () => ({
   LiveRendererServer: class {
     start = vi.fn().mockResolvedValue("http://127.0.0.1:8787");
     stop = vi.fn().mockResolvedValue(undefined);
     publish = vi.fn();
-    setLiveController = vi.fn();
     setDebugController = vi.fn();
-    setMemoryController = vi.fn();
-    getStatus = vi.fn().mockReturnValue({ connected: true });
+    getStatus = vi.fn().mockReturnValue({ connected: true, url: "http://127.0.0.1:8787", socketCount: 0, state: {} });
   },
 }));
 
-describe("StelleApplication Isolation", () => {
-  it("should initialize and stop cursors correctly without global side effects", async () => {
-    // Spy on prototype to handle instances created inside constructor
+describe("RuntimeHost Isolation", () => {
+  it("starts package registries independently without cursor globals", async () => {
     vi.spyOn(DiscordRuntime.prototype, "login").mockResolvedValue(undefined);
     vi.spyOn(DiscordRuntime.prototype, "setBotPresence").mockResolvedValue(undefined);
-    vi.spyOn(DiscordRuntime.prototype, "getStatus").mockResolvedValue({ connected: true });
+    vi.spyOn(DiscordRuntime.prototype, "destroy").mockResolvedValue(undefined);
 
-    // Start Application 1
-    const app1 = new StelleApplication("runtime");
-    (app1 as any).config.discord.token = "test-token";
-    (app1 as any).config.models.apiKey = "test-key";
-    const app1EventBusBefore = app1.eventBus;
-    const app1MemoryBefore = app1.memory;
-    const app1ToolsBefore = app1.tools;
-    const app1DiscordBefore = app1.discord;
-
+    const app1 = new RuntimeHost("runtime");
+    const app2 = new RuntimeHost("runtime");
     vi.spyOn(app1.memory, "start").mockResolvedValue(undefined);
+    vi.spyOn(app2.memory, "start").mockResolvedValue(undefined);
 
     await app1.start();
-    const eventBus1 = app1.eventBus;
-    expect(app1.eventBus).toBe(app1EventBusBefore);
-    expect(app1.memory).toBe(app1MemoryBefore);
-    expect(app1.tools).toBe(app1ToolsBefore);
-    expect(app1.discord).toBe(app1DiscordBefore);
-
-    expect(app1.cursors.length).toBeGreaterThan(0);
-
-    // Start Application 2
-    const app2 = new StelleApplication("runtime");
-    (app2 as any).config.discord.token = "test-token-2";
-    (app2 as any).config.models.apiKey = "test-key-2";
-    vi.spyOn(app2.memory, "start").mockResolvedValue(undefined);
-    vi.spyOn(app2.discord, "login").mockResolvedValue(undefined);
-
     await app2.start();
-    const eventBus2 = app2.eventBus;
 
-    expect(eventBus1).not.toBe(eventBus2);
+    expect(app1.events).not.toBe(app2.events);
+    expect(app1.registry.listActivePackageIds()).toContain("capability.cognition.runtime_kernel");
+    expect(app1.registry.listActivePackageIds()).toContain("window.live");
+    expect(app1.registry.listPackages().some((pkg) => pkg.id.includes("cursor"))).toBe(false);
 
-    // Test event isolation
     const spy1 = vi.fn();
     const spy2 = vi.fn();
-    eventBus1.subscribe("inner.tick", spy1);
-    eventBus2.subscribe("inner.tick", spy2);
+    app1.events.subscribe("perceptual.event", spy1);
+    app2.events.subscribe("perceptual.event", spy2);
+    app1.events.publish({ type: "perceptual.event", source: "test", payload: { id: "evt" } } as never);
 
-    eventBus1.publish({ type: "inner.tick", source: "test", reason: "test1" });
     expect(spy1).toHaveBeenCalled();
     expect(spy2).not.toHaveBeenCalled();
 
-    // Cleanup
     await app1.stop();
     await app2.stop();
   });

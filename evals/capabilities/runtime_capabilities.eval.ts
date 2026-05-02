@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildDeviceActionAllowlist } from "../../src/device/action_allowlist.js";
-import { DeviceActionArbiter } from "../../src/actuator/action_arbiter.js";
-import type { DeviceActionDriver, DeviceActionIntent } from "../../src/device/action_types.js";
-import { LiveResponder } from "../../src/cursor/live/responder.js";
-import { DefaultMemoryWriter } from "../../src/cursor/inner/memory_writer.js";
+import { buildDeviceActionAllowlist } from "../../src/capabilities/action/device_action/allowlist.js";
+import { DeviceActionArbiter } from "../../src/capabilities/action/device_action/arbiter.js";
+import type { DeviceActionDriver, DeviceActionIntent } from "../../src/capabilities/action/device_action/types.js";
+import { LiveResponder } from "../../src/windows/live/legacy_cursor/responder.js";
+import { DefaultMemoryWriter } from "../../src/capabilities/cognition/reflection/memory_writer.js";
 import { ObsWebSocketController } from "../../src/utils/live.js";
 import { createDefaultToolRegistry } from "../../src/tool.js";
 import { recordEvalCase } from "../utils/report.js";

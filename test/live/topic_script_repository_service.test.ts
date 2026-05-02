@@ -2,9 +2,9 @@ import os from "node:os";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import type { LlmClient } from "../../src/memory/llm.js";
-import { TopicScriptRepository } from "../../src/live/controller/topic_script_repository.js";
-import { TopicScriptService } from "../../src/live/controller/topic_script_service.js";
+import type { LlmClient } from "../../src/capabilities/model/llm.js";
+import { TopicScriptRepository } from "../../src/capabilities/program/topic_script/repository.js";
+import { TopicScriptService } from "../../src/capabilities/program/topic_script/topic_script_service.js";
 
 describe("topic script repository and service", () => {
   it("saves drafts, approves revisions, and writes compiled output", async () => {

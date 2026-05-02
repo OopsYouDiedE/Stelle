@@ -1,6 +1,6 @@
 import { expect } from "vitest";
 import { asRecord } from "../../src/utils/json.js";
-import type { LlmClient } from "../../src/memory/llm.js";
+import type { LlmClient } from "../../src/capabilities/model/llm.js";
 
 export interface EvalScore {
   passed: boolean;

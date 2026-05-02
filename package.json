@@ -12,7 +12,7 @@
     "start:kokoro": ".venv\\Scripts\\python.exe scripts\\kokoro_tts_server.py",
     "live:preflight": "tsx scripts/live_preflight.ts",
     "live:preflight:json": "tsx scripts/live_preflight.ts --json",
-    "live:bilibili": "tsx scripts/bilibili_danmaku_bridge.ts",
+    "live:bilibili": "tsx src/start.ts live",
     "live:export-logs": "tsx scripts/live_export_logs.ts",
     "live:episode-summary": "tsx scripts/live_episode_summary.ts",
     "live:terminal": "npm run build && npm run live:preflight && node scripts/start_all.js live --built --bilibili",

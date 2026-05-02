@@ -12,10 +12,10 @@
  */
 export { start, startRuntime } from "./start.js";
 export { createDefaultToolRegistry, ToolRegistry } from "./tool.js";
+export { RuntimeHost } from "./runtime/host.js";
 
-export type { StartMode, StelleApplication } from "./core/application.js";
+export type { RuntimeHostSnapshot, StartMode } from "./runtime/host.js";
 export type { RuntimeStateSnapshot } from "./runtime_state.js";
 export type { ToolAuthority, ToolContext, ToolDefinition, ToolResult } from "./tool.js";
-export type { CursorSnapshot, StelleCursor } from "./cursor/types.js";
 export type { RuntimeConfig } from "./config/index.js";
-export type { MemoryStore } from "./memory/memory.js";
+export type { MemoryStore } from "./capabilities/memory/store/memory_store.js";

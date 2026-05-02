@@ -1,6 +1,7 @@
 // === Imports ===
 import { EventEmitter } from "node:events";
 import { StelleEventSchema, type StelleEvent, type StelleEventType } from "./event_schema.js";
+import type { BackpressureStatus, QueueOverflowPolicy } from "../core/protocol/backpressure.js";
 
 // === Core Logic ===
 
@@ -16,16 +17,31 @@ import { StelleEventSchema, type StelleEvent, type StelleEventType } from "./eve
 export class StelleEventBus {
   private readonly emitter = new EventEmitter();
   private readonly history: StelleEvent[] = [];
-  private readonly MAX_HISTORY = 100;
+  private readonly maxHistory: number;
+  private readonly maxPayloadBytes: number;
+  private droppedItems = 0;
+  private readonly overflow: QueueOverflowPolicy;
 
-  constructor() {
+  constructor(options: { maxHistory?: number; maxPayloadBytes?: number; overflow?: QueueOverflowPolicy } = {}) {
     this.emitter.setMaxListeners(50);
+    this.maxHistory = options.maxHistory ?? 100;
+    this.maxPayloadBytes = options.maxPayloadBytes ?? 64 * 1024;
+    this.overflow = options.overflow ?? "drop_oldest";
   }
 
   /**
    * 发布一个事件 (带元数据注入和校验)
    */
   public publish(input: { type: StelleEventType; source: string } & Record<string, unknown>): void {
+    const payloadBytes = estimatePayloadBytes(input.payload);
+    if (payloadBytes > this.maxPayloadBytes) {
+      this.droppedItems += 1;
+      console.warn(
+        `[EventBus] Oversized payload rejected: type=${input.type} sizeBytes=${payloadBytes} maxBytes=${this.maxPayloadBytes}`,
+      );
+      return;
+    }
+
     const eventData = {
       ...input,
       id: (input.id as string) || `evt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -43,8 +59,14 @@ export class StelleEventBus {
 
     // 记录历史 (环形缓冲区)
     this.history.push(event);
-    if (this.history.length > this.MAX_HISTORY) {
+    if (this.history.length > this.maxHistory) {
+      if (this.overflow === "reject") {
+        this.history.pop();
+        this.droppedItems += 1;
+        return;
+      }
       this.history.shift();
+      this.droppedItems += 1;
     }
 
     // 分发：支持精确匹配和通配符监听
@@ -73,10 +95,32 @@ export class StelleEventBus {
     return [...this.history];
   }
 
+  public getBackpressureStatus(consumerId = "event_bus.history"): BackpressureStatus {
+    return {
+      queueId: "event_bus.history",
+      consumerId,
+      bufferedItems: this.history.length,
+      droppedItems: this.droppedItems,
+      lagMs: 0,
+      recommendedAction: this.history.length >= this.maxHistory ? "drop_low_priority" : "ok",
+    };
+  }
+
   /**
    * 清空所有监听器 (用于重载/关闭)
    */
   public clear(): void {
     this.emitter.removeAllListeners();
+  }
+}
+
+function estimatePayloadBytes(payload: unknown): number {
+  if (payload === undefined || payload === null) return 0;
+  if (payload instanceof Uint8Array) return payload.byteLength;
+  if (typeof payload === "string") return Buffer.byteLength(payload, "utf8");
+  try {
+    return Buffer.byteLength(JSON.stringify(payload), "utf8");
+  } catch {
+    return Number.MAX_SAFE_INTEGER;
   }
 }

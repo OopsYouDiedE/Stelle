@@ -1,6 +1,6 @@
 // === Imports ===
 import { z } from "zod";
-import { DeviceActionIntentSchema } from "../device/action_types.js";
+import { DeviceActionIntentSchema } from "../capabilities/action/device_action/types.js";
 
 // === Types & Interfaces ===
 export interface BehaviorPolicy {
@@ -352,6 +352,28 @@ export const SystemEventSchema = z.union([
 ]);
 
 /**
+ * 10. V2 架构演进事件 (V2 Evolution)
+ */
+export const V2ArchitectureEventSchema = z.union([
+  EventMetadataSchema.extend({
+    type: z.literal("perceptual.event"),
+    payload: z.any(),
+  }),
+  EventMetadataSchema.extend({
+    type: z.literal("cognition.intent"),
+    payload: z.any(),
+  }),
+  EventMetadataSchema.extend({
+    type: z.literal("execution.command"),
+    payload: z.any(),
+  }),
+  EventMetadataSchema.extend({
+    type: z.literal("execution.result"),
+    payload: z.any(),
+  }),
+]);
+
+/**
  * 统一事件联合类型
  */
 export const StelleEventSchema = z.union([
@@ -370,6 +392,7 @@ export const StelleEventSchema = z.union([
   DeviceActionEventSchema,
   DirectiveEventSchema,
   SystemEventSchema,
+  V2ArchitectureEventSchema,
 ]);
 
 // === Types & Interfaces ===

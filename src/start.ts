@@ -7,7 +7,7 @@
  * 3. 捕获系统中断信号(`SIGINT`, `SIGTERM`) 触发安全停止。
  */
 import "dotenv/config";
-import { StelleApplication, type StartMode } from "./core/application.js";
+import { RuntimeHost, type StartMode } from "./runtime/host.js";
 
 const mode = parseStartMode(process.argv[2] ?? process.env.STELLE_START_MODE);
 
@@ -19,13 +19,13 @@ if (isDirectStart()) {
 }
 
 // 模块：对外启动入口。
-export async function start(mode: StartMode = "runtime"): Promise<StelleApplication> {
+export async function start(mode: StartMode = "runtime"): Promise<RuntimeHost> {
   return startRuntime(mode);
 }
 
 // 模块：完整 runtime 装配和事件路由。
-export async function startRuntime(mode: "runtime" | "discord" | "live" = "runtime"): Promise<StelleApplication> {
-  const app = new StelleApplication(mode);
+export async function startRuntime(mode: "runtime" | "discord" | "live" = "runtime"): Promise<RuntimeHost> {
+  const app = new RuntimeHost(mode);
   await app.start();
 
   process.on("SIGINT", () => void app.stop().finally(() => process.exit(0)));

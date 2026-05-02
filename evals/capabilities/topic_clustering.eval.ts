@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { hasEvalLlmKeys, evalModelLabel, makeEvalLlm } from "../utils/env.js";
 import { recordEvalCase } from "../utils/report.js";
 import { maybeAssertScore, summarizeChecks } from "../utils/scoring.js";
-import { SemanticClusterService } from "../../src/memory/semantic.js";
+import { SemanticClusterService } from "../../src/capabilities/memory/store/semantic.js";
 
 /**
  * Capability Eval: Semantic Topic Clustering

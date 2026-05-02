@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { InnerCursor } from "../../src/cursor/inner/cursor.js";
+import { InnerCursor } from "../../src/capabilities/cognition/reflection/reflection_engine.js";
 import { StelleEventBus } from "../../src/utils/event_bus.js";
 import { hasEvalLlmKeys, evalModelLabel, makeEvalLlm, makeEvalModelConfig } from "../utils/env.js";
 import { loadEvalCases } from "../utils/dataset.js";

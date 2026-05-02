@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { MemoryStore } from "../../src/memory/memory.js";
+import { MemoryStore } from "../../src/capabilities/memory/store/memory_store.js";
 import { rm, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 

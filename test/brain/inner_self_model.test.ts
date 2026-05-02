@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { DefaultSelfModel } from "../../src/cursor/inner/self_model.js";
-import type { CognitiveSignal, ResearchTopic } from "../../src/cursor/inner/types.js";
+import { DefaultSelfModel } from "../../src/capabilities/cognition/reflection/self_model.js";
+import type { CognitiveSignal, ResearchTopic } from "../../src/capabilities/cognition/reflection/types.js";
 
 describe("DefaultSelfModel", () => {
   const topic = (title: string, confidence = 0.6): ResearchTopic => ({

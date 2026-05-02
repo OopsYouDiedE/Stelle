@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { TopicOrchestrator } from "../../src/live/controller/orchestrator.js";
-import type { NormalizedLiveEvent } from "../../src/utils/live_event.js";
+import {
+  TopicOrchestrator,
+  type ProgramInputEvent,
+} from "../../src/capabilities/program/stage_director/orchestrator.js";
 
 describe("TopicOrchestrator", () => {
   it("clusters anonymous danmaku and queues questions", () => {
@@ -27,11 +29,11 @@ describe("TopicOrchestrator", () => {
   });
 });
 
-function event(id: string, text: string): NormalizedLiveEvent {
+function event(id: string, text: string): ProgramInputEvent {
   return {
     id,
-    source: "bilibili",
-    kind: "danmaku",
+    source: "window.live",
+    kind: "text",
     priority: "low",
     receivedAt: 1000,
     user: { id: "viewer-1", name: "小星" },

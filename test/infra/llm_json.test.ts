@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { LlmClient } from "../../src/memory/llm.js";
+import { LlmClient } from "../../src/capabilities/model/llm.js";
 
 describe("LlmClient.generateJson", () => {
   it("extracts the first JSON object from noisy output", async () => {

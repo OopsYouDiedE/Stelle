@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { DeviceActionArbiter } from "../../src/actuator/action_arbiter.js";
-import { MockDeviceActionDriver } from "../../src/device/drivers/mock_driver.js";
-import { buildDeviceActionAllowlist } from "../../src/device/action_allowlist.js";
-import type { DeviceActionIntent } from "../../src/device/action_types.js";
+import { DeviceActionArbiter } from "../../src/capabilities/action/device_action/arbiter.js";
+import { MockDeviceActionDriver } from "../../src/capabilities/action/device_action/mock_driver.js";
+import { buildDeviceActionAllowlist } from "../../src/capabilities/action/device_action/allowlist.js";
+import type { DeviceActionIntent } from "../../src/capabilities/action/device_action/types.js";
 
 describe("DeviceActionArbiter", () => {
   let arbiter: DeviceActionArbiter;

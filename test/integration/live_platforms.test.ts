@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { normalizeBilibiliCommand } from "../../src/live/adapters/bilibili.js";
-import { LivePlatformManager } from "../../src/live/adapters/manager.js";
-import { normalizeTikTokPayload } from "../../src/live/adapters/tiktok.js";
-import { normalizeTwitchIrcLine } from "../../src/live/adapters/twitch.js";
-import { normalizeYoutubeMessage } from "../../src/live/adapters/youtube.js";
+import { normalizeBilibiliCommand } from "../../src/windows/live/adapters/bilibili_adapter.js";
+import { LivePlatformManager } from "../../src/windows/live/adapters/manager.js";
+import { normalizeTikTokPayload } from "../../src/windows/live/adapters/tiktok_adapter.js";
+import { normalizeTwitchIrcLine } from "../../src/windows/live/adapters/twitch_adapter.js";
+import { normalizeYoutubeMessage } from "../../src/windows/live/adapters/youtube_adapter.js";
 import { StelleEventBus } from "../../src/utils/event_bus.js";
 import type { NormalizedLiveEvent } from "../../src/utils/live_event.js";
 
@@ -99,8 +99,8 @@ describe("live platform normalization", () => {
     const eventBus = new StelleEventBus();
     const manager = new LivePlatformManager(disabledConfig(), eventBus);
 
-    (manager as any).publish(event("gift-1", "gift"));
-    (manager as any).publish(event("danmaku-1", "danmaku"));
+    manager.publishFixtureEvent(event("gift-1", "gift"));
+    manager.publishFixtureEvent(event("danmaku-1", "danmaku"));
 
     const types = eventBus.getHistory().map((event) => event.type);
     expect(types).toContain("live.event.received");
@@ -114,8 +114,8 @@ describe("live platform normalization", () => {
     const manager = new LivePlatformManager(disabledConfig(), eventBus);
     const duplicate = event("same-platform-id", "danmaku");
 
-    (manager as any).publish(duplicate);
-    (manager as any).publish({ ...duplicate });
+    manager.publishFixtureEvent(duplicate);
+    manager.publishFixtureEvent({ ...duplicate });
 
     const types = eventBus.getHistory().map((event) => event.type);
     expect(types.filter((type) => type === "live.event.danmaku")).toHaveLength(1);

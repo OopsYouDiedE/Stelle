@@ -4,7 +4,7 @@
 
 // === Imports ===
 import crypto from "node:crypto";
-import type { LiveRendererCommand, LiveRendererServer } from "../live/infra/renderer_server.js";
+import type { LiveRendererCommand, LiveRendererServer } from "../windows/live/renderer/renderer_server.js";
 import { sanitizeExternalText } from "./text.js";
 import { buildLiveTtsRequest } from "./tts.js";
 import type { StelleEventBus } from "./event_bus.js";
@@ -83,24 +83,8 @@ export class HttpLiveRendererBridge implements LiveRendererBridge {
   }
 
   async publish(command: LiveRendererCommand): Promise<void> {
-    if (!this.url) return;
-    try {
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (this.controlToken) {
-        headers["Authorization"] = `Bearer ${this.controlToken}`;
-      }
-      const response = await fetch(`${this.url}/command`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(command),
-      });
-      if (!response.ok) {
-        throw new Error(`Renderer command failed: ${response.status} ${response.statusText}`);
-      }
-      this.lastError = undefined;
-    } catch (error) {
-      this.lastError = error instanceof Error ? error.message : String(error);
-    }
+    void command;
+    this.lastError = "Remote renderer command transport was removed with the ComponentPackage migration.";
   }
 }
 

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { MEMORY_LAYERS, type MemoryStore } from "../../memory/memory.js";
+import { MEMORY_LAYERS, type MemoryStore } from "../../capabilities/memory/store/memory_store.js";
 import { sanitizeExternalText } from "../../utils/text.js";
 import { ok, sideEffects } from "../types.js";
 import type { ToolDefinition } from "../types.js";
