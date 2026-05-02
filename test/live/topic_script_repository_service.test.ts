@@ -35,7 +35,7 @@ describe("topic script repository and service", () => {
         calls.push(schemaName);
         return normalize({
           script_id: "ts_llm_smoke",
-          title: "弹幕法庭测试",
+          title: "输入法庭测试",
           summary: "LLM 生成的测试剧本",
           current_question: "你支持哪一边？",
           sections: [
@@ -45,7 +45,7 @@ describe("topic script repository and service", () => {
               timestamp: "00:00",
               duration_sec: 60,
               goal: "开场",
-              host_script: "欢迎来到弹幕法庭。",
+              host_script: "欢迎来到输入法庭。",
               discussion_points: ["说明规则"],
               question_prompts: ["你支持正方还是反方？"],
               fallback_lines: ["先按低风险问题聊。"],
@@ -61,11 +61,11 @@ describe("topic script repository and service", () => {
       now: () => 1000,
     });
 
-    const { draft } = await service.generateDraft({ templateId: "danmaku_court" });
+    const { draft } = await service.generateDraft({ templateId: "audience_court" });
 
     expect(calls).toContain("topic_script_draft");
     expect(draft.script_id).toBe("ts_llm_smoke");
-    expect(draft.template_id).toBe("danmaku_court");
+    expect(draft.template_id).toBe("audience_court");
   });
 
   it("does not revise locked sections", async () => {

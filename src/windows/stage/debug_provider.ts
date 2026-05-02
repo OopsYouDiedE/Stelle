@@ -1,4 +1,4 @@
-import type { DebugProvider } from "../../debug/contracts/debug_provider.js";
+import type { DebugProvider } from "../../core/protocol/debug.js";
 import type { StageWindow } from "./stage_window.js";
 
 export function createStageWindowDebugProvider(window: StageWindow): DebugProvider {

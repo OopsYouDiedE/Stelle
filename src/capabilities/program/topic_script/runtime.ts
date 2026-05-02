@@ -1,5 +1,5 @@
 import type { OutputIntent } from "../../expression/stage_output/types.js";
-import type { StelleEventBus } from "../../../utils/event_bus.js";
+import type { StelleEventBus } from "../../../core/event/event_bus.js";
 import { classifyText } from "../stage_director/orchestrator.js";
 import { TopicScriptRepository } from "./repository.js";
 import type { CompiledTopicScript, CompiledTopicScriptSection } from "./topic_script_schema.js";

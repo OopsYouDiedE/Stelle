@@ -1,4 +1,4 @@
-import type { DebugProvider } from "../../../debug/contracts/debug_provider.js";
+import type { DebugProvider } from "../../../core/protocol/debug.js";
 import type { TopicScriptRuntimeService } from "./runtime.js";
 
 export function createTopicScriptDebugProvider(service: TopicScriptRuntimeService): DebugProvider {

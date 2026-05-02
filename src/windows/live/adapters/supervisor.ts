@@ -1,5 +1,5 @@
 // === Imports ===
-import type { StelleEventBus } from "../../../utils/event_bus.js";
+import type { StelleEventBus } from "../../../core/event/event_bus.js";
 import type { LivePlatformBridge } from "./types.js";
 
 // === Types ===

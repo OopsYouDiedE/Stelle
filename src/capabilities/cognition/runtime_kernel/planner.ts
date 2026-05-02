@@ -2,7 +2,10 @@ import type { Intent } from "../../../core/protocol/intent.js";
 import type { PerceptualEvent } from "../../../core/protocol/perceptual_event.js";
 import { eventText, isHighPriority } from "./event_features.js";
 
-export class DefaultKernelPlanner {
+/**
+ * DemoKernelPlanner is intentionally simple. Keep production cognition in a replaceable pipeline.
+ */
+export class DemoKernelPlanner {
   async plan(event: PerceptualEvent): Promise<Intent[]> {
     const text = eventText(event);
     const now = Date.now();

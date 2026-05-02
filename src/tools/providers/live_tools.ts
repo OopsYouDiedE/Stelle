@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { LiveRuntime } from "../../utils/live.js";
+import type { LiveRuntime } from "../../windows/stage/bridge/live_runtime.js";
 import { ok, sideEffects } from "../types.js";
 import type { ToolDefinition } from "../types.js";
 import type { ToolRegistryDeps } from "./deps.js";

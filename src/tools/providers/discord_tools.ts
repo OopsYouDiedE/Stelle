@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { DiscordRuntime } from "../../utils/discord.js";
+import type { DiscordRuntime } from "../../windows/discord/runtime.js";
 import { sanitizeExternalText } from "../../utils/text.js";
 import { ok, sideEffects } from "../types.js";
 import type { ToolDefinition } from "../types.js";

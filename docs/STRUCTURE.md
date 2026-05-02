@@ -25,13 +25,13 @@
 | Path                | Role                                                                                       |
 | ------------------- | ------------------------------------------------------------------------------------------ |
 | `src/start.ts`      | CLI 入口，选择 `runtime`、`discord`、`live` 模式。                                         |
-| `src/core/`         | 通用协议、Component registry/loader、DataPlane、watchdog、安全原语。                       |
+| `src/core/`         | 通用协议、EventBus/EventSchema、Component registry/loader、DataPlane、watchdog、安全原语。 |
 | `src/runtime/`      | RuntimeHost、模式选择和 bootstrap service 注册。                                           |
 | `src/capabilities/` | 可复用能力：RuntimeKernel、stage output、memory、reflection、program、perception、action。 |
-| `src/windows/`      | 平台/场景组合层：live、discord、browser、desktop input、renderer bridge 和 adapters。      |
-| `src/debug/`        | Debug server shell、认证、命令风险规则、DebugProvider contract。                           |
+| `src/windows/`      | 平台/场景组合层：live、discord、browser、desktop input、stage bridge 和 adapters。         |
+| `src/debug/`        | Debug server shell、认证和命令风险规则；DebugProvider contract 从 Core re-export。         |
 | `src/tools/`        | ToolRegistry、工具 schema、安全策略和按域拆分的默认工具 provider。                         |
-| `src/utils/`        | EventBus、事件 schema、平台 runtime、JSON/text/TTS/live helpers。                          |
+| `src/utils/`        | 兼容 re-export、JSON/text/TTS helpers；新代码不要从这里拿 EventBus 或 platform runtime。   |
 
 ## Live Renderer
 
@@ -72,6 +72,9 @@ memory/
 ├── live/
 │   ├── recent.jsonl
 │   └── history.md
+├── program/
+│   ├── public_room_memory.jsonl
+│   └── world_canon.json
 └── long_term/
     ├── observations/
     ├── user_facts/

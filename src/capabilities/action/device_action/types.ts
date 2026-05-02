@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { StelleEventBus } from "../../../utils/event_bus.js";
+import type { StelleEventBus } from "../../../core/event/event_bus.js";
 
 export type DeviceResourceKind = "browser" | "desktop_input" | "android_device";
 

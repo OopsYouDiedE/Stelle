@@ -42,7 +42,7 @@ export const stageOutputCapability: ComponentPackage = {
       eventBus: ctx.events as never,
       now: () => Date.now(),
       debugEnabled: Boolean(config.debug?.enabled),
-      maxQueueLength: config.live?.speechQueueLimit || 5,
+      maxQueueLength: config.expression?.stageOutput?.speechQueueLimit ?? config.live?.speechQueueLimit ?? 5,
     });
 
     ctx.registry.provideForPackage?.(stageOutputCapability.id, "expression.stage_output", arbiter) ??

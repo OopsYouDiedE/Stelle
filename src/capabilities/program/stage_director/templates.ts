@@ -27,8 +27,8 @@ export const PROGRAM_TEMPLATES: ProgramTemplate[] = [
     excludedTopics: COMMON_EXCLUDED,
   },
   {
-    id: "danmaku_court",
-    title: "弹幕法庭",
+    id: "audience_court",
+    title: "输入法庭",
     mode: "court",
     safeTopicKinds: ["AI 边界", "直播规则", "虚拟主播伦理", "节目设定"],
     phaseFlow: ["opening", "sampling", "debating", "summarizing", "closing"],

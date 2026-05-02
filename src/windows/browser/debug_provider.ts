@@ -1,4 +1,4 @@
-import type { DebugProvider } from "../../debug/contracts/debug_provider.js";
+import type { DebugProvider } from "../../core/protocol/debug.js";
 import type { BrowserWindow } from "./browser_window.js";
 
 export function createBrowserWindowDebugProvider(window: BrowserWindow): DebugProvider {

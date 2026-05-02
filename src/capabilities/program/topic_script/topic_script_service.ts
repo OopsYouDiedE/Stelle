@@ -133,8 +133,8 @@ function buildFallbackDraft(input: TopicScriptGenerationInput, now: number): Top
       goal: phase === "opening" ? "抛出主题并邀请观众表态。" : `推进 ${phase} 阶段并保持可打断。`,
       host_script:
         index === 0
-          ? `今天我们聊「${title}」。我会先抛问题，再根据弹幕分几类观点。`
-          : `我们进入${phase}阶段，先把刚才的弹幕整理成可以继续讨论的问题。`,
+          ? `今天我们聊「${title}」。我会先抛问题，再根据大家的输入分几类观点。`
+          : `我们进入${phase}阶段，先把刚才的输入整理成可以继续讨论的问题。`,
       discussion_points: [`围绕${title}保持节目主线`, "优先回应明确问题", "避免高风险和个人隐私细节"],
       question_prompts: [currentQuestion],
       interaction_triggers: ["出现明确问题时先回答，再回到当前段落"],

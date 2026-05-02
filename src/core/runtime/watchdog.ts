@@ -1,4 +1,4 @@
-import type { StelleEventBus as EventBus } from "../../utils/event_bus.js";
+import type { StelleEventBus as EventBus } from "../../core/event/event_bus.js";
 
 export interface PackageHealth {
   packageId: string;

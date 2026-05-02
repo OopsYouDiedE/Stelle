@@ -1,4 +1,4 @@
-import type { StelleEventBus } from "../../../utils/event_bus.js";
+import type { StelleEventBus } from "../../../core/event/event_bus.js";
 
 /**
  * Base interface for all actuator intents.

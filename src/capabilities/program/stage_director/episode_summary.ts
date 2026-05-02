@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { StelleEvent } from "../../../utils/event_schema.js";
+import type { StelleEvent } from "../../../core/event/event_schema.js";
 import { classifyText } from "./orchestrator.js";
 import { PublicRoomMemoryStore } from "./public_memory.js";
 
@@ -11,7 +11,7 @@ export interface EpisodeSummary {
   generatedAt: number;
   topic: string;
   eventCount: number;
-  danmakuCount: number;
+  interactionCount: number;
   clusterCounts: Record<string, number>;
   conclusions: string[];
   nextHook: string;
@@ -53,7 +53,7 @@ export async function generateEpisodeSummary(options: {
 
 export function summarizeRecords(records: EpisodeJournalRecord[], sessionId: string): EpisodeSummary {
   const clusterCounts: Record<string, number> = {};
-  let danmakuCount = 0;
+  let interactionCount = 0;
   for (const { event } of records) {
     if (String(event.type) !== "perceptual.event" && String(event.type) !== "text.message") continue;
     const payload = (event as { payload?: unknown }).payload as
@@ -65,19 +65,19 @@ export function summarizeRecords(records: EpisodeJournalRecord[], sessionId: str
     if (kind !== "text" && kind !== "super_chat") continue;
     const label = classifyText(String(inner.text ?? ""));
     clusterCounts[label] = (clusterCounts[label] ?? 0) + 1;
-    danmakuCount += 1;
+    interactionCount += 1;
   }
   const top = Object.entries(clusterCounts).sort((a, b) => b[1] - a[1])[0];
   const conclusions = [
-    top ? `本场讨论最集中在“${top[0]}”，共有 ${top[1]} 条相关输入。` : "本场没有足够弹幕形成观点分布。",
-    danmakuCount > 0 ? `共采样 ${danmakuCount} 条讨论型弹幕。` : "本场讨论样本较少，适合下次继续收集。",
+    top ? `本场讨论最集中在“${top[0]}”，共有 ${top[1]} 条相关输入。` : "本场没有足够输入形成观点分布。",
+    interactionCount > 0 ? `共采样 ${interactionCount} 条讨论型输入。` : "本场讨论样本较少，适合下次继续收集。",
   ];
   return {
     sessionId,
     generatedAt: Date.now(),
     topic: "AI 主播应不应该记住观众？",
     eventCount: records.length,
-    danmakuCount,
+    interactionCount,
     clusterCounts,
     conclusions,
     nextHook: top ? `下次可以继续追问“${top[0]}”背后的边界。` : "下次可以从一个更明确的问题开始。",

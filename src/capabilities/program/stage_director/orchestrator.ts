@@ -60,7 +60,7 @@ export class TopicOrchestrator {
 
   // === Event Ingestion ===
 
-  ingestLivePayload(payload: Record<string, unknown>): ReturnType<TopicOrchestrator["ingestEvent"]> {
+  ingestInteractionPayload(payload: Record<string, unknown>): ReturnType<TopicOrchestrator["ingestEvent"]> {
     const event = normalizeProgramInput(payload);
     return this.ingestEvent(event);
   }
@@ -288,7 +288,7 @@ function buildConclusions(clusters: ChatCluster[], questions: string[]): string[
   const conclusions: string[] = [];
   const top = [...clusters].sort((a, b) => b.count - a.count)[0];
   if (top) {
-    conclusions.push(`弹幕目前最集中在“${clusterTitle(top.label)}”，已有 ${top.count} 条相关输入。`);
+    conclusions.push(`大家的输入目前最集中在“${clusterTitle(top.label)}”，已有 ${top.count} 条相关输入。`);
   }
 
   if (clusters.some((c) => c.label === "opinion")) {

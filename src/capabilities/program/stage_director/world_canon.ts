@@ -3,7 +3,7 @@ import path from "node:path";
 import { sanitizeExternalText, truncateText } from "../../../utils/text.js";
 
 export type WorldCanonStatus = "proposed" | "confirmed" | "rejected" | "archived";
-export type WorldCanonSource = "manual" | "episode_summary" | "poll_result" | "danmaku_proposal";
+export type WorldCanonSource = "manual" | "episode_summary" | "poll_result" | "audience_proposal";
 
 export interface WorldCanonEntry {
   id: string;
@@ -18,7 +18,7 @@ export interface WorldCanonEntry {
 }
 
 export class WorldCanonStore {
-  constructor(private readonly filePath = path.resolve("memory/live/world_canon.json")) {}
+  constructor(private readonly filePath = path.resolve("memory/program/world_canon.json")) {}
 
   async propose(input: {
     title: string;
@@ -26,7 +26,7 @@ export class WorldCanonStore {
     source?: WorldCanonSource;
     conflictNote?: string;
   }): Promise<WorldCanonEntry> {
-    return this.add({ ...input, status: "proposed", source: input.source ?? "danmaku_proposal" });
+    return this.add({ ...input, status: "proposed", source: input.source ?? "audience_proposal" });
   }
 
   async add(input: {
@@ -36,8 +36,8 @@ export class WorldCanonStore {
     source: WorldCanonSource;
     conflictNote?: string;
   }): Promise<WorldCanonEntry> {
-    if (input.source === "danmaku_proposal" && input.status === "confirmed") {
-      throw new Error("Danmaku proposals cannot directly create confirmed canon.");
+    if (input.source === "audience_proposal" && input.status === "confirmed") {
+      throw new Error("Audience proposals cannot directly create confirmed canon.");
     }
     const entries = await this.list(1000);
     const now = Date.now();
