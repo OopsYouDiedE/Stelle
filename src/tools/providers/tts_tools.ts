@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { getConfiguredTtsProviderName, type StreamingTtsProvider } from "../../utils/tts.js";
+import { getConfiguredTtsProviderName, type StreamingTtsProvider } from "../../capabilities/expression/speech_output/tts_provider.js";
 import { ok, sideEffects } from "../types.js";
 import type { ToolDefinition } from "../types.js";
 

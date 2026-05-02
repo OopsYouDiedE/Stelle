@@ -1,4 +1,4 @@
-import type { StelleEventBus } from "../../../utils/event_bus.js";
+import type { StelleEventBus } from "../../../core/event/event_bus.js";
 import { ViewerProfileStore, type ViewerInteractionEvent } from "./viewer_profile_store.js";
 
 export class LiveRelationshipService {

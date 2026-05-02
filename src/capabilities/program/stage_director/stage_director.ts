@@ -1,12 +1,12 @@
 // === Imports ===
 import type { RuntimeConfig } from "../../../config/index.js";
-import type { StelleEventBus } from "../../../utils/event_bus.js";
+import type { StelleEventBus } from "../../../core/event/event_bus.js";
 import { TopicOrchestrator } from "./orchestrator.js";
 import { PublicRoomMemoryStore, type PublicRoomMemory } from "./public_memory.js";
 import { WorldCanonStore, type WorldCanonEntry } from "./world_canon.js";
 import { PromptLabService, type PromptLabExperiment } from "./prompt_lab.js";
 import type { ProgramWidgetState, TopicOrchestratorOptions, TopicPhase, TopicState } from "./types.js";
-import { sanitizeExternalText, truncateText } from "../../../utils/text.js";
+import { sanitizeExternalText, truncateText } from "../../../shared/text.js";
 import type { OutputIntent } from "../../expression/stage_output/types.js";
 
 // === Interfaces ===
@@ -73,11 +73,11 @@ export class StageDirector {
     void this.refreshPublicMemories();
     void this.refreshWorldCanon();
 
-    // 1. Listen to live events for both engagement and program tracking
+    // 1. Listen to platform-neutral interactions for engagement and program tracking
     this.unsubscribes.push(
       this.deps.eventBus.subscribe("program.interaction.received", (event) => {
         this.lastActivityAt = this.deps.now();
-        this.ingestProgramPayload(asRecord(event.payload));
+        this.ingestInteractionPayload(asRecord(event.payload));
       }),
     );
 
@@ -154,8 +154,8 @@ export class StageDirector {
 
   // === Engagement Logic ===
 
-  public ingestProgramPayload(payload: Record<string, unknown>): void {
-    const res = this.orchestrator.ingestLivePayload(payload);
+  public ingestInteractionPayload(payload: Record<string, unknown>): void {
+    const res = this.orchestrator.ingestInteractionPayload(payload);
     if (res.updated) {
       this.publishProgramUpdate("program_interaction");
       void this.maybeHost("program_interaction");
@@ -196,13 +196,14 @@ export class StageDirector {
 
   private async handleEngagementEvent(payload: Record<string, unknown>): Promise<void> {
     const event = normalizeProgramEvent(payload);
-    if (!this.deps.config.live.thanks.enabled) return;
+    const thanks = this.stageDirectorConfig().thanks;
+    if (!thanks.enabled) return;
 
     const text = this.thanksText(event);
     if (!text) return;
 
     const key = `${event.kind}:${event.user?.id ?? event.user?.name ?? "unknown"}:${event.trustedPayment?.giftName ?? ""}`;
-    const cooldownMs = this.deps.config.live.thanks.cooldownSeconds * 1000;
+    const cooldownMs = thanks.cooldownSeconds * 1000;
     const lastAt = this.lastThanksAt.get(key) ?? 0;
     if (this.deps.now() - lastAt < cooldownMs) return;
     this.lastThanksAt.set(key, this.deps.now());
@@ -223,7 +224,7 @@ export class StageDirector {
     const now = this.deps.now();
 
     // Idle logic
-    const idle = this.deps.config.live.idle;
+    const idle = this.stageDirectorConfig().idle;
     if (idle.enabled && idle.templates.length > 0) {
       if (
         now - this.lastActivityAt >= idle.minQuietSeconds * 1000 &&
@@ -246,7 +247,7 @@ export class StageDirector {
     // Schedule logic
     // These scheduled proposals intentionally stay advisory; the cursor decides whether
     // to surface them, rewrite them, or drop them against the current chat flow.
-    const schedule = this.deps.config.live.schedule;
+    const schedule = this.stageDirectorConfig().schedule;
     if (schedule.enabled) {
       for (const item of schedule.items) {
         if (!item.enabled || item.templates.length === 0) continue;
@@ -271,7 +272,7 @@ export class StageDirector {
   }
 
   private thanksText(event: ProgramInteractionEvent): string | undefined {
-    const thanks = this.deps.config.live.thanks;
+    const thanks = this.stageDirectorConfig().thanks;
     const amount = event.trustedPayment?.amount ?? 0;
     if ((event.kind === "gift" || event.kind === "super_chat") && amount < thanks.giftLowestAmount) return undefined;
 
@@ -319,7 +320,7 @@ export class StageDirector {
     if (topic.phase !== this.lastHostedPhase && (topic.phase === "clustering" || topic.phase === "summarizing")) {
       text =
         topic.phase === "clustering"
-          ? `我先把弹幕分一下类：现在主要集中在${
+          ? `我先把当前输入分一下类：现在主要集中在${
               topic.clusters
                 .slice(0, 3)
                 .map((item) => clusterTitle(item.label))
@@ -381,7 +382,7 @@ export class StageDirector {
   }
 
   async proposeWorldCanon(input: { title: string; summary: string; conflictNote?: string }): Promise<WorldCanonEntry> {
-    const entry = await this.canonStore().propose({ ...input, source: "danmaku_proposal" });
+    const entry = await this.canonStore().propose({ ...input, source: "audience_proposal" });
     await this.refreshWorldCanon();
     this.publishProgramUpdate("world_canon");
     return entry;
@@ -451,6 +452,10 @@ export class StageDirector {
   private promptLabService(): PromptLabService {
     if (!this.deps.promptLab) this.deps.promptLab = new PromptLabService();
     return this.deps.promptLab;
+  }
+
+  private stageDirectorConfig() {
+    return this.deps.config.program?.stageDirector ?? this.deps.config.live;
   }
 }
 

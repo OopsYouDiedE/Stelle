@@ -2,7 +2,10 @@ import type { PerceptualEvent } from "../../../core/protocol/perceptual_event.js
 import type { AttentionResult } from "./pipeline.js";
 import { eventText, isHighPriority } from "./event_features.js";
 
-export class DefaultAttentionPolicy {
+/**
+ * DefaultRuleAttentionPolicy is a small demo/rule policy, not the production cognition layer.
+ */
+export class DefaultRuleAttentionPolicy {
   async evaluate(event: PerceptualEvent): Promise<AttentionResult> {
     const text = eventText(event);
     if (Array.isArray((event.payload as { messages?: unknown[] })?.messages)) {

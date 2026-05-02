@@ -1,4 +1,4 @@
-﻿import { createConfiguredTtsProvider } from "../utils/tts.js";
+import { createConfiguredTtsProvider } from "../capabilities/expression/speech_output/tts_provider.js";
 import { ToolRegistry } from "./registry.js";
 import {
   createCoreTools,

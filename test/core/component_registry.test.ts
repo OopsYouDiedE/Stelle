@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { ComponentRegistry } from "../../src/core/runtime/component_registry.js";
 import { ComponentLoader } from "../../src/core/runtime/component_loader.js";
-import { StelleEventBus } from "../../src/utils/event_bus.js";
+import { StelleEventBus } from "../../src/core/event/event_bus.js";
 import type { ComponentPackage } from "../../src/core/protocol/component.js";
 
 describe("Component System", () => {

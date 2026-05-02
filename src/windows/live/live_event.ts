@@ -3,9 +3,27 @@
  */
 
 // === Imports ===
-import { asRecord, enumValue } from "./json.js";
-import { sanitizeExternalText, truncateText } from "./text.js";
-import type { LiveEventMetadata } from "./intent_schema.js";
+import { z } from "zod";
+import { asRecord, enumValue } from "../../shared/json.js";
+import { sanitizeExternalText, truncateText } from "../../shared/text.js";
+
+/** 意图分类（原 intent_schema.ts 内联到此处） */
+export const LiveEventIntentSchema = z.enum([
+  "greeting",
+  "test_connection",
+  "question",
+  "feedback",
+  "command",
+  "unknown",
+]);
+export type LiveEventIntent = z.infer<typeof LiveEventIntentSchema>;
+
+export interface LiveEventMetadata {
+  intent?: LiveEventIntent;
+  confidence?: number;
+  entities?: string[];
+  [key: string]: unknown;
+}
 
 // === Types & Interfaces ===
 export type LiveEventSource = "bilibili" | "twitch" | "youtube" | "tiktok" | "fixture" | "debug";

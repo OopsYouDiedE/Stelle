@@ -38,7 +38,7 @@ Shutdown stops packages in reverse order, then releases platform runtimes.
 
 ## Event Protocol
 
-Cross-domain messages use a generic event envelope in `src/utils/event_schema.ts`.
+Cross-domain messages use a generic event envelope in `src/core/event/event_schema.ts`.
 The EventBus validates only the envelope and payload size; package-owned payloads are validated by the producing or
 consuming package.
 

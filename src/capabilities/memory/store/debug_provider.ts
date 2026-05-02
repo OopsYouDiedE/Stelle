@@ -1,4 +1,4 @@
-import type { DebugProvider } from "../../../debug/contracts/debug_provider.js";
+import type { DebugProvider } from "../../../core/protocol/debug.js";
 import type { MemoryStore } from "./memory_store.js";
 
 export function createMemoryStoreDebugProvider(store: MemoryStore): DebugProvider {

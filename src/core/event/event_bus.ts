@@ -1,7 +1,7 @@
 // === Imports ===
 import { EventEmitter } from "node:events";
 import { StelleEventSchema, type StelleEvent, type StelleEventType } from "./event_schema.js";
-import type { BackpressureStatus, QueueOverflowPolicy } from "../core/protocol/backpressure.js";
+import type { BackpressureStatus, QueueOverflowPolicy } from "../protocol/backpressure.js";
 
 // === Core Logic ===
 

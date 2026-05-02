@@ -2,7 +2,7 @@ import { exec } from "node:child_process";
 import { mkdir, readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
-import { safeErrorMessage } from "../../utils/json.js";
+import { safeErrorMessage } from "../../shared/json.js";
 import { ok, fail, sideEffects } from "../types.js";
 import type { ToolDefinition, ToolResult } from "../types.js";
 import { atomicWrite, workspacePath } from "./workspace.js";

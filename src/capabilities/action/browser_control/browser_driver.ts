@@ -1,5 +1,5 @@
 import type { DeviceActionDriver, DeviceActionIntent, DeviceActionResult } from "../device_action/types.js";
-import { asNumber, asRecord, asString, asStringArray, safeErrorMessage } from "../../../utils/json.js";
+import { asNumber, asRecord, asString, asStringArray, safeErrorMessage } from "../../../shared/json.js";
 
 interface CdpTarget {
   id?: string;

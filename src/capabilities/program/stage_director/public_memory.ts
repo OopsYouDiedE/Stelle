@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { sanitizeExternalText, truncateText } from "../../../utils/text.js";
+import { sanitizeExternalText, truncateText } from "../../../shared/text.js";
 
 export type PublicRoomMemorySource = "episode_summary" | "manual" | "poll_result" | "canon_update";
 
@@ -14,7 +14,7 @@ export interface PublicRoomMemory {
 }
 
 export class PublicRoomMemoryStore {
-  constructor(private readonly filePath = path.resolve("memory/live/public_room_memory.jsonl")) {}
+  constructor(private readonly filePath = path.resolve("memory/program/public_room_memory.jsonl")) {}
 
   async append(
     input: Omit<PublicRoomMemory, "id" | "createdAt" | "sensitivity"> & {

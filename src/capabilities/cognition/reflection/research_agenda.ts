@@ -5,7 +5,7 @@ import type {
   SelfModelSnapshot,
   ResearchEvidence,
 } from "./types.js";
-import { truncateText } from "../../../utils/text.js";
+import { truncateText } from "../../../shared/text.js";
 import { SemanticClusterService } from "../../memory/store/semantic.js";
 
 // === Region: Constants ===

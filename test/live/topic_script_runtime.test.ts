@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { OutputIntent } from "../../src/capabilities/expression/stage_output/types.js";
-import { StelleEventBus } from "../../src/utils/event_bus.js";
+import { StelleEventBus } from "../../src/core/event/event_bus.js";
 import { TopicScriptRepository } from "../../src/capabilities/program/topic_script/repository.js";
 import { TopicScriptService } from "../../src/capabilities/program/topic_script/topic_script_service.js";
 import { TopicScriptRuntimeService } from "../../src/capabilities/program/topic_script/runtime.js";

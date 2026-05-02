@@ -1,5 +1,5 @@
-﻿import { z } from "zod";
-import { safeErrorMessage } from "../utils/json.js";
+import { z } from "zod";
+import { safeErrorMessage } from "../shared/json.js";
 import { fail } from "./types.js";
 import type { ToolContext, ToolDefinition, ToolAuditRecord, ToolResult } from "./types.js";
 

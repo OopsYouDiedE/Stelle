@@ -1,5 +1,5 @@
 // === Imports ===
-import type { NormalizedLiveEvent } from "../../../utils/live_event.js";
+import type { NormalizedLiveEvent } from "../live_event.js";
 import type { LivePlatformBridge, LivePlatformEventHandler, LivePlatformStatus } from "./types.js";
 import { liveEventId } from "./types.js";
 

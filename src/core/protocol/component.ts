@@ -1,4 +1,4 @@
-import type { DebugProvider } from "../../debug/contracts/debug_provider.js";
+import type { DebugProvider } from "./debug.js";
 import type { DataRefKind, ResourceRef, StreamRef } from "./data_ref.js";
 import type { PackageBackpressurePolicy } from "./backpressure.js";
 

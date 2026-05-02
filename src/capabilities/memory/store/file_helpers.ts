@@ -1,5 +1,5 @@
 import { rename, writeFile } from "node:fs/promises";
-import { sanitizeExternalText } from "../../../utils/text.js";
+import { sanitizeExternalText } from "../../../shared/text.js";
 import type { MemoryProposal, MemoryScope } from "./types.js";
 
 export function safeSegment(value: string): string {

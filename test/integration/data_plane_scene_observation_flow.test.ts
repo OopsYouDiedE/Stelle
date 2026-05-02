@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { DataPlane } from "../../src/core/runtime/data_plane.js";
-import { StelleEventBus } from "../../src/utils/event_bus.js";
+import { StelleEventBus } from "../../src/core/event/event_bus.js";
 import { SceneObservationCapability } from "../../src/capabilities/perception/scene_observation/observer.js";
 import { RuntimeKernel } from "../../src/capabilities/cognition/runtime_kernel/kernel.js";
 

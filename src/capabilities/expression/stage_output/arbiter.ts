@@ -9,7 +9,7 @@ import type {
   StageOutputRecord,
   StageOutputState,
 } from "./types.js";
-import { moderateLiveOutputText } from "../../../utils/live_event.js";
+import { moderateText } from "../../perception/text_ingress/text_moderation.js";
 import { BaseArbiter } from "./base_arbiter.js";
 
 // === Main Class ===
@@ -56,7 +56,7 @@ export class StageOutputArbiter extends BaseArbiter<OutputIntent, StageOutputDec
     }
 
     // 2. Moderation
-    const moderation = moderateLiveOutputText(input.text);
+    const moderation = moderateText(input.text);
     if (!moderation.allowed && input.lane !== "emergency") {
       this.deps.eventBus?.publish({
         type: "live.moderation.decision" as any,

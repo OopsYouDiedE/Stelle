@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { ComponentRegistry } from "../../src/core/runtime/component_registry.js";
 import { ComponentLoader } from "../../src/core/runtime/component_loader.js";
-import { StelleEventBus } from "../../src/utils/event_bus.js";
+import { StelleEventBus } from "../../src/core/event/event_bus.js";
 import { runtimeKernelCapability } from "../../src/capabilities/cognition/runtime_kernel/package.js";
 import { stageOutputCapability } from "../../src/capabilities/expression/stage_output/package.js";
 import { liveWindowPackage } from "../../src/windows/live/package.js";

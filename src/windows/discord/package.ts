@@ -3,7 +3,7 @@ import type {
   ComponentRegisterContext,
   ComponentRuntimeContext,
 } from "../../core/protocol/component.js";
-import { DiscordRuntime } from "../../utils/discord.js";
+import { DiscordRuntime } from "../../windows/discord/runtime.js";
 import type { RuntimeConfig } from "../../config/index.js";
 import { DiscordWindow } from "./discord_window.js";
 import { createDiscordWindowDebugProvider } from "./debug_provider.js";

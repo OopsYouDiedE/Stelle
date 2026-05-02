@@ -1,6 +1,6 @@
 import type { LlmClient } from "../../model/llm.js";
-import { moderateLiveOutputText } from "../../../utils/live_event.js";
-import { sanitizeExternalText, truncateText } from "../../../utils/text.js";
+import { moderateText } from "../../perception/text_ingress/text_moderation.js";
+import { sanitizeExternalText, truncateText } from "../../../shared/text.js";
 
 // === Types ===
 
@@ -37,7 +37,7 @@ export class PromptLabService {
 
   async run(question: string, variants = DEFAULT_VARIANTS): Promise<PromptLabExperiment> {
     const cleanQuestion = truncateText(sanitizeExternalText(question), 240);
-    const moderation = moderateLiveOutputText(cleanQuestion);
+    const moderation = moderateText(cleanQuestion);
     if (!moderation.allowed) throw new Error(`Prompt lab rejected unsafe input: ${moderation.reason}`);
 
     const selectedVariants = variants.slice(0, 4);
@@ -71,7 +71,7 @@ export class PromptLabService {
       return truncateText(`${style} 回答：我会先把问题拆小，再给一个可执行的下一步。`, 180);
     }
     const prompt = [
-      "You are running a sandboxed live Prompt Lab experiment.",
+      "You are running a sandboxed program Prompt Lab experiment.",
       "Do not update Stelle's identity, memory, system prompt, or operating rules.",
       "Return one short Simplified Chinese answer only.",
       `Style: ${style}`,

@@ -8,7 +8,7 @@
 - `src/runtime/host.ts`：RuntimeHost，按模式选择并启动 `ComponentPackage`。
 - `src/core/protocol/*.ts`：Core contract，包括 package、event、intent、execution、DataPlane refs。
 - `src/core/runtime/*.ts`：Component registry/loader、DataPlane、Resource/Stream registry。
-- `src/utils/event_schema.ts`：只校验事件 envelope；payload schema 由 package 自己拥有。
+- `src/core/event/event_schema.ts`：只校验事件 envelope；payload schema 由 package 自己拥有。
 - `src/capabilities/cognition/runtime_kernel/*`：感知事件到 Intent 的 pipeline。
 
 ## Directory Responsibilities

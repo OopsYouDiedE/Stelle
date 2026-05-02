@@ -1,8 +1,8 @@
 // === Imports ===
 import type { RuntimeConfig } from "../../../config/index.js";
 import type { PerceptualEvent } from "../../../core/protocol/perceptual_event.js";
-import type { StelleEventBus } from "../../../utils/event_bus.js";
-import type { NormalizedLiveEvent } from "../../../utils/live_event.js";
+import type { StelleEventBus } from "../../../core/event/event_bus.js";
+import type { NormalizedLiveEvent } from "../live_event.js";
 import { TextEventDeduper } from "../../../capabilities/perception/text_ingress/text_event_deduper.js";
 import { applyTextEventIdentity } from "../../../capabilities/perception/text_ingress/text_event_identity.js";
 import { BilibiliPlatformBridge } from "./bilibili_adapter.js";

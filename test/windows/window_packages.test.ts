@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ComponentRegistry } from "../../src/core/runtime/component_registry.js";
 import { ComponentLoader } from "../../src/core/runtime/component_loader.js";
 import { DataPlane } from "../../src/core/runtime/data_plane.js";
-import { StelleEventBus } from "../../src/utils/event_bus.js";
+import { StelleEventBus } from "../../src/core/event/event_bus.js";
 import { liveWindowPackage } from "../../src/windows/live/package.js";
 import { discordWindowPackage } from "../../src/windows/discord/package.js";
 import { browserWindowPackage } from "../../src/windows/browser/package.js";

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { DebugServer } from "../../src/debug/server/debug_server.js";
 import { ComponentRegistry } from "../../src/core/runtime/component_registry.js";
-import type { DebugProvider } from "../../src/debug/contracts/debug_provider.js";
+import type { DebugProvider } from "../../src/core/protocol/debug.js";
 import { DebugSecurityPolicy } from "../../src/debug/server/debug_auth.js";
 import type { ComponentPackage } from "../../src/core/protocol/component.js";
 

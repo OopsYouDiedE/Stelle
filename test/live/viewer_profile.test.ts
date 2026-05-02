@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { ViewerProfileStore } from "../../src/capabilities/memory/viewer_profile/viewer_profile_store.js";
-import type { NormalizedLiveEvent } from "../../src/utils/live_event.js";
+import type { NormalizedLiveEvent } from "../../src/windows/live/live_event.js";
 
 describe("ViewerProfileStore", () => {
   it("updates, summarizes, and deletes lightweight viewer profiles", async () => {

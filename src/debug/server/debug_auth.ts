@@ -1,4 +1,4 @@
-import type { DebugCommandDefinition } from "../contracts/debug_provider.js";
+import type { DebugCommandDefinition } from "../../core/protocol/debug.js";
 
 export interface DebugAuditEntry {
   timestamp: number;

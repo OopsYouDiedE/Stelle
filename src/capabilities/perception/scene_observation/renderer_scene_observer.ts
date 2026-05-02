@@ -1,4 +1,4 @@
-import { truncateText } from "../../../utils/text.js";
+import { truncateText } from "../../../shared/text.js";
 
 export interface SceneObservationConfig {
   enabled: boolean;

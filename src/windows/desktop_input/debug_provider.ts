@@ -1,4 +1,4 @@
-import type { DebugProvider } from "../../debug/contracts/debug_provider.js";
+import type { DebugProvider } from "../../core/protocol/debug.js";
 import type { DesktopInputWindow } from "./desktop_input_window.js";
 
 export function createDesktopInputWindowDebugProvider(window: DesktopInputWindow): DebugProvider {

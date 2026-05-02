@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { RuntimeHost } from "../../src/runtime/host.js";
-import { DiscordRuntime } from "../../src/utils/discord.js";
+import { DiscordRuntime } from "../../src/windows/discord/runtime.js";
 
 vi.mock("../../src/windows/stage/renderer/renderer_server.js", () => ({
   LiveRendererServer: class {

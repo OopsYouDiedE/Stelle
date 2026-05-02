@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ObsWebSocketController } from "../../src/utils/live.js";
+import { ObsWebSocketController } from "../../src/windows/stage/bridge/live_runtime.js";
 
 describe("ObsWebSocketController", () => {
   afterEach(() => {

@@ -1,4 +1,4 @@
-import { fetchLiveTtsAudio, normalizeTtsProvider, type TtsProviderName } from "../../../utils/tts.js";
+import { fetchLiveTtsAudio, normalizeTtsProvider, type TtsProviderName } from "../../../capabilities/expression/speech_output/tts_provider.js";
 
 export interface RendererTtsEntry {
   provider: TtsProviderName;

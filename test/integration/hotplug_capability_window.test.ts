@@ -3,7 +3,7 @@ import { ComponentLoader } from "../../src/core/runtime/component_loader.js";
 import { ComponentRegistry } from "../../src/core/runtime/component_registry.js";
 import { DataPlane } from "../../src/core/runtime/data_plane.js";
 import type { ComponentPackage } from "../../src/core/protocol/component.js";
-import { StelleEventBus } from "../../src/utils/event_bus.js";
+import { StelleEventBus } from "../../src/core/event/event_bus.js";
 
 describe("Hotplug capability/window lifecycle", () => {
   it("rejects dependent unloads and restores transferable state on reload", async () => {

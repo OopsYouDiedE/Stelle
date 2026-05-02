@@ -1,7 +1,7 @@
 // === Imports ===
-import { BilibiliDanmakuClient, type BilibiliCommand } from "../../../utils/bilibili_danmaku.js";
-import { asRecord } from "../../../utils/json.js";
-import type { NormalizedLiveEvent } from "../../../utils/live_event.js";
+import { BilibiliDanmakuClient, type BilibiliCommand } from "./bilibili_client.js";
+import { asRecord } from "../../../shared/json.js";
+import type { NormalizedLiveEvent } from "../live_event.js";
 import type { LivePlatformBridge, LivePlatformEventHandler, LivePlatformStatus } from "./types.js";
 import { liveEventId } from "./types.js";
 

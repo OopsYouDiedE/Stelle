@@ -4,7 +4,7 @@ import {
   type DropReason,
   type FlushReason,
 } from "../../src/capabilities/perception/text_ingress/text_batch_aggregator.js";
-import type { NormalizedLiveEvent } from "../../src/utils/live_event.js";
+import type { NormalizedLiveEvent } from "../../src/windows/live/live_event.js";
 
 describe("TextBatchAggregator", () => {
   let now = 0;

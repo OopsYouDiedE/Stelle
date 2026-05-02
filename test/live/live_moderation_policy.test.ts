@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { moderateLiveEvent, moderateLiveOutputText, type NormalizedLiveEvent } from "../../src/utils/live_event.js";
+import { moderateLiveEvent, moderateLiveOutputText, type NormalizedLiveEvent } from "../../src/windows/live/live_event.js";
 
 describe("LiveModerationPolicy", () => {
   it("classifies prompt injection and privacy input", () => {

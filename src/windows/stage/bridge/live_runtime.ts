@@ -4,10 +4,10 @@
 
 // === Imports ===
 import crypto from "node:crypto";
-import type { LiveRendererCommand, LiveRendererServer } from "../windows/stage/renderer/renderer_server.js";
-import { sanitizeExternalText } from "./text.js";
-import { buildLiveTtsRequest } from "./tts.js";
-import type { StelleEventBus } from "./event_bus.js";
+import type { LiveRendererCommand, LiveRendererServer } from "../renderer/renderer_server.js";
+import { sanitizeExternalText } from "../../../shared/text.js";
+import { buildLiveTtsRequest } from "../../../capabilities/expression/speech_output/tts_provider.js";
+import type { StelleEventBus } from "../../../core/event/event_bus.js";
 
 // === Types & Interfaces ===
 export type LiveMotionPriority = "idle" | "normal" | "force";

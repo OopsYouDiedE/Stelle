@@ -44,6 +44,24 @@ export interface LiveConfig {
   schedule: LiveScheduleConfig;
 }
 
+export interface ExpressionConfig {
+  stageOutput: StageOutputConfig;
+}
+
+export interface StageOutputConfig {
+  speechQueueLimit: number;
+}
+
+export interface ProgramConfig {
+  stageDirector: StageDirectorConfig;
+}
+
+export interface StageDirectorConfig {
+  thanks: LiveThanksConfig;
+  idle: LiveIdleConfig;
+  schedule: LiveScheduleConfig;
+}
+
 export interface LivePlatformsConfig {
   bilibili: { enabled: boolean; roomId?: string };
   twitch: { enabled: boolean; channel?: string; username?: string; oauthToken?: string; trackJoins?: boolean };
@@ -150,6 +168,8 @@ export interface RuntimeConfig {
   models: ModelConfig;
   discord: DiscordConfig;
   live: LiveConfig;
+  expression: ExpressionConfig;
+  program: ProgramConfig;
   browser: BrowserConfig;
   desktopInput: DesktopInputConfig;
   android: AndroidConfig;
@@ -169,6 +189,10 @@ export function loadRuntimeConfig(): RuntimeConfig {
   const discordCursor = mergeRecords(asRecord(cursors.discord), asRecord(cursors.discord_text_channel));
   const liveCursor = mergeRecords(asRecord(cursors.live), asRecord(cursors.live_danmaku));
   const liveRoot = mergeRecords(asRecord(rawYaml.live), liveCursor);
+  const expressionRoot = asRecord(rawYaml.expression);
+  const stageOutputRoot = asRecord(expressionRoot.stageOutput || expressionRoot.stage_output);
+  const programRoot = asRecord(rawYaml.program);
+  const stageDirectorRoot = asRecord(programRoot.stageDirector || programRoot.stage_director);
   const browserCursor = asRecord(cursors.browser);
   const desktopInputCursor = asRecord(cursors.desktop_input || cursors.desktopInput);
   const androidCursor = asRecord(cursors.android || cursors.android_device || cursors.androidDevice);
@@ -232,6 +256,33 @@ export function loadRuntimeConfig(): RuntimeConfig {
       thanks: loadLiveThanksConfig(liveRoot),
       idle: loadLiveIdleConfig(liveRoot),
       schedule: loadLiveScheduleConfig(liveRoot),
+    },
+    expression: {
+      stageOutput: {
+        speechQueueLimit: clamp(
+          process.env.STAGE_OUTPUT_QUEUE_LIMIT ?? stageOutputRoot.speechQueueLimit ?? liveCursor.speechQueueLimit,
+          1,
+          12,
+          3,
+        ),
+      },
+    },
+    program: {
+      stageDirector: {
+        thanks: loadLiveThanksConfig(
+          mergeRecords(liveRoot, {
+            thanks: mergeRecords(asRecord(liveRoot.thanks), asRecord(stageDirectorRoot.thanks)),
+          }),
+        ),
+        idle: loadLiveIdleConfig(
+          mergeRecords(liveRoot, { idle: mergeRecords(asRecord(liveRoot.idle), asRecord(stageDirectorRoot.idle)) }),
+        ),
+        schedule: loadLiveScheduleConfig(
+          mergeRecords(liveRoot, {
+            schedule: mergeRecords(asRecord(liveRoot.schedule), asRecord(stageDirectorRoot.schedule)),
+          }),
+        ),
+      },
     },
     browser: {
       enabled: browserCursor.enabled === true || process.env.BROWSER_ENABLED === "true",

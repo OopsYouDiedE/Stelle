@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import type { DeviceActionDriver, DeviceActionIntent, DeviceActionResult } from "../device_action/types.js";
-import { asNumber, asRecord, asString, safeErrorMessage } from "../../../utils/json.js";
+import { asNumber, asRecord, asString, safeErrorMessage } from "../../../shared/json.js";
 
 export class AndroidAdbDriver implements DeviceActionDriver {
   readonly resourceKind = "android_device" as const;

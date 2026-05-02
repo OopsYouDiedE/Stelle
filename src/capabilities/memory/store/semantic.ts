@@ -3,7 +3,7 @@
  */
 
 // === Imports ===
-import { asRecord } from "../../../utils/json.js";
+import { asRecord } from "../../../shared/json.js";
 
 export interface SemanticContext {
   llm: {

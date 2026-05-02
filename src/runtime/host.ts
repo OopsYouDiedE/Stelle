@@ -6,13 +6,13 @@ import { DataPlane } from "../core/runtime/data_plane.js";
 import type { ComponentPackage } from "../core/protocol/component.js";
 import { DebugSecurityPolicy } from "../debug/server/debug_auth.js";
 import { DebugServer } from "../debug/server/debug_server.js";
-import { StelleEventBus } from "../utils/event_bus.js";
-import { DiscordRuntime } from "../utils/discord.js";
-import { LiveRuntime, ObsWebSocketController } from "../utils/live.js";
+import { StelleEventBus } from "../core/event/event_bus.js";
+import { DiscordRuntime } from "../windows/discord/runtime.js";
+import { LiveRuntime, ObsWebSocketController } from "../windows/stage/bridge/live_runtime.js";
 import { LlmClient } from "../capabilities/model/llm.js";
 import { MemoryStore } from "../capabilities/memory/store/memory_store.js";
 import { SceneObserver } from "../capabilities/perception/scene_observation/renderer_scene_observer.js";
-import { createDefaultToolRegistry, type ToolRegistry } from "../tool.js";
+import { toolingCapability } from "../capabilities/tooling/package.js";
 import { memoryStoreCapability } from "../capabilities/memory/store/package.js";
 import { viewerProfileCapability } from "../capabilities/memory/viewer_profile/package.js";
 import { runtimeKernelCapability } from "../capabilities/cognition/runtime_kernel/package.js";
@@ -52,7 +52,6 @@ export class RuntimeHost {
   readonly llm: LlmClient;
   readonly memory: MemoryStore;
   readonly sceneObserver: SceneObserver;
-  readonly tools: ToolRegistry;
   private started = false;
   private loadedPackageIds: string[] = [];
 
@@ -70,14 +69,6 @@ export class RuntimeHost {
       llm: this.llm,
     });
     this.sceneObserver = new SceneObserver(this.config.sceneObservation);
-    this.tools = createDefaultToolRegistry({
-      discord: this.discord,
-      live: this.live,
-      memory: this.memory,
-      cwd: process.cwd(),
-      sceneObserver: this.sceneObserver,
-      eventBus: this.events,
-    });
 
     this.debugPolicy = new DebugSecurityPolicy({
       allowRemote: this.config.debug.enabled,
@@ -147,13 +138,21 @@ export class RuntimeHost {
     this.registry.provide("platform.live_runtime", this.live);
     this.registry.provide("memory.store", this.memory);
     this.registry.provide("model.llm", this.llm);
-    this.registry.provide("tools.registry", this.tools);
+    this.registry.provide("tools.bootstrap_deps", {
+      discord: this.discord,
+      live: this.live,
+      memory: this.memory,
+      cwd: process.cwd(),
+      sceneObserver: this.sceneObserver,
+      eventBus: this.events,
+    });
     this.registry.provide("perception.scene_renderer_observer", this.sceneObserver);
   }
 
   private selectPackages(): ComponentPackage[] {
     const packages: ComponentPackage[] = [
       memoryStoreCapability,
+      toolingCapability,
       viewerProfileCapability,
       runtimeKernelCapability,
       browserControlCapability,

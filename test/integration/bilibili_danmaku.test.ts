@@ -6,7 +6,7 @@ import {
   encodeBilibiliPacket,
   selectBilibiliWsUrl,
 } from "../../src/utils/bilibili_danmaku.js";
-import { normalizeLiveEvent } from "../../src/utils/live_event.js";
+import { normalizeLiveEvent } from "../../src/windows/live/live_event.js";
 
 describe("Bilibili danmaku protocol helpers", () => {
   it("decodes plain command packets", () => {

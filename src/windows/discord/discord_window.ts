@@ -1,8 +1,8 @@
 import type { PerceptualEvent } from "../../core/protocol/perceptual_event.js";
 import type { Intent } from "../../core/protocol/intent.js";
 import type { RuntimeConfig } from "../../config/index.js";
-import { DiscordRuntime, type DiscordMessageSummary } from "../../utils/discord.js";
-import type { StelleEventBus } from "../../utils/event_bus.js";
+import { DiscordRuntime, type DiscordMessageSummary } from "../../windows/discord/runtime.js";
+import type { StelleEventBus } from "../../core/event/event_bus.js";
 
 export interface DiscordWindowOptions {
   config: RuntimeConfig;

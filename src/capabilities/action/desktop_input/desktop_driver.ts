@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import type { DeviceActionDriver, DeviceActionIntent, DeviceActionResult } from "../device_action/types.js";
-import { asNumber, asRecord, asString, asStringArray, safeErrorMessage } from "../../../utils/json.js";
+import { asNumber, asRecord, asString, asStringArray, safeErrorMessage } from "../../../shared/json.js";
 
 export class DesktopInputDriver implements DeviceActionDriver {
   readonly resourceKind = "desktop_input" as const;

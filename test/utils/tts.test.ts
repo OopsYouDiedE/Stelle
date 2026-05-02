@@ -8,7 +8,7 @@ import {
   buildLiveTtsRequest,
   fetchLiveTtsAudio,
 } from "../../src/utils/tts.js";
-import { LiveRuntime, type LiveRendererBridge } from "../../src/utils/live.js";
+import { LiveRuntime, type LiveRendererBridge } from "../../src/windows/stage/bridge/live_runtime.js";
 
 const originalEnv = { ...process.env };
 const originalFetch = globalThis.fetch;

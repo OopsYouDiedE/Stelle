@@ -7,7 +7,7 @@ import type {
 } from "../../src/capabilities/cognition/runtime_kernel/pipeline.js";
 import { ComponentLoader } from "../../src/core/runtime/component_loader.js";
 import { ComponentRegistry } from "../../src/core/runtime/component_registry.js";
-import { StelleEventBus } from "../../src/utils/event_bus.js";
+import { StelleEventBus } from "../../src/core/event/event_bus.js";
 import { runtimeKernelCapability } from "../../src/capabilities/cognition/runtime_kernel/package.js";
 
 describe("RuntimeKernel Scenarios", () => {

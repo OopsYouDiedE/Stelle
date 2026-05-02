@@ -1,5 +1,5 @@
 // === Imports ===
-import { truncateText } from "../../../utils/text.js";
+import { truncateText } from "../../../shared/text.js";
 import type { OutputIntent, OutputLane } from "./types.js";
 
 // === Types & Constants ===

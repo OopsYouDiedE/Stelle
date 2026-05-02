@@ -1,4 +1,4 @@
-import type { DebugProvider, DebugCommandDefinition } from "../contracts/debug_provider.js";
+import type { DebugProvider, DebugCommandDefinition } from "../../core/protocol/debug.js";
 import type { ComponentRegistry } from "../../core/protocol/component.js";
 import type { DebugSecurityPolicy } from "./debug_auth.js";
 import type { BackpressureStatus } from "../../core/protocol/backpressure.js";

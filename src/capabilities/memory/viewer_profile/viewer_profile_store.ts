@@ -1,7 +1,7 @@
 // === Imports ===
 import { mkdir, readFile, rm, writeFile, rename } from "node:fs/promises";
 import path from "node:path";
-import { sanitizeExternalText, truncateText } from "../../../utils/text.js";
+import { sanitizeExternalText, truncateText } from "../../../shared/text.js";
 
 // === Types & Interfaces ===
 export type ViewerPlatform = string;

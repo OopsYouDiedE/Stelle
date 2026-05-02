@@ -96,7 +96,8 @@ npx vitest run test/brain/memory_rag.test.ts
 ## Common Failures
 
 - Type failures after moving files usually mean an import still points at an old boundary.
-- Event failures usually mean payload does not match `src/utils/event_schema.ts`.
+- Event failures usually mean the envelope does not match `src/core/event/event_schema.ts`, or a package rejected its
+  own payload contract.
 - Tool failures usually mean missing `allowedTools`, wrong authority tier, or bypassed ToolRegistry.
 - Live output failures usually mean code bypassed `StageOutputArbiter`.
 - Device action failures usually mean action allowlist or `DeviceActionArbiter` was bypassed.

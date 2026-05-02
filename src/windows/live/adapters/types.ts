@@ -1,4 +1,4 @@
-import type { NormalizedLiveEvent } from "../../../utils/live_event.js";
+import type { NormalizedLiveEvent } from "../live_event.js";
 
 export type LivePlatformName = "bilibili" | "twitch" | "youtube" | "tiktok";
 

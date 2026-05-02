@@ -4,8 +4,8 @@ import { LivePlatformManager } from "../../src/windows/live/adapters/manager.js"
 import { normalizeTikTokPayload } from "../../src/windows/live/adapters/tiktok_adapter.js";
 import { normalizeTwitchIrcLine } from "../../src/windows/live/adapters/twitch_adapter.js";
 import { normalizeYoutubeMessage } from "../../src/windows/live/adapters/youtube_adapter.js";
-import { StelleEventBus } from "../../src/utils/event_bus.js";
-import type { NormalizedLiveEvent } from "../../src/utils/live_event.js";
+import { StelleEventBus } from "../../src/core/event/event_bus.js";
+import type { NormalizedLiveEvent } from "../../src/windows/live/live_event.js";
 
 describe("live platform normalization", () => {
   it("normalizes Twitch IRC PRIVMSG tags", () => {

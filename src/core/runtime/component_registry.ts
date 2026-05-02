@@ -1,5 +1,5 @@
 import type { ComponentPackage, ComponentRegistry as IComponentRegistry } from "../protocol/component.js";
-import type { DebugProvider } from "../../debug/contracts/debug_provider.js";
+import type { DebugProvider } from "../protocol/debug.js";
 
 export class ComponentRegistry implements IComponentRegistry {
   private packages = new Map<string, ComponentPackage>();

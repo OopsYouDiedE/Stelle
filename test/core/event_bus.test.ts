@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { StelleEventBus } from "../../src/utils/event_bus.js";
+import { StelleEventBus } from "../../src/core/event/event_bus.js";
 
 describe("StelleEventBus payload guard", () => {
   it("rejects oversized payloads and reports dropped items", () => {
