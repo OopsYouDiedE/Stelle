@@ -4,7 +4,7 @@
 
 Stelle is a modular, event-driven VTuber/Streamer AI runtime (V2 Architecture). It focuses on creating a "living presence" rather than a simple chatbot.
 
-- **Core Architecture**: Based on strict Core / Debug / Capability / Window boundaries handled by a runtime `StelleApplication` and package/module lifecycle.
+- **Core Architecture**: Based on strict Core / Debug / Capability / Window boundaries handled by `RuntimeHost` and `ComponentPackage` lifecycle.
 - **Communication**: Uses a global `StelleEventBus` (EventEmitter) for internal decoupling and **Express + Socket.io** for real-time frontend-backend communication.
 - **Identity**: Personas evolve based on "Reflection Pressure Valves" (impact and salience-driven reflection) and long-term memory.
 - **Unified Capabilities**: Speech, memory, reflection, program flow, perception, and actions live in capability packages with explicit boundaries.
@@ -31,9 +31,9 @@ The project maintains two distinct testing environments:
 
 - **Event-Driven**: Avoid direct writes across packages. Use `eventBus.publish(StelleEvent)`, Core protocol objects, package services, and DataPlane refs.
 - **Domain Isolation**: Logic is grouped into `src/core`, `src/runtime`, `src/capabilities`, `src/windows`, and `src/debug`.
-- **Modular Lifecycle**: Major components are managed via `ComponentPackage` and runtime `ModuleRegistrar` implementations in `src/runtime/modules/`.
-- **Legacy Cursor Host**: Remaining cursor runtime primitives live under `src/runtime/cursor`; platform-specific legacy cursors live under the owning Window.
-- **Config**: Static settings in `config.yaml`, sensitive keys in `.env`. Access via `src/config/index.ts`.
+- **Modular Lifecycle**: Major components are registered through package-owned `register()` hooks and the runtime package registry.
+- **Runtime Surfaces**: Platform behavior lives under the owning Window package, while shared capability logic stays in `src/capabilities`.
+- **Config**: Static settings in `config.yaml`, sensitive keys in `.env`. Access config through the owning package config helpers or `src/core/config/runtime_config.ts`.
 
 ## Research & Memory
 

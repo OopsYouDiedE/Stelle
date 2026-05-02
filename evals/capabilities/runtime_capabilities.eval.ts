@@ -2,10 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import { buildDeviceActionAllowlist } from "../../src/capabilities/action/device_action/allowlist.js";
 import { DeviceActionArbiter } from "../../src/capabilities/action/device_action/arbiter.js";
 import type { DeviceActionDriver, DeviceActionIntent } from "../../src/capabilities/action/device_action/types.js";
-import { LiveResponder } from "../../src/windows/live/legacy_cursor/responder.js";
 import { DefaultMemoryWriter } from "../../src/capabilities/cognition/reflection/memory_writer.js";
-import { ObsWebSocketController } from "../../src/utils/live.js";
-import { createTestToolRegistry } from "../utils/test_registry.js";
+import { LiveRuntime, ObsWebSocketController } from "../../src/windows/stage/bridge/live_runtime.js";
+import { createTestToolRegistry } from "../../test/helpers/test_registry.js";
 import { recordEvalCase } from "../utils/report.js";
 import { summarizeChecks, type CheckResult } from "../utils/scoring.js";
 
@@ -16,11 +15,13 @@ describe("Runtime Capability Coverage Eval", () => {
       "Device actions route through non-mock driver contracts",
       async () => {
         const allowlist = buildDeviceActionAllowlist({
-          browser: { enabled: false },
-          desktopInput: { enabled: false },
-          android: {
-            enabled: true,
-            allowlist: { resources: ["emulator-5554"], risks: ["readonly", "safe_interaction"] },
+          rawYaml: {
+            cursors: {
+              android_device: {
+                enabled: true,
+                allowlist: { resources: ["emulator-5554"], risks: ["readonly", "safe_interaction"] },
+              },
+            },
           },
         } as any);
         const driver = new RecordingDriver();
@@ -69,29 +70,35 @@ describe("Runtime Capability Coverage Eval", () => {
     );
 
     await recordCapabilityCase(
-      "live_emotion_expression_mapping",
-      "Live emotions map to concrete Live2D expression and motion commands",
+      "live_stage_runtime_commands",
+      "Live runtime maps stage commands to renderer bridge messages",
       async () => {
+        const commands: unknown[] = [];
         const stageOutput = {
-          propose: vi
-            .fn()
-            .mockImplementation(async (intent) => ({ status: "accepted", outputId: intent.id, reason: "ok", intent })),
+          publish: vi.fn().mockImplementation(async (command) => {
+            commands.push(command);
+          }),
         };
-        const responder = new LiveResponder({ config: { live: { ttsEnabled: false } }, stageOutput } as any);
-        await responder.enqueue("response", "收到。", "laughing", { groupId: "eval" });
-        const intent = stageOutput.propose.mock.calls[0][0];
+        const runtime = new LiveRuntime(new ObsWebSocketController({ enabled: false }), stageOutput);
+        await runtime.setExpression("exp_02");
+        await runtime.triggerMotion("TapBody", "normal");
+        await runtime.setCaption("收到。");
+        const status = await runtime.getStatus();
         return {
-          output: intent.output,
+          output: { commands, status },
           checks: [
             {
-              ok: intent.output.expression === "exp_02",
-              name: "laughing_expression_mapped",
-              note: `expression=${intent.output.expression}`,
+              ok: commands.some((command) => (command as any).type === "expression:set"),
+              name: "expression_command_published",
             },
             {
-              ok: intent.output.motion === "TapBody",
-              name: "laughing_motion_mapped",
-              note: `motion=${intent.output.motion}`,
+              ok: commands.some((command) => (command as any).type === "motion:trigger"),
+              name: "motion_command_published",
+            },
+            {
+              ok: status.stage.caption === "收到。" && status.stage.expression === "exp_02",
+              name: "stage_state_updated",
+              note: `caption=${status.stage.caption}; expression=${status.stage.expression}`,
             },
           ],
         };

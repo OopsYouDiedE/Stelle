@@ -57,10 +57,8 @@
 3. 接入 `LivePlatformManager`。
 4. 添加平台状态、错误和 dry-run 测试。
 
-## Migration Notes
+## Boundary Notes
 
-- `src/utils/`、`src/tools/`、`src/config/`、`src/tool.ts`、`src/runtime_state.ts` 和
-  `src/runtime/application.ts` 已移除。
 - TypeScript ESM import 需要写 `.js` 后缀，即使源文件是 `.ts`。
 - Live adapter 归属 `src/windows/live/adapters/*`。
 - Stage output 归属 `src/capabilities/expression/stage_output/*`。

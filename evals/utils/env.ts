@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { LlmClient } from "../../src/capabilities/model/llm.js";
-import type { ModelConfig, ModelProviderConfig } from "../../src/config/index.js";
+import type { ModelConfig, ModelProviderConfig } from "../../src/capabilities/model/config.js";
 
 const DASH_SCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1";
 

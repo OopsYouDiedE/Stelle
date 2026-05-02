@@ -119,7 +119,7 @@ npm run test:eval
 - [项目规范](docs/PROJECT_CONVENTIONS.md)：编码、格式、模块边界、工具和安全约束。
 - [测试规范](docs/TESTING.md)：确定性测试、eval、验证范围和常见失败。
 - [记忆生成规范](docs/MEMORY_GENERATION.md)：recent、checkpoint、long-term、proposal 与检索抗偏规则。
-- [架构约束](docs/ARCHITECTURE.md)：事件边界、Cursor、Actuator、ToolRegistry 等架构合同。
+- [架构约束](docs/ARCHITECTURE.md)：事件边界、package 生命周期、DataPlane、debug、backpressure 和输出仲裁规则。
 - [代码地图](docs/CODEBASE_GUIDE.md)：修改代码时的入口、业务流和常见扩展点。
 - [运维手册](docs/OPERATIONS.md)：更细的启动、控制页和 debug 路由说明。
 - [Topic Script 格式](docs/TOPIC_SCRIPT_FORMAT.md)：直播节目脚本格式。

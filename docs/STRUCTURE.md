@@ -15,9 +15,6 @@
 | `src/debug/`        | Debug server shell、认证和命令风险规则。                                                                   |
 | `src/shared/`       | 与具体 package 无关的 JSON、text、live config schema helpers。                                             |
 
-旧的 `src/utils/`、`src/tools/`、`src/config/`、`src/tool.ts`、`src/runtime_state.ts` 和
-`src/runtime/application.ts` 已移除。新代码应直接 import 拥有该实现的 package。
-
 ## Tooling
 
 Tool registry 基础设施位于 `src/capabilities/tooling/`：

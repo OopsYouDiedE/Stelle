@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { DiscordRuntime } from "../src/utils/discord.js";
+import { DiscordRuntime } from "../src/windows/discord/runtime.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 

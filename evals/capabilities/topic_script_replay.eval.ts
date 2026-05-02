@@ -2,12 +2,11 @@ import os from "node:os";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import type { StageOutputArbiter } from "../../src/capabilities/expression/stage_output/arbiter.js";
 import type { OutputIntent } from "../../src/capabilities/expression/stage_output/types.js";
 import { TopicScriptRepository } from "../../src/capabilities/program/topic_script/repository.js";
 import { TopicScriptService } from "../../src/capabilities/program/topic_script/topic_script_service.js";
 import { TopicScriptRuntimeService } from "../../src/capabilities/program/topic_script/runtime.js";
-import { StelleEventBus } from "../../src/utils/event_bus.js";
+import { StelleEventBus } from "../../src/core/event/event_bus.js";
 import { recordEvalCase } from "../utils/report.js";
 import { summarizeChecks } from "../utils/scoring.js";
 
@@ -16,25 +15,24 @@ describe("Topic Script Replay Eval", () => {
     const start = Date.now();
     const eventBus = new StelleEventBus();
     const intents: OutputIntent[] = [];
+    eventBus.subscribe("program.output.proposal", (event) => {
+      const payload = event.payload as { intent?: OutputIntent };
+      if (payload.intent) intents.push(payload.intent);
+    });
     const repository = await approvedRepository();
     const runtime = new TopicScriptRuntimeService({
       eventBus,
       repository,
-      stageOutput: {
-        propose: async (intent: OutputIntent) => {
-          intents.push(intent);
-          return { status: "accepted", outputId: intent.id, reason: "eval", intent };
-        },
-      } as unknown as StageOutputArbiter,
       now: () => Date.now(),
     });
 
     await runtime.start();
     eventBus.publish({
-      type: "live.event.received",
+      type: "program.interaction.received",
       source: "fixture",
       payload: { id: "replay-q1", source: "fixture", cmd: "DANMU_MSG", text: "为什么要记住观众？" },
     });
+    await Promise.resolve();
     await runtime.forceFallback("replay_forced");
 
     const score = summarizeChecks([

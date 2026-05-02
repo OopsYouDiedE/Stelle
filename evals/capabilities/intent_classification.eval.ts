@@ -1,36 +1,36 @@
 import { describe, expect, it } from "vitest";
-import { hasEvalLlmKeys, evalModelLabel, makeEvalLlm } from "../utils/env.js";
+import { normalizeLiveEvent } from "../../src/windows/live/live_event.js";
 import { recordEvalCase } from "../utils/report.js";
 import { maybeAssertScore, summarizeChecks } from "../utils/scoring.js";
-import { LiveGateway } from "../../src/windows/live/legacy_cursor/gateway.js";
 
 /**
  * Capability Eval: Live Intent Classification
- * 验证 LiveGateway 的启发式打标和 LLM 识别是否准确。
+ * 验证直播事件入口能把不同平台命令归一成稳定的内部 kind。
  */
-describe.skipIf(!hasEvalLlmKeys())("Intent Classification Capability Eval", () => {
-  it("verifies heuristic and structured intent extraction", async () => {
+describe("Intent Classification Capability Eval", () => {
+  it("verifies deterministic live event kind extraction", async () => {
     const cases = [
-      { id: "intent-greeting", text: "你好呀主播", expected: "greeting" },
-      { id: "intent-test", text: "测试一下能看到吗", expected: "test_connection" },
-      { id: "intent-question", text: "你会打游戏吗？", expected: "question" },
-      { id: "intent-noise", text: "666666", expected: "unknown" },
-      { id: "intent-feedback", text: "唱得好听！", expected: "feedback" },
+      { id: "kind-danmaku", cmd: "DANMU_MSG", text: "你好呀主播", expected: "danmaku" },
+      { id: "kind-super-chat", cmd: "SUPER_CHAT_MESSAGE", text: "支持一下", expected: "super_chat" },
+      { id: "kind-gift", cmd: "SEND_GIFT", text: "小花花", expected: "gift" },
+      { id: "kind-entrance", cmd: "INTERACT_WORD", text: "进来了", expected: "entrance" },
+      { id: "kind-follow", cmd: "FOLLOW", text: "关注了", expected: "follow" },
     ];
-
-    const gateway = new LiveGateway({ now: () => Date.now() } as any);
 
     for (const evalCase of cases) {
       const start = Date.now();
-
-      // We are testing the private detectIntentHeuristically logic via any-cast for simplicity in eval
-      const result = (gateway as any).detectIntentHeuristically({ text: evalCase.text });
+      const result = normalizeLiveEvent({
+        id: evalCase.id,
+        source: "fixture",
+        cmd: evalCase.cmd,
+        text: evalCase.text,
+      });
 
       const score = summarizeChecks([
         {
-          ok: result.intent === evalCase.expected,
-          name: "correct_intent",
-          note: `Result: ${result.intent}, Expected: ${evalCase.expected}`,
+          ok: result.kind === evalCase.expected,
+          name: "correct_kind",
+          note: `Result: ${result.kind}, Expected: ${evalCase.expected}`,
         },
       ]);
 
@@ -39,10 +39,10 @@ describe.skipIf(!hasEvalLlmKeys())("Intent Classification Capability Eval", () =
       await recordEvalCase({
         suite: "intent_classification",
         caseId: evalCase.id,
-        title: `Classifying: ${evalCase.text}`,
-        model: "heuristic-adapter",
+        title: `Classifying: ${evalCase.cmd}`,
+        model: "deterministic-normalizer",
         latencyMs: Date.now() - start,
-        input: { text: evalCase.text },
+        input: { cmd: evalCase.cmd, text: evalCase.text },
         output: result,
         score,
       });

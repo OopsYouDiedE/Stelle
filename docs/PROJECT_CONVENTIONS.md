@@ -53,4 +53,7 @@
 - `docs/PROJECT_CONVENTIONS.md` 说明项目规范。
 - `docs/TESTING.md` 说明测试规范。
 - `docs/MEMORY_GENERATION.md` 说明记忆生成和抗偏规则。
+- `docs/ARCHITECTURE.md` 说明架构边界、package 生命周期、DataPlane、debug 和 backpressure 规则。
+- `docs/CODEBASE_GUIDE.md` 说明修改代码时的入口、业务流和常见扩展点。
+- Topic Script 只保留格式说明和运行手册，已落地的历史计划不留在主文档集中。
 - 结构变更后同步更新相关文档链接。
