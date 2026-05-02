@@ -1,0 +1,79 @@
+# Stelle 运行配置
+#
+# 运行逻辑：
+# - 这里保存可提交的静态配置；token 和 API key 仍走环境变量。
+# - `cursors` 控制各 Cursor 的行为边界。
+# - `core` 控制主动反思循环频率。
+# - Discord 非 mention ambient 回复允许列表走 DISCORD_AMBIENT_CHANNEL_IDS。
+cursors:
+  discord:
+    ambientEnabled: true
+    maxReplyChars: 900
+    cooldownSeconds: 240
+    dmSilenceSeconds: 4
+  live:
+    ttsEnabled: true
+    speechQueueLimit: 3
+    platforms:
+      bilibili:
+        enabled: false
+        roomId: ""
+      twitch:
+        enabled: false
+        channel: ""
+        trackJoins: false
+      youtube:
+        enabled: false
+        liveChatId: ""
+        videoId: ""
+        forwardHistory: false
+      tiktok:
+        enabled: false
+        provider: websocket
+        username: ""
+        webSocketUrl: ""
+    thanks:
+      enabled: true
+      usernameMaxLen: 12
+      cooldownSeconds: 20
+      giftLowestAmount: 0
+      entranceTemplates: ["欢迎{username}来到直播间"]
+      followTemplates: ["感谢{username}的关注"]
+      giftTemplates: ["感谢{username}送的{gift_name}"]
+      guardTemplates: ["感谢{username}开通的{gift_name}"]
+      superChatTemplates: ["感谢{username}的醒目留言：{comment}"]
+    idle:
+      enabled: false
+      minQuietSeconds: 90
+      cooldownSeconds: 120
+      templates: ["直播间安静下来了，那我来抛个小话题：你们今天有什么想聊的吗？"]
+    schedule:
+      enabled: false
+      items: []
+  browser:
+    enabled: false
+    allowlist:
+      resources: ["default"]
+      risks: ["readonly", "safe_interaction", "text_input"]
+  desktop_input:
+    enabled: false
+    allowlist:
+      resources: ["desktop"]
+      risks: ["readonly", "safe_interaction", "text_input"]
+  android:
+    enabled: false
+    allowlist:
+      resources: ["default"]
+      risks: ["readonly", "safe_interaction", "text_input"]
+
+sceneObservation:
+  enabled: false
+
+core:
+  reflectionIntervalHours: 6
+  reflectionAccumulationThreshold: 30
+
+debug:
+  enabled: true
+  requireToken: true
+  allowExternalWrite: false

@@ -1,0 +1,5 @@
+fastapi>=0.136.0
+uvicorn>=0.45.0
+kokoro>=0.9.4
+soundfile>=0.13.1
+misaki[zh]>=0.9.4
