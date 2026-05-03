@@ -32,6 +32,10 @@ npm run start:live
 
 Development modes use the `dev:*` scripts in `package.json`.
 
+Kokoro local TTS is optional. `start:live` and `start:runtime` only auto-start it when the configured Python executable
+exists. Missing `.venv` or `KOKORO_PYTHON` no longer blocks the main runtime; captions and Debug still work without
+local TTS.
+
 ## Configuration
 
 Configuration is loaded from `config.yaml` plus environment variables. Secrets belong in `.env`, not in committed files.
@@ -64,10 +68,10 @@ If control tokens are required, use a Bearer token or the local control page tok
 
 ## Debug
 
-Debug routes are only available when `debug.enabled=true` or `STELLE_DEBUG_ENABLED=true`. When token protection is enabled, set `STELLE_DEBUG_TOKEN` or `debug.token`.
+Debug routes are only available when `debug.enabled=true` or `STELLE_DEBUG_ENABLED=true`. Local read-only debug pages and snapshots are available without a token. Remote debug access and control routes require `STELLE_DEBUG_TOKEN`, `STELLE_CONTROL_TOKEN`, or config tokens when token protection is enabled.
 
 ```text
-http://127.0.0.1:8787/debug?token=YOUR_DEBUG_TOKEN
+http://127.0.0.1:8787/debug
 /_debug
 /_debug/api/snapshot
 /_debug/api/tool/use

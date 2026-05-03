@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -98,10 +99,24 @@ function createStelleChild(targetMode, options) {
 }
 
 function createKokoroChild() {
+  if (process.env.LIVE_TTS_ENABLED === "false" || process.env.KOKORO_AUTO_START === "false") {
+    console.warn("[kokoro] auto-start disabled; live captions still work without local TTS.");
+    return null;
+  }
+
+  if (!fs.existsSync(pythonExe)) {
+    console.warn(
+      `[kokoro] optional TTS service skipped: python not found at ${pythonExe}. ` +
+        "Set KOKORO_PYTHON, create .venv, or use LIVE_TTS_ENABLED=false to silence this message.",
+    );
+    return null;
+  }
+
   return {
     name: "kokoro",
     command: pythonExe,
     args: [path.join(rootDir, "scripts", "kokoro_tts_server.py")],
+    optional: true,
     process: undefined,
   };
 }
@@ -133,12 +148,17 @@ function startDeferredChild(child) {
 
   child.process.on("error", (error) => {
     console.error(`[${child.name}] failed to start: ${error.message}`);
+    if (child.optional) return;
     exitCode = 1;
     shutdown();
   });
 
   child.process.on("exit", (code, signal) => {
     if (shuttingDown) return;
+    if (child.optional) {
+      console.warn(`[${child.name}] optional service exited${signal ? ` by ${signal}` : ` with code ${code ?? 0}`}`);
+      return;
+    }
     exitCode = code ?? (signal ? 1 : 0);
     console.error(`[${child.name}] exited${signal ? ` by ${signal}` : ` with code ${exitCode}`}`);
     shutdown();

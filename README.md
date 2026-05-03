@@ -77,6 +77,9 @@ TTS 服务：
 npm run start:kokoro
 ```
 
+Kokoro 是可选的本地 TTS 服务。`start:live` / `start:runtime` 会在检测到本地 Python 环境时尝试自动启动；
+如果 `.venv` 不存在，只会跳过 TTS，不影响 renderer、Debug 页面和字幕。
+
 ## 直播与控制页
 
 默认 renderer 地址：
@@ -94,10 +97,11 @@ http://127.0.0.1:8787/control
 Debug 页需要在 `config.yaml` 或环境变量中开启：
 
 ```text
-http://127.0.0.1:8787/debug?token=YOUR_DEBUG_TOKEN
+http://127.0.0.1:8787/debug
 ```
 
-不要把 debug/control 路由暴露到公网。
+本机只读 Debug 页面不需要 token。远程访问、control 路由和外部写入能力需要配置
+`STELLE_DEBUG_TOKEN` 或 `STELLE_CONTROL_TOKEN`。不要把 debug/control 路由暴露到公网。
 
 ## 常用检查
 

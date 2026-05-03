@@ -15,6 +15,7 @@ export function allowDebugRequest(
     res.status(404).json({ ok: false, error: "debug disabled" });
     return false;
   }
+  if (isLocalRequest(req)) return true;
   return allowTokenRequest(options, req, res, "debug");
 }
 
@@ -43,4 +44,15 @@ function allowTokenRequest(
   if (header === expected || query === expected) return true;
   res.status(401).json({ ok: false, error: `invalid ${label} token` });
   return false;
+}
+
+function isLocalRequest(req: express.Request): boolean {
+  const candidates = [
+    req.ip,
+    req.socket.remoteAddress,
+    req.connection.remoteAddress,
+    req.header("x-forwarded-for")?.split(",")[0]?.trim(),
+  ].filter((value): value is string => Boolean(value));
+
+  return candidates.some((address) => ["127.0.0.1", "::1", "::ffff:127.0.0.1", "localhost"].includes(address));
 }
