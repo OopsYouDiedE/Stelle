@@ -1,122 +1,113 @@
-# Stelle Architecture
+# 架构与代码规范 (Architecture & Conventions)
 
-Stelle is a modular, event-driven VTuber/Streamer AI runtime. The architecture is built around four boundaries:
-Core, Runtime, Capabilities, and Windows.
+Stelle 是一个模块化、事件驱动的 VTuber/Streamer AI 运行时。
+这份文档规定了开发时的代码导航路径、严格架构边界与项目约定。
 
-## Ownership Boundaries
+---
 
-| Layer               | Owns                                                                                                           | Must Not Own                                                      |
-| ------------------- | -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| `src/core/`         | Protocol contracts, EventBus, config helpers, component registry/loader, DataPlane, resource policy, watchdog. | Concrete capability, window, runtime host, or debug server logic. |
-| `src/runtime/`      | `RuntimeHost` bootstrapping, package selection, bootstrap service registration.                                | Domain policy decisions or package internals.                     |
-| `src/capabilities/` | Reusable abilities: cognition, expression, memory, program, perception, action, and tooling.                   | Concrete window/platform adapter lifecycle.                       |
-| `src/windows/`      | Live/Discord/browser/desktop/stage surfaces, renderer bridge, platform adapters, platform event mapping.       | Reusable cognition, memory, output, or action policy.             |
-| `src/debug/`        | Debug server shell, auth, command risk rules.                                                                  | Package internals or platform-specific ownership.                 |
+## 1. 核心架构边界 (Architecture Boundaries)
 
-Tool infrastructure now lives in `src/capabilities/tooling/`. Domain-specific tools live with their owning package,
-for example `src/windows/live/tools.ts` and `src/capabilities/memory/store/tools.ts`.
+系统划分为四个核心层。**高层可依赖低层，但绝对禁止反向依赖或跨层强耦合。**
 
-## Runtime Lifecycle
+| Layer               | 职责范围                                                                                                   | 禁止包含的逻辑                                            |
+| ------------------- | ---------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| `src/core/`         | 协议契约（Protocol）、EventBus、config helper、组件注册与加载、DataPlane（重负载数据）、资源策略、看门狗。 | 具体的能力实现、Window、宿主（Host）或 Debug 服务器逻辑。 |
+| `src/runtime/`      | `RuntimeHost` 编排启动流、选择并加载 package、注册引导层服务。                                             | 具体的领域策略或包的内部实现逻辑。                        |
+| `src/capabilities/` | 可复用的能力逻辑（Cognition, Expression, Memory, Program, Perception, Action, Tooling）。                  | 具体的 Window 或平台 Adapter 的生命周期逻辑。             |
+| `src/windows/`      | 场景/平台组合层（Live, Discord, Browser, Desktop 等），渲染层桥接，平台事件转换。                          | 可复用的认知、记忆、输出或动作控制的领域策略。            |
+| `src/debug/`        | Debug 服务器外壳、认证拦截与命令风险规则。                                                                 | Package 内部实现逻辑或特定的平台所有权。                  |
 
-`RuntimeHost` in `src/runtime/host.ts` orchestrates startup:
+**特别说明**：
 
-1. Load package-owned config from `config.yaml` and environment variables.
-2. Create Core services: `ComponentRegistry`, `ComponentLoader`, `DataPlane`, `StelleEventBus`, and `DebugServer`.
-3. Register bootstrap services such as platform runtimes, tools, memory, model client, and scene observer.
-4. Select `ComponentPackage`s for the requested mode.
-5. Load packages into the registry, then start lifecycle hooks in order.
-6. Windows publish platform-neutral events; capabilities subscribe, decide, arbitrate, and emit audit events.
+- 基础工具代码在 `src/capabilities/tooling/`。
+- 特定领域的工具与自己的包放在一起，例如：`src/windows/live/tools.ts` 或 `src/capabilities/memory/store/tools.ts`。
 
-Shutdown stops packages in reverse order, then releases platform runtimes.
+---
 
-## Component Packages
+## 2. 运行时与数据流转 (Runtime & Data Flow)
 
-`ComponentPackage` is the runtime-loadable unit. Packages declare ownership with an id, kind, version, requirements,
-provisions, optional backpressure policy, and lifecycle hooks:
+### 运行时启动流 (Runtime Startup Flow)
 
-1. `register(ctx)` exposes services, handlers, read models, and debug providers.
-2. `hydrateState(state)` restores transferable state when a previous snapshot exists.
-3. `start(ctx)` begins active work.
-4. `prepareUnload()` declares whether pending work drains, cancels, hands off, or drops expired work.
-5. `snapshotState()` captures transferable state.
-6. `stop(ctx)` stops active work.
-7. Package-owned registry entries are removed on unload.
+1. CLI 入口 (`src/start.ts`) 创建 `RuntimeHost` (`src/runtime/host.ts`)。
+2. 读取包配置 (`config.yaml`) 和环境变量。
+3. 实例化 Core 层的总线与中心系统（EventBus, Registry, ComponentLoader, DataPlane, DebugServer）。
+4. 注册引导组件（Bootstrap services），如 Discord/Live 运行时、LLM、Memory、ToolRegistry。
+5. 按模式依次加载 `ComponentPackage` 并启动生命周期 (`register` -> `start`)。
+6. 各个 Window 开始监听外界平台并将之转化为中立事件，Capability 开始消费与处理。
 
-Ephemeral state is discarded, durable state is written through stores, and transferable state moves through snapshot and
-hydration. Long-running model calls may finish and be ignored if stale; perfect transfer of every async call is not
-required.
+### 组件包生命周期 (Component Package Lifecycle)
 
-## Event Protocol
+每个包具有统一生命周期控制，支持挂起与恢复：
 
-Cross-domain messages use a generic event envelope in `src/core/event/event_schema.ts`. The EventBus validates the
-envelope and payload size; package-owned payloads are validated by the producing or consuming package.
+- `register(ctx)`: 暴露服务、注册处理器和查询模型。
+- `hydrateState(state)`: 注入持久化的恢复状态。
+- `start(ctx)`: 启动活动任务（监听循环等）。
+- `prepareUnload()`: 决定剩余任务如何处理（排队、取消或抛弃）。
+- `snapshotState()`: 生成快照。
+- `stop(ctx)`: 停止活动任务。
 
-Common event families:
+### 核心事件总线 (Event Protocol)
 
-- `perceptual.event`: platform/window ingress converted to `PerceptualEvent`.
-- `cognition.intent`: RuntimeKernel output as Core `Intent`.
-- `program.interaction.received`, `program.batch.flushed`, `program.tick`: program orchestration events.
-- `program.output.proposal`: program capability requests for stage output.
-- `stage.output.*`: stage arbiter lifecycle events.
-- `device.action.*`: device action arbiter lifecycle events.
-- `topic_script.*`: Topic Script generation, approval, runtime, and fallback events.
+跨领域消息通信统一使用 `src/core/event/event_schema.ts` 的事件封包规范。
+常见的事件线包括：
 
-## Data Plane
+- `perceptual.event`: Window 收到的外部信息，发给内核。
+- `cognition.intent`: 内核运算完毕后下发的意图。
+- `stage.output.*` / `device.action.*`: 舞台与设备的仲裁状态流转。
+- `topic_script.*`: 剧本的编排与运行事件。
 
-The EventBus carries control-plane facts: perceptual events, intents, execution results, status changes, audit, and
-debug command events. Heavy data belongs in `DataPlane`:
+### 数据平面 (Data Plane)
 
-- images, video frames, audio chunks, and streams
-- long text or JSON blobs
-- browser, scene, and embedding snapshots
+EventBus 只用来传递控制面事件（小负载）。大负载数据必须进入 **DataPlane**：
 
-Event payloads are capped. Larger payloads should be stored with `DataPlane.putBlob()` or
-`DataPlane.createStream()`, then referenced by `ResourceRef` or `StreamRef`. This bypasses only the heavy-data path; it
-does not bypass lifecycle, audit, access policy, or ownership.
+- 图像、视频帧、长段落文本、流式音频（Audio chunks）。
+  通过 `DataPlane.putBlob()` 等方式获取 `ResourceRef`，再在 EventBus 中传递该 Reference。
 
-## Capability And Window Contract
+### 输出与设备所有权 (Output & Device Ownership)
 
-Capabilities own reusable policy and execution logic. Windows own platform ingress, adapter lifecycle, renderer
-bridges, and conversion into core protocol events.
+所有外部动作必须经过特定的 Arbiter 仲裁，不得在 Package 内部私自调用外部发送 API。
 
-Capabilities must not import concrete Windows or `RuntimeHost`. Windows may publish and consume Core events, but should
-not import concrete cognition, memory, stage output, or device action implementation classes for policy decisions.
+- **舞台输出 (Stage Output)**: `Perceptual` -> `Intent` -> `StageOutputCapability` -> `StageOutputArbiter` -> `Renderer`
+- **程序编排 (Program Output)**: `Program Proposal` -> `StageOutputCapability` -> `StageOutputArbiter` -> `Renderer`
+- **设备操作 (Device Action)**: `Action Service` -> `DeviceActionCapability` -> `DeviceActionArbiter` -> `Driver Package`
 
-Capability queues should declare bounded policy when they process bursty input. Use `lossless` for paid events, user
-commands, and critical execution results; `bounded` for normal chat, moderate JSON, and audio chunks; `latest-only` for
-video frames, mouse position, device status, and render state.
+---
 
-## Output And Device Ownership
+## 3. 编码规范 (Project Conventions)
 
-All external actions flow through arbiters.
+### 格式化
 
-Stage output path:
+- 使用 Prettier 统一格式：`npm run format` / `npm run format:check`
+- 不参与格式化的有 `dist/`, `memory/`, `evals/logs/` 等生成产物。
 
-```text
-Window -> perceptual.event -> RuntimeKernel -> cognition.intent
-  -> StageOutputCapability -> StageOutputArbiter -> StageWindow renderer bridge
-```
+### TypeScript ESM 约束
 
-Program output path:
+- 本项目采用 Node.js 原生 ESM 机制，**源代码中的 import 必须显式加上 `.js` 后缀**（即便该文件实际后缀为 `.ts`）。
+- 优先使用明确类型、Zod 结构验证，杜绝一切没有保证的 "any" 黑盒。
 
-```text
-Program capability -> program.output.proposal
-  -> StageOutputCapability -> StageOutputArbiter -> StageWindow renderer bridge
-```
+### 安全原则 (Security)
 
-Device action path:
+- 严禁将控制层（Debug / Control Route）暴露到公网。
+- 读取外部 URL 的工具实现必须经过 SSRF 检查拦截。
+- 文件系统操作能力必须约束在 `Workspace` 指定的根目录下。
 
-```text
-Window or capability -> action service contract
-  -> DeviceActionCapability -> DeviceActionArbiter -> device driver package
-```
+### 注释原则
 
-## Design Constraints
+- **避免过度注释**：不要对普通的 getter/setter 或者从命名一眼可知的功能进行 JSDoc 滥写。
+- **只在关键点注释**：模块出口边界、复杂状态机流转、由于历史原因采用非直觉 Fallback 的设计点。
 
-- Use `StelleEventBus` for cross-domain communication.
-- Use `.js` extensions in TypeScript ESM imports.
-- Do not keep compatibility exports for moved implementation files.
-- Put secrets in `.env`; committed config files must not contain tokens.
-- Add deterministic tests for structural changes. Use evals only for model-behavior changes.
-- Debug is a control-plane shell. Remote debug defaults must be conservative, token-protected, audited, and limited to
-  provider-owned commands.
+---
+
+## 4. 常见扩展指南 (Extension Guides)
+
+### 怎么增加一个新工具 (Tool)?
+
+1. 如果是领域特定的工具，放在拥有它的 package 下（如 `src/windows/live/tools.ts`）。
+2. 在该包的 `register()` 钩子中，调用 `tools.registry.register(...)`。
+3. 补齐严格的 Zod Input Schema、需要的权限层级（Authority）和副作用审计配置（Side effect metadata）。
+
+### 怎么增加一个新直播平台 (Live Platform Adapter)?
+
+1. 在 `src/windows/live/adapters/` 目录下创建新平台适配器。
+2. 捕获真实事件，将其转换、清洗为标准的 `NormalizedLiveEvent` 和 `PerceptualEvent`。
+3. 注册到 `LivePlatformManager`，并补充 dry-run（本地脱水测试）相关的自动化验证。

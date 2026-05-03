@@ -1,41 +1,35 @@
-# GEMINI.md - Stelle Project Context
+# Stelle Project Mandates
 
-## Project Overview
+## Internal Windows Architecture (v2)
 
-Stelle is a modular, event-driven VTuber/Streamer AI runtime (V2 Architecture). It focuses on creating a "living presence" rather than a simple chatbot.
+All subjective decision-making in Stelle must follow the **Decision Cycle** pattern as defined in the "Internal Windows 设计稿 v2".
 
-- **Core Architecture**: Based on strict Core / Debug / Capability / Window boundaries handled by `RuntimeHost` and `ComponentPackage` lifecycle.
-- **Communication**: Uses a global `StelleEventBus` (EventEmitter) for internal decoupling and **Express + Socket.io** for real-time frontend-backend communication.
-- **Identity**: Personas evolve based on "Reflection Pressure Valves" (impact and salience-driven reflection) and long-term memory.
-- **Unified Capabilities**: Speech, memory, reflection, program flow, perception, and actions live in capability packages with explicit boundaries.
+### 1. Causal Tracing
+Every event and action must be traceable.
+- **CycleId:** Identifies a single thought/decision loop.
+- **CorrelationId:** Identifies the originating external trigger (e.g., a specific Discord message).
+- **CausationId:** Points to the immediate preceding event.
 
-## Building and Running
+### 2. State Watermarks
+Components must declare the version of the world, memory, or reflection state they relied on.
+- Always include `watermarks` in `EventEnvelope`.
+- Never perform a cognitive decision without a `StateWatermark`.
 
-- **Install Dependencies**: `npm install`
-- **Build Project**: `npm run build` (builds both Live2D client and server)
-- **Start Production**: `npm run start` (or specific modes: `start:discord`, `start:live`, `start:runtime`)
-- **Development**: `npm run dev` (full stack) or `npm run dev:live` (renderer debug)
-- **TTS Service**: `npm run start:kokoro` (requires Python environment)
+### 3. Outbox Pattern
+To ensure consistency between data and events:
+- **Rule:** DataPlane/Store MUST be updated *before* the corresponding event is published.
+- Use versioned snapshots or patches.
 
-## Testing and Evals
+### 4. Intent Filtering (Hard Gates)
+Cognition (LLM) generates **Candidate Intents**, but it does NOT decide if they are executable.
+- **Interaction Policy** is the source of truth for affordances and permissions.
+- Intents that fail hard gates (affordance unavailable, high risk, no permission) must be blocked before reaching the scoring phase.
 
-The project maintains two distinct testing environments:
+### 5. Memory & Reflection
+- **Memory Retention:** Use rule-based importance (e.g., explicit user requests, promises) rather than pure LLM scoring.
+- **Reflection:** Must include an `evidenceMemoryIds` chain. Reflections without evidence are invalid.
 
-1. **Deterministic Tests (`test/`)**: Pure logic/mocked LLM tests for CI.
-   - Run: `npm run test`
-2. **Capabilities Evaluation (`evals/`)**: Real LLM calls for behavioral assessment.
-   - Run: `npm run test:eval`
-   - Reports are generated in `evals/logs/` in Markdown format.
-
-## Development Conventions
-
-- **Event-Driven**: Avoid direct writes across packages. Use `eventBus.publish(StelleEvent)`, Core protocol objects, package services, and DataPlane refs.
-- **Domain Isolation**: Logic is grouped into `src/core`, `src/runtime`, `src/capabilities`, `src/windows`, and `src/debug`.
-- **Modular Lifecycle**: Major components are registered through package-owned `register()` hooks and the runtime package registry.
-- **Runtime Surfaces**: Platform behavior lives under the owning Window package, while shared capability logic stays in `src/capabilities`.
-- **Config**: Static settings in `config.yaml`, sensitive keys in `.env`. Access config through the owning package config helpers or `src/core/config/runtime_config.ts`.
-
-## Research & Memory
-
-- **Research Topics**: Stelle can set individuals or behaviors as "Research Topics" in `ResearchLog` to build deep personality profiles over time.
-- **Memory Store**: Unified access to recent (JSONL) and long-term (Markdown) storage via `src/capabilities/memory/store/memory_store.ts`.
+## Technical Standards
+- **Schemas:** All world entities must be validated against a registered schema. Use `src/capabilities/world_model/schema.ts` as the base.
+- **Testing:** Integration tests must use deterministic mocks. Avoid real LLM calls in CI/CD.
+- **Errors:** Favor explicit error results over throwing exceptions in the decision loop.

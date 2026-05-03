@@ -36,3 +36,32 @@ export interface StreamRef {
   allowedPackageIds?: string[];
   debugReadable?: boolean;
 }
+
+/**
+ * 数据引用 (Data Ref)
+ * 用于在事件中安全地引用 DataPlane 中的版本化数据。
+ */
+export interface DataRef<TKind extends string = string> {
+  kind: TKind;
+  uri: string;
+  version?: number;
+  sha256?: string;
+}
+
+/**
+ * 证据引用 (Evidence Ref)
+ * 用于指向支撑某一决策或记忆的证据（如事件 ID、消息 ID 或数据快照）。
+ */
+export interface EvidenceRef extends DataRef {
+  /** 证据描述或片段 */
+  summary?: string;
+}
+
+/**
+ * 实体引用 (Entity Ref)
+ * 用于指向世界中的特定对象。
+ */
+export interface EntityRef {
+  kind: string;
+  id: string;
+}

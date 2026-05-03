@@ -6,7 +6,6 @@ import type {
 import { StageDirector } from "./stage_director.js";
 import { createStageDirectorDebugProvider } from "./debug_provider.js";
 
-
 export const stageDirectorCapability: ComponentPackage = {
   id: "capability.program.stage_director",
   kind: "capability",

@@ -1,6 +1,13 @@
 import { asRecord, asString, clamp } from "../../shared/json.js";
 import { bool, mergeRecords } from "../../core/config/index.js";
-import { loadLiveThanksConfig, loadLiveIdleConfig, loadLiveScheduleConfig, type LiveThanksConfig, type LiveIdleConfig, type LiveScheduleConfig } from "../../shared/live_config_schemas.js";
+import {
+  loadLiveThanksConfig,
+  loadLiveIdleConfig,
+  loadLiveScheduleConfig,
+  type LiveThanksConfig,
+  type LiveIdleConfig,
+  type LiveScheduleConfig,
+} from "../../shared/live_config_schemas.js";
 
 export interface LiveConfig {
   enabled: boolean;
@@ -34,8 +41,6 @@ export interface LivePlatformsConfig {
     apiKey?: string;
   };
 }
-
-
 
 export function loadLiveConfig(rawYaml: Record<string, unknown> = {}): LiveConfig {
   const cursors = asRecord(rawYaml.cursors);
@@ -97,5 +102,3 @@ function parseTikTokProvider(value: string | undefined): "websocket" | "tiktok-l
   if (value === "websocket" || value === "tiktok-live-connector") return value;
   return undefined;
 }
-
-

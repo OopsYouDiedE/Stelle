@@ -3,7 +3,6 @@ import { loadControlConfig } from "../../debug/config.js";
 import { loadLiveConfig } from "../live/config.js";
 import { LiveRendererServer } from "./renderer/renderer_server.js";
 
-
 export interface StageWindowOptions {
   config: any;
   logger: Pick<Console, "info" | "warn" | "error">;

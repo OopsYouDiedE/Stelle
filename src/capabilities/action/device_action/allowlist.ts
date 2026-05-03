@@ -1,4 +1,3 @@
-
 import type { DeviceActionAllowlist, DeviceActionRisk } from "./types.js";
 
 import { loadBrowserConfig } from "../browser_control/config.js";
@@ -37,10 +36,7 @@ export function buildDeviceActionAllowlist(config: any): DeviceActionAllowlist |
   }
 
   if (desktopEnabled) {
-    addAll(merged.cursors!, [
-      "desktop_input",
-      ...((desktopConfig.allowlist?.cursors as string[] | undefined) ?? []),
-    ]);
+    addAll(merged.cursors!, ["desktop_input", ...((desktopConfig.allowlist?.cursors as string[] | undefined) ?? [])]);
     addAll(merged.resources!, (desktopConfig.allowlist?.resources as string[] | undefined) ?? ["desktop"]);
     addAll(merged.resourceKinds!, ["desktop_input"]);
     addAll(

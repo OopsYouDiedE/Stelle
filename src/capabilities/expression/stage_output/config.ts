@@ -8,7 +8,7 @@ export interface StageOutputConfig {
 export function loadStageOutputConfig(rawYaml: Record<string, unknown> = {}): StageOutputConfig {
   const cursors = asRecord(rawYaml.cursors);
   const liveCursor = mergeRecords(asRecord(cursors.live), asRecord(cursors.live_danmaku));
-  
+
   const expressionRoot = asRecord(rawYaml.expression);
   const stageOutputRoot = asRecord(expressionRoot.stageOutput || expressionRoot.stage_output);
 

@@ -1,14 +1,26 @@
 import type { DebugProvider, DebugCommandDefinition } from "../../core/protocol/debug.js";
-import type { ComponentRegistry } from "../../core/protocol/component.js";
+import type { ComponentRegistry, ComponentPackage } from "../../core/protocol/component.js";
 import type { DebugSecurityPolicy } from "./debug_auth.js";
 import type { BackpressureStatus } from "../../core/protocol/backpressure.js";
 import type { ResourceRef, StreamRef } from "../../core/protocol/data_ref.js";
+import express from "express";
+import http from "node:http";
+import { Server as SocketIOServer } from "socket.io";
+import { debugHtml } from "./debug_ui.js";
 
 export interface DebugRuntimeIntrospection {
   listResourceRefs?(): ResourceRef[];
   listStreamRefs?(): StreamRef[];
   listBackpressureStatus?(): BackpressureStatus[];
   securityMode?: "local-only" | "remote-token" | "operator";
+}
+
+export interface PluginController {
+  load(id: string): Promise<void>;
+  start(id: string): Promise<void>;
+  stop(id: string): Promise<void>;
+  unload(id: string): Promise<void>;
+  listAvailable(): ComponentPackage[];
 }
 
 export interface DebugRuntimeSnapshot {
@@ -24,11 +36,130 @@ export interface DebugRuntimeSnapshot {
 }
 
 export class DebugServer {
+  private pluginController?: PluginController;
+  private httpServer?: http.Server;
+  private io?: SocketIOServer;
+
   constructor(
     private registry: ComponentRegistry,
     private policy?: DebugSecurityPolicy,
     private introspection: DebugRuntimeIntrospection = {},
   ) {}
+
+  setPluginController(controller: PluginController) {
+    this.pluginController = controller;
+  }
+
+  async startHttpServer(port: number): Promise<string> {
+    if (this.httpServer) return `http://127.0.0.1:${port}`;
+
+    const app = express();
+    this.httpServer = http.createServer(app);
+    this.io = new SocketIOServer(this.httpServer, { cors: { origin: "*" } });
+
+    app.use(express.json());
+
+    const checkAuth = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+      const isLocal = req.ip === "127.0.0.1" || req.ip === "::1" || req.ip === "::ffff:127.0.0.1";
+      const token = (req.query.token as string) || req.headers.authorization?.replace("Bearer ", "");
+      if (this.policy && !this.policy.canAccess(token, isLocal)) {
+        res.status(403).json({ ok: false, error: "unauthorized" });
+        return;
+      }
+      next();
+    };
+
+    app.get("/", checkAuth, (req, res) => {
+      res.send(debugHtml());
+    });
+
+    app.get("/api/snapshot", checkAuth, (req, res) => {
+      res.json({ ok: true, snapshot: this.getRuntimeSnapshot() });
+    });
+
+    app.get("/api/packages/available", checkAuth, (req, res) => {
+      const available = this.pluginController?.listAvailable() || [];
+      res.json({
+        ok: true,
+        available: available.map((p) => ({
+          id: p.id,
+          kind: p.kind,
+          version: p.version,
+          displayName: p.displayName,
+        })),
+      });
+    });
+
+    app.post("/api/packages/:id/start", checkAuth, async (req, res) => {
+      if (!this.pluginController) return res.status(503).json({ ok: false, error: "plugin controller unavailable" });
+      try {
+        await this.pluginController.start(req.params.id);
+        res.json({ ok: true });
+      } catch (error) {
+        res.status(500).json({ ok: false, error: error instanceof Error ? error.message : String(error) });
+      }
+    });
+
+    app.post("/api/packages/:id/stop", checkAuth, async (req, res) => {
+      if (!this.pluginController) return res.status(503).json({ ok: false, error: "plugin controller unavailable" });
+      try {
+        await this.pluginController.stop(req.params.id);
+        res.json({ ok: true });
+      } catch (error) {
+        res.status(500).json({ ok: false, error: error instanceof Error ? error.message : String(error) });
+      }
+    });
+
+    app.post("/api/packages/:id/load", checkAuth, async (req, res) => {
+      if (!this.pluginController) return res.status(503).json({ ok: false, error: "plugin controller unavailable" });
+      try {
+        await this.pluginController.load(req.params.id);
+        res.json({ ok: true });
+      } catch (error) {
+        res.status(500).json({ ok: false, error: error instanceof Error ? error.message : String(error) });
+      }
+    });
+
+    app.post("/api/packages/:id/unload", checkAuth, async (req, res) => {
+      if (!this.pluginController) return res.status(503).json({ ok: false, error: "plugin controller unavailable" });
+      try {
+        await this.pluginController.unload(req.params.id);
+        res.json({ ok: true });
+      } catch (error) {
+        res.status(500).json({ ok: false, error: error instanceof Error ? error.message : String(error) });
+      }
+    });
+
+    this.io.on("connection", (socket) => {
+      socket.emit("package:update");
+    });
+
+    return new Promise((resolve, reject) => {
+      this.httpServer!.once("error", reject);
+      this.httpServer!.listen(port, "127.0.0.1", () => {
+        resolve(`http://127.0.0.1:${port}`);
+      });
+    });
+  }
+
+  async stopHttpServer(): Promise<void> {
+    if (this.io) this.io.close();
+    if (this.httpServer) {
+      await new Promise<void>((resolve) => {
+        this.httpServer!.close(() => resolve());
+      });
+    }
+  }
+
+  broadcastPackageEvent(type: string, packageId: string) {
+    if (this.io) {
+      this.io.emit("package:event", { type, packageId });
+      // Tell clients to re-fetch snapshot immediately after an event finishes (stop/start etc)
+      if (!type.endsWith("_start")) {
+        this.io.emit("package:update");
+      }
+    }
+  }
 
   async listProviders(): Promise<DebugProvider[]> {
     return this.registry.listDebugProviders();
@@ -86,7 +217,7 @@ export class DebugServer {
     });
     return command.run(input);
   }
-  // Unified global snapshot for the old shell compatibility
+
   async getGlobalSnapshot(): Promise<Record<string, unknown>> {
     const providers = this.registry.listDebugProviders();
     const result: Record<string, unknown> = {};

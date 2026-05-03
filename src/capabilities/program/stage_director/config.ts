@@ -1,12 +1,12 @@
 import { asRecord } from "../../../shared/json.js";
 import { mergeRecords } from "../../../core/config/index.js";
-import { 
-  loadLiveThanksConfig, 
-  loadLiveIdleConfig, 
-  loadLiveScheduleConfig, 
-  type LiveThanksConfig, 
-  type LiveIdleConfig, 
-  type LiveScheduleConfig 
+import {
+  loadLiveThanksConfig,
+  loadLiveIdleConfig,
+  loadLiveScheduleConfig,
+  type LiveThanksConfig,
+  type LiveIdleConfig,
+  type LiveScheduleConfig,
 } from "../../../shared/live_config_schemas.js";
 
 export interface StageDirectorConfig {

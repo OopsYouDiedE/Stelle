@@ -12,7 +12,7 @@ export interface DiscordConfig {
 export function loadDiscordConfig(rawYaml: Record<string, unknown> = {}): DiscordConfig {
   const cursors = asRecord(rawYaml.cursors);
   const discordCursor = Object.assign({}, asRecord(cursors.discord), asRecord(cursors.discord_text_channel));
-  
+
   return {
     enabled: discordCursor.enabled !== false,
     token: process.env.DISCORD_TOKEN,

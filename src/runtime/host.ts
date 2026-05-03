@@ -11,6 +11,7 @@ import { loadDebugConfig } from "../debug/config.js";
 import { ComponentLoader } from "../core/runtime/component_loader.js";
 import { ComponentRegistry } from "../core/runtime/component_registry.js";
 import { DataPlane } from "../core/runtime/data_plane.js";
+import { VersionedStore } from "../core/state/versioned_store.js";
 import type { ComponentPackage } from "../core/protocol/component.js";
 import { DebugSecurityPolicy } from "../debug/server/debug_auth.js";
 import { DebugServer } from "../debug/server/debug_server.js";
@@ -37,6 +38,11 @@ import { discordWindowPackage } from "../windows/discord/package.js";
 import { stageWindowPackage } from "../windows/stage/package.js";
 import { browserWindowPackage } from "../windows/browser/package.js";
 import { desktopInputWindowPackage } from "../windows/desktop_input/package.js";
+import { internalCognitionPackage } from "../windows/internal_cognition/package.js";
+import { internalInteractionPackage } from "../windows/internal_interaction/package.js";
+import { internalMemoryPackage } from "../windows/internal_memory/package.js";
+import { internalWorldPackage } from "../windows/internal_world/package.js";
+import { PluginRegistry } from "../debug/plugin_registry.js";
 
 export type StartMode = "runtime" | "discord" | "live";
 
@@ -52,6 +58,7 @@ export class RuntimeHost {
   readonly registry = new ComponentRegistry();
   readonly events = new StelleEventBus();
   readonly dataPlane = new DataPlane();
+  readonly versionedStore = new VersionedStore();
   readonly debugPolicy: DebugSecurityPolicy;
   readonly debugServer: DebugServer;
   readonly loader: ComponentLoader;
@@ -60,6 +67,8 @@ export class RuntimeHost {
   readonly llm: LlmClient;
   readonly memory: MemoryStore;
   readonly sceneObserver: SceneObserver;
+  readonly pluginRegistry = new PluginRegistry();
+
   private started = false;
   private loadedPackageIds: string[] = [];
 
@@ -109,19 +118,91 @@ export class RuntimeHost {
   async start(): Promise<void> {
     if (this.started) return;
     await this.memory.start();
-    const packages = this.selectPackages();
-    for (const pkg of packages) {
-      await this.loader.load(pkg);
-      this.loadedPackageIds.push(pkg.id);
-    }
-    for (const pkg of packages) {
-      await this.loader.start(pkg.id);
-    }
+
+    // Setup PluginController for Hot-Swap
+    this.debugServer.setPluginController({
+      load: async (id) => {
+        const pkg = this.pluginRegistry.get(id);
+        if (!pkg) throw new Error(`Package ${id} not found in registry`);
+        this.debugServer.broadcastPackageEvent("load_start", id);
+        try {
+          await this.loader.load(pkg);
+          if (!this.loadedPackageIds.includes(pkg.id)) {
+            this.loadedPackageIds.push(pkg.id);
+          }
+        } finally {
+          this.debugServer.broadcastPackageEvent("load_end", id);
+        }
+      },
+      start: async (id) => {
+        this.debugServer.broadcastPackageEvent("start_start", id);
+        try {
+          await this.loader.start(id);
+        } finally {
+          this.debugServer.broadcastPackageEvent("start_end", id);
+        }
+      },
+      stop: async (id) => {
+        this.debugServer.broadcastPackageEvent("stop_start", id);
+        try {
+          await this.loader.stop(id);
+        } finally {
+          this.debugServer.broadcastPackageEvent("stop_end", id);
+        }
+      },
+      unload: async (id) => {
+        this.debugServer.broadcastPackageEvent("unload_start", id);
+        try {
+          await this.loader.unload(id);
+          this.loadedPackageIds = this.loadedPackageIds.filter((pid) => pid !== id);
+        } finally {
+          this.debugServer.broadcastPackageEvent("unload_end", id);
+        }
+      },
+      listAvailable: () => this.pluginRegistry.list(),
+    });
+
+    const debugConfig = loadDebugConfig(this.config.rawYaml);
+    const debugUrl = await this.debugServer.startHttpServer(debugConfig.port);
+    console.log(`[Stelle] Phase 1 Boot Complete. Debug UI available at ${debugUrl}`);
+
+    // Phase 2 Async Load
+    this.startPlugins().catch((err) => {
+      console.error("[Stelle] Failed during Phase 2 async boot:", err);
+    });
+
     this.started = true;
     console.log(`[Stelle] RuntimeHost started in ${this.mode} mode.`);
   }
 
+  private async startPlugins(): Promise<void> {
+    const packages = this.selectPackages();
+    // Register all selected packages to PluginRegistry
+    for (const pkg of packages) {
+      if (!this.pluginRegistry.get(pkg.id)) {
+        this.pluginRegistry.register(pkg);
+      }
+    }
+
+    // Load sequentially
+    for (const pkg of packages) {
+      this.debugServer.broadcastPackageEvent("load_start", pkg.id);
+      await this.loader.load(pkg);
+      this.loadedPackageIds.push(pkg.id);
+      this.debugServer.broadcastPackageEvent("load_end", pkg.id);
+    }
+
+    // Start sequentially
+    for (const pkg of packages) {
+      this.debugServer.broadcastPackageEvent("start_start", pkg.id);
+      await this.loader.start(pkg.id);
+      this.debugServer.broadcastPackageEvent("start_end", pkg.id);
+    }
+    console.log(`[Stelle] Phase 2 Boot Complete. All plugins started.`);
+  }
+
   async stop(): Promise<void> {
+    await this.debugServer.stopHttpServer();
     for (const packageId of [...this.loadedPackageIds].reverse()) {
       await this.loader.stop(packageId).catch((error) => {
         console.error(`[Stelle] Failed to stop ${packageId}:`, error);
@@ -144,6 +225,8 @@ export class RuntimeHost {
   private provideBootstrapServices(): void {
     this.registry.provide("runtime.config", this.config);
     this.registry.provide("runtime.debug_server", this.debugServer);
+    this.registry.provide("core.event_bus", this.events);
+    this.registry.provide("core.versioned_store", this.versionedStore);
     this.registry.provide("platform.discord", this.discord);
     this.registry.provide("platform.live_runtime", this.live);
     this.registry.provide("memory.store", this.memory);
@@ -170,6 +253,10 @@ export class RuntimeHost {
       androidDeviceCapability,
       deviceActionCapability,
       sceneObservationPackage,
+      internalCognitionPackage,
+      internalInteractionPackage,
+      internalMemoryPackage,
+      internalWorldPackage,
     ];
 
     if (this.mode === "runtime" || this.mode === "live") {

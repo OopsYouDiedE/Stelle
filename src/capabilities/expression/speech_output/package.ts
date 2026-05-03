@@ -12,7 +12,7 @@ export const speechOutputPackage: ComponentPackage = {
 
   register(ctx: ComponentRegisterContext) {
     const ttsProvider = ctx.registry.resolve<any>("expression.speech_output") ?? createConfiguredTtsProvider();
-    
+
     ctx.registry.provideForPackage?.(speechOutputPackage.id, "expression.speech_output", ttsProvider) ??
       ctx.registry.provide("expression.speech_output", ttsProvider);
 
