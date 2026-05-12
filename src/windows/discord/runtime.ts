@@ -278,6 +278,7 @@ export class DiscordRuntime {
 
 export function formatDiscordMessage(message: Message): DiscordMessageSummary {
   const ownerUserId = process.env.DISCORD_OWNER_USER_ID ?? null;
+  const botUserId = message.client.user?.id ?? null;
   const isBotOwner = Boolean(ownerUserId && message.author.id === ownerUserId);
   const trustLevel = isBotOwner ? "owner" : message.author.bot ? "bot" : "external";
   return {
@@ -296,6 +297,8 @@ export function formatDiscordMessage(message: Message): DiscordMessageSummary {
     content: message.content,
     cleanContent: message.cleanContent,
     createdTimestamp: message.createdTimestamp,
+    isMentioned: Boolean(botUserId && message.mentions.users.has(botUserId)),
+    isDirectMessage: !message.guildId || message.channel.type === ChannelType.DM,
     trustedInput: isBotOwner,
     mentionedUserIds: [...message.mentions.users.keys()],
     reference: message.reference

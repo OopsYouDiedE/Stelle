@@ -126,6 +126,11 @@ export class InternalCognitionWindow {
 
       const memoryHits = (memEvent.payload as any).memories || [];
       trace.memoryHits = memoryHits.map((m: any) => ({ kind: "memory", uri: m.memoryId, summary: m.summary }));
+      const world = await this.requestWorldView(cycleId, correlationId);
+      if (world.watermarks) {
+        cycle.watermarks = { ...cycle.watermarks, ...world.watermarks };
+        trace.watermarks = cycle.watermarks;
+      }
 
       // 2. 构建认知上下文
       const ctx = await this.options.cognition.build_context({
@@ -134,6 +139,7 @@ export class InternalCognitionWindow {
         lane,
         observations,
         memoryHits,
+        worldView: world.worldView,
         watermarks: cycle.watermarks,
       });
 
@@ -152,6 +158,35 @@ export class InternalCognitionWindow {
     });
 
     return cycleId;
+  }
+
+  private async requestWorldView(
+    cycleId: string,
+    correlationId: string,
+  ): Promise<{ worldView?: any; watermarks?: any }> {
+    return new Promise((resolve) => {
+      let settled = false;
+      const unsubscribe = this.options.eventBus.subscribe("world.state.changed", (event) => {
+        if (event.cycleId !== cycleId) return;
+        settled = true;
+        clearTimeout(timer);
+        unsubscribe();
+        resolve({ worldView: event.payload, watermarks: event.watermarks });
+      });
+
+      const timer = setTimeout(() => {
+        if (settled) return;
+        unsubscribe();
+        resolve({});
+      }, 250);
+
+      this.options.eventBus.publish({
+        type: "world.state.requested",
+        source: "window.internal_cognition",
+        cycleId,
+        correlationId,
+      });
+    });
   }
 
   private async onFilterCompleted(executables: any[], cycleId: string): Promise<void> {

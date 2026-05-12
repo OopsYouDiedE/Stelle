@@ -6,7 +6,7 @@ import type { LlmClient } from "../model/llm.js";
  * 负责将决策追踪 (Trace) 转化为人类可理解的解释。
  */
 export class Explainer {
-  constructor(private readonly llm: LlmClient) {}
+  constructor(private readonly llm?: LlmClient) {}
 
   /**
    * 解释一个决策循环的选择
@@ -29,6 +29,7 @@ Based on the following Decision Trace, provide a brief, persona-driven explanati
 `;
 
     try {
+      if (!this.llm) throw new Error("LLM client is not configured");
       return await this.llm.generateText(prompt, { role: "secondary", temperature: 0.5 });
     } catch (error) {
       return `I decided to ${trace.selectedIntentId} because it seemed like the most appropriate action given the current situation.`;

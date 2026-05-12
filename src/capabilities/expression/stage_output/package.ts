@@ -57,6 +57,8 @@ export const stageOutputCapability: ComponentPackage = {
         const payload = asRecord(event).payload;
         const intent = isIntent(payload) ? payload : undefined;
         if (intent?.type !== "respond") return;
+        const intentPayload = asRecord(intent.payload);
+        if (intentPayload.sourceWindow === "window.discord" && intentPayload.stageOutput !== true) return;
         void arbiter?.propose(toStageOutputIntent(intent)).catch((error) => {
           ctx.logger.error("Stage Output failed to accept cognition intent", error);
         });

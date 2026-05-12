@@ -8,6 +8,7 @@ import { eventText, isHighPriority } from "./event_features.js";
 export class DemoKernelPlanner {
   async plan(event: PerceptualEvent): Promise<Intent[]> {
     const text = eventText(event);
+    const isDiscord = event.sourceWindow === "window.discord";
     const now = Date.now();
     const priority = isHighPriority(event) ? 10 : 1;
     if (Array.isArray((event.payload as { messages?: unknown[] })?.messages)) {
@@ -20,7 +21,13 @@ export class DemoKernelPlanner {
           createdAt: now,
           reason: "Merged multiple messages into one response intent",
           sourceEventIds: [event.id],
-          payload: { text: "我看到这一波问题了，先合起来回应一下。", merge: true, sourceWindow: event.sourceWindow },
+          payload: {
+            text: "我看到这一波问题了，先合起来回应一下。",
+            merge: true,
+            sourceWindow: event.sourceWindow,
+            channelId: (event.payload as { channelId?: unknown })?.channelId,
+            discordReplyMode: discordReplyMode(event),
+          },
         },
       ];
     }
@@ -28,6 +35,14 @@ export class DemoKernelPlanner {
       return [
         respondIntent(event, "在的，能看到。", "Connection test message receives an explicit response", priority),
       ];
+    }
+    if (isDiscord) {
+      if (event.metadata?.summoned === true && isBareSummon(text)) {
+        return [
+          respondIntent(event, "我在，先在这边待一会儿。", "Discord summon acknowledged with temporary presence", priority),
+        ];
+      }
+      return [];
     }
     if (event.type === "scene.observation.received") {
       return [
@@ -76,7 +91,20 @@ function respondIntent(event: PerceptualEvent, text: string, reason: string, pri
       text,
       sourceWindow: event.sourceWindow,
       channelId: (event.payload as { channelId?: unknown })?.channelId,
-      replyToMessageId: (event.payload as { replyToMessageId?: unknown })?.replyToMessageId,
+      replyToMessageId: discordReplyMode(event) === "reply"
+        ? (event.payload as { replyToMessageId?: unknown })?.replyToMessageId
+        : undefined,
+      discordReplyMode: discordReplyMode(event),
     },
   };
+}
+
+function discordReplyMode(event: PerceptualEvent): "reply" | "send" | undefined {
+  if (event.sourceWindow !== "window.discord") return undefined;
+  return event.metadata?.mentioned === true ? "reply" : "send";
+}
+
+function isBareSummon(text: string): boolean {
+  const withoutMentions = text.replace(/<@!?\d+>/g, "").replace(/@\S+/g, "").trim();
+  return withoutMentions.length === 0 || /^(在吗|来一下|出来|出来一下|stelle)$/i.test(withoutMentions);
 }

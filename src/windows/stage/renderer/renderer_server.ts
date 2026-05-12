@@ -7,6 +7,8 @@ import { Server as SocketIOServer } from "socket.io";
 import { allowDebugRequest } from "./renderer_auth.js";
 import { fetchRendererTtsAudio, RendererTtsRequestStore } from "./renderer_tts_proxy.js";
 
+export { debugHtml } from "../../../debug/server/debug_ui.js";
+
 export interface LiveRendererServerOptions {
   host?: string;
   port?: number;

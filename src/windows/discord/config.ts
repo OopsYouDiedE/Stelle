@@ -16,7 +16,7 @@ export function loadDiscordConfig(rawYaml: Record<string, unknown> = {}): Discor
   return {
     enabled: discordCursor.enabled !== false,
     token: process.env.DISCORD_TOKEN,
-    ambientEnabled: discordCursor.ambientEnabled !== false,
+    ambientEnabled: discordCursor.ambientEnabled === true,
     maxReplyChars: clamp(Number(discordCursor.maxReplyChars || 900), 100, 4000, 900),
     cooldownSeconds: clamp(Number(discordCursor.cooldownSeconds || 240), 0, 3600, 240),
   };

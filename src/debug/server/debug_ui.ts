@@ -102,7 +102,7 @@ pre {
 <main>
   <header>
     <div>
-      <h1>Stelle Runtime Debug</h1>
+      <h1>Stelle Debug</h1>
       <p id="subtitle">Connecting to server...</p>
     </div>
     <button id="refresh" type="button">Refresh Snapshot</button>

@@ -11,6 +11,9 @@ export const CandidateIntentSchema = z.object({
   desiredOutcome: z.string(),
   targetRefs: z.array(z.any()).optional(),
   requiredAffordanceHints: z.array(z.string()).optional(),
+  actionProposal: z.any().optional(),
+  replyText: z.string().optional(),
+  memorySummary: z.string().optional(),
   evidenceRefs: z.array(z.any()),
   justification: z.string(),
 });

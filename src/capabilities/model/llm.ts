@@ -81,7 +81,7 @@ class OpenAiCompatibleProvider extends BaseLlmProvider {
  */
 class GeminiProvider extends BaseLlmProvider {
   async generateText(prompt: string, config: ModelProviderConfig, options: LlmOptions): Promise<string> {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${config.model}:generateContent?key=${config.apiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1/models/${config.model}:generateContent?key=${config.apiKey}`;
     const data = await this.request(url, {
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig: {
@@ -132,8 +132,10 @@ export class LlmClient {
     );
 
     let lastError: Error | null = null;
+    const triedModels: string[] = [];
     for (const config of configs) {
       try {
+        triedModels.push(`${config.provider}:${config.model}`);
         const provider = LlmClient.PROVIDER_INSTANCES[config.provider];
         if (!provider) throw new Error(`Unknown provider: ${config.provider}`);
         return await provider.generateText(prompt, config, options);
@@ -145,7 +147,7 @@ export class LlmClient {
       }
     }
 
-    throw lastError || new Error("All LLM providers failed.");
+    throw new Error(`All LLM providers failed. Tried: ${triedModels.join(", ")}. Last error: ${lastError?.message}`);
   }
 
   /**

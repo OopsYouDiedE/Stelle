@@ -38,7 +38,7 @@ export class CognitionCapability implements CognitionApi {
   private readonly generator: IntentGenerator;
   private readonly explainer: Explainer;
 
-  constructor(llm: LlmClient) {
+  constructor(llm?: LlmClient) {
     this.generator = new IntentGenerator(llm);
     this.explainer = new Explainer(llm);
   }

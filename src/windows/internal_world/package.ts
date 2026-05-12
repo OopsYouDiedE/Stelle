@@ -39,5 +39,11 @@ export const internalWorldPackage: ComponentPackage = {
   },
 
   async start(ctx: ComponentRuntimeContext) {},
-  async stop(ctx: ComponentRuntimeContext) {},
+  async stop(ctx: ComponentRuntimeContext) {
+    const window = ctx.registry.resolve<InternalWorldWindow>("window.internal_world");
+    if (window) {
+      window.stop();
+      console.log("[InternalWorld] Simulation tick stopped.");
+    }
+  },
 };

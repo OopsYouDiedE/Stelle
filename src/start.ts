@@ -6,7 +6,8 @@
  * 2. 实例化 RuntimeHost 并调用 start() 启动。
  * 3. 捕获系统中断信号(`SIGINT`, `SIGTERM`) 触发安全停止。
  */
-import "dotenv/config";
+import dotenv from "dotenv";
+dotenv.config({ override: true });
 import { RuntimeHost, type StartMode } from "./runtime/host.js";
 
 const mode = parseStartMode(process.argv[2] ?? process.env.STELLE_START_MODE);

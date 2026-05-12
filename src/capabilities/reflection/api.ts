@@ -12,7 +12,7 @@ export class ReflectionCapability implements ReflectionApi {
   private readonly scheduler = new ReflectionScheduler();
   private readonly generator: ReflectionGenerator;
 
-  constructor(llm: LlmClient) {
+  constructor(llm?: LlmClient) {
     this.generator = new ReflectionGenerator(llm);
   }
 

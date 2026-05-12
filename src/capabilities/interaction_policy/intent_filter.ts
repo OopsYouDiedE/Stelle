@@ -15,6 +15,12 @@ export interface CandidateIntent {
   targetRefs?: any[]; 
   /** 所需能力暗示 (来自 LLM) */
   requiredAffordanceHints?: string[];
+  /** 世界动作提议，scope=world 时由执行层提交给 WorldState */
+  actionProposal?: any;
+  /** 回复文本，scope=reply 或 stage 时发送到输出层 */
+  replyText?: string;
+  /** 记忆摘要，scope=memory 时写入自我记忆 */
+  memorySummary?: string;
   /** 证据引用 */
   evidenceRefs: any[];
   /** 决策理由 (正向) */

@@ -104,6 +104,14 @@ describe("RuntimeKernel Scenarios", () => {
     const delayed = await kernel.step(event("busy1", "这个问题可以回答吗？"));
     if (delayed[0].kind === "intent") expect(delayed[0].intent.metadata).toMatchObject({ delayed: true });
 
+    const discordChatter = await kernel.step({
+      ...event("discord1", "这个问题可以回答吗？"),
+      sourceWindow: "window.discord",
+      metadata: { platform: "discord", activeSession: true },
+      payload: { text: "这个问题可以回答吗？", channelId: "channel-1" },
+    });
+    expect(discordChatter).toHaveLength(0);
+
     const idle = await kernel.tick();
     expect(idle[0]).toMatchObject({ kind: "intent" });
     expect(idle[0].reason).toContain("Idle tick");

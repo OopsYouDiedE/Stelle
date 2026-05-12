@@ -14,6 +14,7 @@ export interface DiscordWindowOptions {
 export class DiscordWindow {
   private unsubscribe?: () => void;
   private intentUnsubscribe?: () => void;
+  private readonly activeUntilByChannel = new Map<string, number>();
 
   constructor(private readonly options: DiscordWindowOptions) {}
 
@@ -45,7 +46,15 @@ export class DiscordWindow {
 
   async receiveMessage(message: DiscordMessageSummary): Promise<void> {
     if (message.author.bot) return;
-    const event = discordMessageToPerceptualEvent(message);
+    const config = loadDiscordConfig(this.options.config.rawYaml);
+    const route = this.decideRoute(message, config);
+    if (route.dismissed) {
+      this.activeUntilByChannel.delete(message.channelId);
+      return;
+    }
+    if (!route.route) return;
+    this.refreshActiveSession(message, config);
+    const event = discordMessageToPerceptualEvent(message, route);
     this.options.events.publish({
       type: "perceptual.event",
       source: "window.discord",
@@ -65,16 +74,69 @@ export class DiscordWindow {
   }
 
   private async sendIntent(intent: Intent): Promise<void> {
-    const payload = (intent.payload ?? {}) as { text?: unknown; channelId?: unknown; replyToMessageId?: unknown };
+    const payload = (intent.payload ?? {}) as {
+      text?: unknown;
+      channelId?: unknown;
+      replyToMessageId?: unknown;
+      discordReplyMode?: unknown;
+    };
+    const config = loadDiscordConfig(this.options.config.rawYaml);
     const channelId = String(payload.channelId ?? "");
-    const text = String(payload.text ?? "").trim();
+    const text = String(payload.text ?? "").trim().slice(0, config.maxReplyChars);
     if (!channelId || !text) return;
+    const replyToMessageId =
+      payload.discordReplyMode === "reply" && typeof payload.replyToMessageId === "string"
+        ? payload.replyToMessageId
+        : undefined;
     await this.options.discord.sendMessage({
       channelId,
       content: text,
-      replyToMessageId: String(payload.replyToMessageId ?? ""),
+      replyToMessageId,
     });
   }
+
+  private decideRoute(
+    message: DiscordMessageSummary,
+    config: ReturnType<typeof loadDiscordConfig>,
+  ): DiscordRouteDecision {
+    const now = message.createdTimestamp || Date.now();
+    const activeUntil = this.activeUntilByChannel.get(message.channelId) ?? 0;
+    const active = activeUntil > now;
+    if (!active && activeUntil) this.activeUntilByChannel.delete(message.channelId);
+
+    const summoned = isSummonMessage(message);
+    const dismissed = (summoned || active) && isDismissalMessage(message);
+    return {
+      route: summoned || (config.ambientEnabled && active),
+      summoned,
+      active,
+      dismissed,
+    };
+  }
+
+  private refreshActiveSession(message: DiscordMessageSummary, config: ReturnType<typeof loadDiscordConfig>): void {
+    const stayMs = Math.max(1, config.cooldownSeconds) * 1000;
+    this.activeUntilByChannel.set(message.channelId, (message.createdTimestamp || Date.now()) + stayMs);
+  }
+}
+
+interface DiscordRouteDecision {
+  route: boolean;
+  summoned: boolean;
+  active: boolean;
+  dismissed: boolean;
+}
+
+function isSummonMessage(message: DiscordMessageSummary): boolean {
+  if (message.isDirectMessage) return true;
+  if (message.isMentioned) return true;
+  if (message.author.isBotOwner) return true;
+  return false;
+}
+
+function isDismissalMessage(message: DiscordMessageSummary): boolean {
+  const text = `${message.cleanContent ?? ""} ${message.content ?? ""}`.trim();
+  return /(不用了|没事了|可以了|先这样|你可以走了|退下|不用回|不用回复|先退|结束驻留)/i.test(text);
 }
 
 function isIntent(value: unknown): value is Intent {
@@ -87,7 +149,7 @@ function isIntent(value: unknown): value is Intent {
   );
 }
 
-function discordMessageToPerceptualEvent(message: DiscordMessageSummary): PerceptualEvent {
+function discordMessageToPerceptualEvent(message: DiscordMessageSummary, route: DiscordRouteDecision): PerceptualEvent {
   return {
     id: `discord_${message.id}`,
     type: "text.message",
@@ -101,6 +163,9 @@ function discordMessageToPerceptualEvent(message: DiscordMessageSummary): Percep
       actor: message.author,
       channelId: message.channelId,
       replyToMessageId: message.id,
+      discordReplyMode: message.isMentioned ? "reply" : "send",
+      summoned: route.summoned,
+      activeSession: route.active,
       trust: { owner: message.author.isBotOwner === true },
     },
     metadata: {
@@ -108,6 +173,8 @@ function discordMessageToPerceptualEvent(message: DiscordMessageSummary): Percep
       guildId: message.guildId,
       direct: message.isDirectMessage === true,
       mentioned: message.isMentioned === true,
+      summoned: route.summoned,
+      activeSession: route.active,
     },
   };
 }

@@ -5,6 +5,7 @@ import type { BackpressureStatus } from "../../core/protocol/backpressure.js";
 import type { ResourceRef, StreamRef } from "../../core/protocol/data_ref.js";
 import express from "express";
 import http from "node:http";
+import type { AddressInfo } from "node:net";
 import { Server as SocketIOServer } from "socket.io";
 import { debugHtml } from "./debug_ui.js";
 
@@ -93,7 +94,7 @@ export class DebugServer {
     app.post("/api/packages/:id/start", checkAuth, async (req, res) => {
       if (!this.pluginController) return res.status(503).json({ ok: false, error: "plugin controller unavailable" });
       try {
-        await this.pluginController.start(req.params.id);
+        await this.pluginController.start(getRouteParam(req, "id"));
         res.json({ ok: true });
       } catch (error) {
         res.status(500).json({ ok: false, error: error instanceof Error ? error.message : String(error) });
@@ -103,7 +104,7 @@ export class DebugServer {
     app.post("/api/packages/:id/stop", checkAuth, async (req, res) => {
       if (!this.pluginController) return res.status(503).json({ ok: false, error: "plugin controller unavailable" });
       try {
-        await this.pluginController.stop(req.params.id);
+        await this.pluginController.stop(getRouteParam(req, "id"));
         res.json({ ok: true });
       } catch (error) {
         res.status(500).json({ ok: false, error: error instanceof Error ? error.message : String(error) });
@@ -113,7 +114,7 @@ export class DebugServer {
     app.post("/api/packages/:id/load", checkAuth, async (req, res) => {
       if (!this.pluginController) return res.status(503).json({ ok: false, error: "plugin controller unavailable" });
       try {
-        await this.pluginController.load(req.params.id);
+        await this.pluginController.load(getRouteParam(req, "id"));
         res.json({ ok: true });
       } catch (error) {
         res.status(500).json({ ok: false, error: error instanceof Error ? error.message : String(error) });
@@ -123,7 +124,7 @@ export class DebugServer {
     app.post("/api/packages/:id/unload", checkAuth, async (req, res) => {
       if (!this.pluginController) return res.status(503).json({ ok: false, error: "plugin controller unavailable" });
       try {
-        await this.pluginController.unload(req.params.id);
+        await this.pluginController.unload(getRouteParam(req, "id"));
         res.json({ ok: true });
       } catch (error) {
         res.status(500).json({ ok: false, error: error instanceof Error ? error.message : String(error) });
@@ -135,10 +136,27 @@ export class DebugServer {
     });
 
     return new Promise((resolve, reject) => {
-      this.httpServer!.once("error", reject);
-      this.httpServer!.listen(port, "127.0.0.1", () => {
-        resolve(`http://127.0.0.1:${port}`);
-      });
+      const listen = (targetPort: number, allowFallback: boolean) => {
+        const onError = (error: NodeJS.ErrnoException) => {
+          this.httpServer!.off("listening", onListening);
+          if (allowFallback && error.code === "EADDRINUSE") {
+            listen(0, false);
+            return;
+          }
+          reject(error);
+        };
+        const onListening = () => {
+          this.httpServer!.off("error", onError);
+          const address = this.httpServer!.address() as AddressInfo;
+          resolve(`http://127.0.0.1:${address.port}`);
+        };
+
+        this.httpServer!.once("error", onError);
+        this.httpServer!.once("listening", onListening);
+        this.httpServer!.listen(targetPort, "127.0.0.1");
+      };
+
+      listen(port, port !== 0);
     });
   }
 
@@ -262,4 +280,9 @@ export class DebugServer {
   getAuditLog() {
     return this.policy?.getAuditLog() ?? [];
   }
+}
+
+function getRouteParam(req: express.Request, name: string): string {
+  const value = req.params[name];
+  return Array.isArray(value) ? value[0] : value;
 }

@@ -57,8 +57,25 @@ private setupSubscriptions(): void {
 private async recordMemory(outcome: any, cycleId: string, correlationId: string): Promise<void> {
   console.log(`[MemoryWindow] Recording memory for action outcome: ${outcome.actionId}`);
 
+  if (outcome.memoryEntry) {
+    const semantic = await this.options.selfMemory.write({
+      ...outcome.memoryEntry,
+      evidenceRefs: outcome.memoryEntry.evidenceRefs?.length
+        ? outcome.memoryEntry.evidenceRefs
+        : [{ kind: "event", uri: outcome.actionId, summary: "selected memory intent" }],
+    });
+
+    this.options.eventBus.publish({
+      type: "memory.intent.write.completed",
+      source: "window.internal_memory",
+      cycleId,
+      correlationId,
+      payload: { memoryId: semantic.memoryId, policyResult: semantic.policyResult, intentId: outcome.intentId },
+    });
+  }
+
   const { memoryId, policyResult } = await this.options.selfMemory.write({
-    summary: `Action ${outcome.actionId} executed for intent ${outcome.intentId}`,
+    summary: summarizeOutcome(outcome),
     kind: "episode",
     importance: 5,
     evidenceRefs: [{ kind: "event", uri: outcome.actionId, summary: "action outcome" }],
@@ -92,4 +109,19 @@ private async recordMemory(outcome: any, cycleId: string, correlationId: string)
   }
 }
 
+}
+
+function summarizeOutcome(outcome: any): string {
+  if (outcome.kind === "reply") {
+    return `Replied for intent ${outcome.intentId}: ${String(outcome.text ?? "").slice(0, 160)}`;
+  }
+  if (outcome.kind === "world") {
+    const proposalType = outcome.proposal?.type ?? "world action";
+    const status = outcome.status === "success" ? "succeeded" : "failed";
+    return `World action ${proposalType} ${status} for intent ${outcome.intentId}`;
+  }
+  if (outcome.kind === "memory") {
+    return `Wrote semantic memory for intent ${outcome.intentId}`;
+  }
+  return `Action ${outcome.actionId} executed for intent ${outcome.intentId}`;
 }

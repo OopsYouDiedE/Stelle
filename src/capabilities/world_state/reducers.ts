@@ -6,6 +6,23 @@ import type { WorldSnapshot, ActionProposal } from "./schema.js";
 export type Reducer = (state: WorldSnapshot, proposal: ActionProposal) => WorldSnapshot;
 
 /**
+ * 创建实体的 Reducer
+ */
+export const createEntityReducer: Reducer = (state, proposal) => {
+  const { entity } = proposal.payload;
+  if (!entity?.entityId || state.entities[entity.entityId]) return state;
+
+  return {
+    ...state,
+    entities: {
+      ...state.entities,
+      [entity.entityId]: entity,
+    },
+    version: state.version + 1,
+  };
+};
+
+/**
  * 移动实体的 Reducer
  */
 export const moveEntityReducer: Reducer = (state, proposal) => {
@@ -61,6 +78,8 @@ export const updateEntityStateReducer: Reducer = (state, proposal) => {
 
 export const mainReducer: Reducer = (state, proposal) => {
   switch (proposal.type) {
+    case "CREATE_ENTITY":
+      return createEntityReducer(state, proposal);
     case "MOVE_ENTITY":
       return moveEntityReducer(state, proposal);
     case "UPDATE_ENTITY_STATE":

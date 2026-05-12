@@ -47,4 +47,40 @@ describe("Live V2 Flow Integration", () => {
     const accepted = events.getHistory().find((event) => event.type === "stage.output.accepted");
     expect((accepted?.payload as any).intent.text).toContain("Hello Stelle?");
   });
+
+  it("does not mirror Discord responses to stage output by default", async () => {
+    const registry = new ComponentRegistry();
+    const events = new StelleEventBus();
+    const config = {
+      live: { platforms: { bilibili: { enabled: false } }, ttsEnabled: false, speechQueueLimit: 3 },
+      debug: { enabled: false },
+    } as RuntimeConfig;
+    const loader = new ComponentLoader({ registry, events, config: config as never });
+
+    await loader.load(stageOutputCapability);
+    await loader.start(stageOutputCapability.id);
+
+    events.publish({
+      type: "cognition.intent",
+      source: "test",
+      payload: {
+        id: "discord-response",
+        type: "respond",
+        sourcePackageId: "test",
+        priority: 1,
+        createdAt: Date.now(),
+        reason: "discord response",
+        payload: {
+          text: "private discord response",
+          sourceWindow: "window.discord",
+          channelId: "channel-1",
+          discordReplyMode: "send",
+        },
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(events.getHistory().map((event) => event.type)).not.toContain("stage.output.accepted");
+  });
 });
